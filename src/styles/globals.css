@@ -1,0 +1,79 @@
+:root {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color-scheme: dark;
+  --text: #f2ead8;
+  --soft: #cbbf9d;
+  --muted: #8e968d;
+  --line: rgba(230, 215, 181, 0.14);
+  --ember: #df624c;
+  --brass: #d9a554;
+  --teal: #65c6b0;
+  --violet: #b68cff;
+  --moss: #7fa05b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: #111314;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.app-error-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #0d1010;
+  color: var(--text);
+  padding: 24px;
+}
+
+.app-error-shell section {
+  max-width: 520px;
+  border: 1px solid rgba(223, 98, 76, 0.35);
+  border-radius: 8px;
+  background: rgba(15, 17, 18, 0.96);
+  padding: 18px;
+}
+
+.app-error-shell strong {
+  color: var(--ember);
+  font-size: 1.1rem;
+}
+
+.app-error-shell p {
+  color: var(--soft);
+  line-height: 1.5;
+}
+
+.app-error-shell button {
+  min-height: 38px;
+  border: 1px solid rgba(101, 198, 176, 0.45);
+  border-radius: 6px;
+  background: rgba(101, 198, 176, 0.12);
+  color: var(--text);
+  cursor: pointer;
+  padding: 0 12px;
+}

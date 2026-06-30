@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Cache-Control" content="no-store" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%23080a0b'/%3E%3Ccircle cx='32' cy='32' r='21' fill='%23131718' stroke='%23d9a554' stroke-width='4'/%3E%3Cpath d='M17 32h30M32 17v30' stroke='%2365c6b0' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='6' fill='%23df624c'/%3E%3C/svg%3E" />
+    <title>Echo Forge</title>
+    <style>
+      .boot-fallback {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #0d1010;
+        color: #f2ead8;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .boot-fallback div {
+        border: 1px solid rgba(101, 198, 176, 0.28);
+        border-radius: 8px;
+        background: rgba(15, 17, 18, 0.94);
+        padding: 18px;
+      }
+
+      .boot-fallback strong {
+        display: block;
+        color: #65c6b0;
+        margin-bottom: 6px;
+      }
+
+      .boot-fallback span {
+        color: #cbbf9d;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <main class="boot-fallback">
+        <div>
+          <strong>Loading Iron Vortex</strong>
+          <span>If this stays here, reload the local dev server.</span>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

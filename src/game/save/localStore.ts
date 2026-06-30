@@ -1,0 +1,26 @@
+import { accountSaveSchema, createNewAccountSave, type AccountSave } from "./schema";
+
+const SAVE_KEY = "echo_forge_account_save_v1";
+
+export function loadLocalSave(): AccountSave {
+  const raw = window.localStorage.getItem(SAVE_KEY);
+  if (!raw) {
+    return createNewAccountSave();
+  }
+
+  const parsed = accountSaveSchema.safeParse(JSON.parse(raw));
+  return parsed.success ? parsed.data : createNewAccountSave();
+}
+
+export function writeLocalSave(save: AccountSave): void {
+  window.localStorage.setItem(SAVE_KEY, JSON.stringify(save));
+}
+
+export function exportLocalSave(save: AccountSave): string {
+  return btoa(unescape(encodeURIComponent(JSON.stringify(save))));
+}
+
+export function importLocalSave(encoded: string): AccountSave {
+  const decoded = JSON.parse(decodeURIComponent(escape(atob(encoded))));
+  return accountSaveSchema.parse(decoded);
+}
