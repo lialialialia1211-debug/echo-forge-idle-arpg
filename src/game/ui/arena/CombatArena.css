@@ -1,4 +1,8 @@
 .top-arena-shell {
+  --surface-0: #080a0b;
+  --surface-1: rgba(15, 17, 18, 0.94);
+  --surface-2: rgba(24, 27, 27, 0.9);
+  --hud-shadow: 0 14px 32px rgba(0, 0, 0, 0.3);
   height: 100vh;
   min-height: 0;
   display: grid;
@@ -9,6 +13,20 @@
     radial-gradient(circle at 76% 10%, rgba(101, 198, 176, 0.1), transparent 26rem),
     linear-gradient(135deg, #080a0b 0%, #151616 48%, #0b0d0e 100%);
   color: var(--text);
+}
+
+.top-arena-running {
+  background:
+    radial-gradient(circle at 16% 12%, rgba(223, 98, 76, 0.18), transparent 24rem),
+    radial-gradient(circle at 76% 10%, rgba(101, 198, 176, 0.14), transparent 26rem),
+    linear-gradient(135deg, #080a0b 0%, #151616 48%, #0b0d0e 100%);
+}
+
+.top-arena-keyed {
+  background:
+    radial-gradient(circle at 18% 14%, rgba(182, 140, 255, 0.12), transparent 25rem),
+    radial-gradient(circle at 78% 8%, rgba(101, 198, 176, 0.12), transparent 26rem),
+    linear-gradient(135deg, #080a0b 0%, #151616 48%, #0b0d0e 100%);
 }
 
 .arena-topbar {
@@ -101,6 +119,24 @@
   font-style: normal;
 }
 
+.wallet-strip .run-state {
+  border-color: rgba(217, 165, 84, 0.28);
+  background: rgba(217, 165, 84, 0.1);
+  color: var(--brass);
+}
+
+.wallet-strip .run-state-live {
+  border-color: rgba(101, 198, 176, 0.5);
+  background: rgba(101, 198, 176, 0.16);
+  color: var(--teal);
+}
+
+.wallet-strip .run-state-keyed {
+  border-color: rgba(182, 140, 255, 0.42);
+  background: rgba(182, 140, 255, 0.13);
+  color: var(--violet);
+}
+
 .arena-controls {
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -155,6 +191,12 @@
   background: rgba(223, 98, 76, 0.13);
 }
 
+.arena-button-debug-active {
+  border-color: rgba(182, 140, 255, 0.56);
+  background: rgba(182, 140, 255, 0.14);
+  color: var(--violet);
+}
+
 .speed-tabs {
   min-height: 38px;
   overflow: hidden;
@@ -201,6 +243,20 @@
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
+.arena-stage-live {
+  border-color: rgba(101, 198, 176, 0.28);
+  box-shadow:
+    inset 0 0 0 1px rgba(101, 198, 176, 0.05),
+    0 0 34px rgba(101, 198, 176, 0.08);
+}
+
+.arena-stage-keyed {
+  border-color: rgba(182, 140, 255, 0.3);
+  box-shadow:
+    inset 0 0 0 1px rgba(182, 140, 255, 0.05),
+    0 0 34px rgba(182, 140, 255, 0.08);
+}
+
 .arena-stage-header {
   min-width: 0;
   display: flex;
@@ -219,13 +275,26 @@
 
 .target-strip {
   min-width: 162px;
-  justify-content: space-between;
-  gap: 12px;
+  display: grid;
+  gap: 6px;
   border: 1px solid rgba(101, 198, 176, 0.2);
   border-radius: 6px;
   background: rgba(101, 198, 176, 0.08);
   padding: 8px 10px;
   color: var(--soft);
+}
+
+.target-strip > div:first-child {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.target-strip-active {
+  border-color: rgba(101, 198, 176, 0.38);
+  background: rgba(101, 198, 176, 0.12);
 }
 
 .target-strip span,
@@ -329,6 +398,32 @@
   color: var(--teal);
 }
 
+.target-meter,
+.arena-stat-meter {
+  display: block;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.target-meter {
+  height: 4px;
+}
+
+.target-meter i,
+.arena-stat-meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--teal), var(--brass));
+}
+
+.loot-toast-reward,
+.loot-history-reward {
+  border-color: rgba(182, 140, 255, 0.34);
+  color: var(--violet);
+}
+
 .combat-bottom {
   display: grid;
   grid-template-columns: minmax(320px, 0.78fr) minmax(260px, 1fr);
@@ -337,10 +432,69 @@
   padding: 10px;
 }
 
+.combat-telemetry {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
 .telemetry-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(86px, 1fr));
   gap: 8px;
+}
+
+.collision-debug {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(82px, 1.2fr) repeat(7, minmax(54px, 1fr));
+  gap: 6px;
+  align-items: stretch;
+}
+
+.collision-debug div,
+.collision-debug span {
+  min-width: 0;
+  min-height: 34px;
+  display: grid;
+  align-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.34);
+  padding: 5px 7px;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.collision-debug strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+}
+
+.collision-debug-scrape div,
+.collision-debug-scrape span {
+  border-color: rgba(255, 141, 58, 0.34);
+  color: #ffb96e;
+}
+
+.collision-debug-clash div,
+.collision-debug-clash span {
+  border-color: rgba(217, 165, 84, 0.34);
+  color: var(--brass);
+}
+
+.collision-debug-smash div,
+.collision-debug-smash span {
+  border-color: rgba(223, 98, 76, 0.42);
+  color: var(--ember);
+}
+
+.collision-debug-grind div,
+.collision-debug-grind span {
+  border-color: rgba(101, 198, 176, 0.42);
+  color: var(--teal);
 }
 
 .arena-stat {
@@ -355,7 +509,7 @@
   padding: 8px;
 }
 
-.arena-stat > span {
+.arena-stat-icon {
   width: 28px;
   height: 28px;
   flex: 0 0 28px;
@@ -372,6 +526,12 @@
   gap: 2px;
 }
 
+.arena-stat-meter {
+  width: 100%;
+  height: 4px;
+  margin-top: 3px;
+}
+
 .arena-stat strong {
   min-width: 0;
   overflow: hidden;
@@ -381,17 +541,25 @@
 }
 
 .arena-stat-good strong,
-.arena-stat-good > span {
+.arena-stat-good .arena-stat-icon {
   color: var(--teal);
 }
 
+.arena-stat-good .arena-stat-meter i {
+  background: linear-gradient(90deg, var(--teal), #b9e6d8);
+}
+
 .arena-stat-warn strong,
-.arena-stat-warn > span {
+.arena-stat-warn .arena-stat-icon {
   color: var(--ember);
 }
 
+.arena-stat-warn .arena-stat-meter i {
+  background: linear-gradient(90deg, var(--ember), var(--brass));
+}
+
 .arena-stat-rare strong,
-.arena-stat-rare > span {
+.arena-stat-rare .arena-stat-icon {
   color: var(--violet);
 }
 
@@ -441,7 +609,7 @@
 
 .panel-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
   border-bottom: 1px solid rgba(230, 215, 181, 0.12);
   padding: 8px;
@@ -459,6 +627,7 @@
 .panel-tab span {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workbench-content {
@@ -820,6 +989,26 @@
   margin-top: 8px;
 }
 
+.skill-physics {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(101, 198, 176, 0.14);
+  border-radius: 6px;
+  background: rgba(101, 198, 176, 0.055);
+  padding: 8px;
+}
+
+.skill-physics small {
+  color: var(--teal);
+  font-size: 0.72rem;
+}
+
+.skill-physics span {
+  color: var(--text);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
 .damage-tags {
   display: flex;
   flex-wrap: wrap;
@@ -1106,6 +1295,120 @@
   font-size: 0.78rem;
 }
 
+.forge-action-grid,
+.key-list,
+.route-summary-grid,
+.boss-projection,
+.route-clear-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.forge-action-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
+.forge-action,
+.key-card {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(230, 215, 181, 0.14);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text);
+  padding: 9px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.forge-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.forge-action:hover:not(:disabled),
+.key-card:hover,
+.key-card-active {
+  border-color: rgba(101, 198, 176, 0.55);
+  background: rgba(101, 198, 176, 0.12);
+}
+
+.forge-action strong,
+.key-card strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.forge-action span,
+.forge-action small,
+.key-card small,
+.key-card span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.key-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.key-action-row .arena-button {
+  flex: 1 1 120px;
+}
+
+.key-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.key-card > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.key-detail {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.route-summary-grid,
+.boss-projection {
+  grid-template-columns: 1fr 1fr;
+}
+
+.route-clear-line {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(230, 215, 181, 0.1);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 7px 8px;
+  font-size: 0.78rem;
+}
+
+.route-clear-line span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.route-clear-line strong {
+  color: var(--teal);
+}
+
 @media (max-width: 1180px) {
   .arena-layout {
     grid-template-columns: minmax(420px, 1fr) minmax(330px, 390px);
@@ -1178,12 +1481,16 @@
 
   .arena-hud-grid,
   .telemetry-grid,
+  .collision-debug,
   .combat-bottom,
   .equipment-slots,
   .delta-list,
   .rune-library,
   .rune-grid,
-  .circuit-grid {
+  .circuit-grid,
+  .forge-action-grid,
+  .route-summary-grid,
+  .boss-projection {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -1222,8 +1529,15 @@
   .delta-list,
   .rune-library,
   .rune-grid,
-  .circuit-grid {
+  .circuit-grid,
+  .forge-action-grid,
+  .route-summary-grid,
+  .boss-projection {
     grid-template-columns: 1fr;
+  }
+
+  .collision-debug {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .inventory-filter {

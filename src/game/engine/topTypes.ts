@@ -16,7 +16,9 @@ export type DriveTag =
   | "void"
   | "critical"
   | "speed"
-  | "control";
+  | "control"
+  | "thorns"
+  | "risk";
 
 export type TopStatId =
   | "spinIntegrity"
@@ -31,6 +33,11 @@ export type TopStatId =
   | "edge"
   | "fracture"
   | "resonance"
+  | "fluxCost"
+  | "cooldownRecovery"
+  | "reservationEfficiency"
+  | "stagger"
+  | "ringOutPressure"
   | "partQuantity"
   | "partRarity";
 
@@ -58,6 +65,7 @@ export type TopModifierDef = {
   tags?: DriveTag[];
   fromDamageType?: TopDamageType;
   toDamageType?: TopDamageType;
+  scope?: "local" | "global";
 };
 
 export type TopFrameDef = {
@@ -70,7 +78,61 @@ export type TopFrameDef = {
   startingDriveId: string;
 };
 
-export type DriveTrigger = "onCollision" | "onCooldown" | "onHeavyCollision";
+export type DriveTrigger =
+  | "onCollision"
+  | "onCooldown"
+  | "onHeavyCollision"
+  | "onCrit"
+  | "onKill"
+  | "onSpinLow"
+  | "onEnemyEnterRadius"
+  | "whenDamaged";
+
+export type TopDamageSource = "collision" | "drive" | "trail" | "satellite" | "recoil" | "hazard";
+
+export type FluxCost = {
+  amount: number;
+  reserve?: number;
+};
+
+export type CooldownDef = {
+  baseSeconds: number;
+  recoveryStat?: TopStatId;
+};
+
+export type HitProfile = {
+  source: TopDamageSource;
+  damage: DamagePacket;
+  usesTracking: boolean;
+  canCrit: boolean;
+};
+
+export type DotProfile = {
+  source: TopDamageSource;
+  damageType: TopDamageType;
+  baseDps: number;
+  duration: number;
+};
+
+export type SatelliteProfile = {
+  count: number;
+  attackRate: number;
+  damage: DamagePacket;
+  duration: number;
+};
+
+export type HazardProfile = {
+  damageType: TopDamageType;
+  baseDps: number;
+  radius: number;
+  duration: number;
+};
+
+export type ScalingRule = {
+  stat: TopStatId | TopDamageType | "damage";
+  coefficient: number;
+  tags?: DriveTag[];
+};
 
 export type DriveCoreDef = {
   id: string;
@@ -82,6 +144,13 @@ export type DriveCoreDef = {
   baseDamage: DamagePacket;
   modifiers: TopModifierDef[];
   visual: "sparks" | "emberTrail" | "stormArc" | "voidPull" | "satellite";
+  cost?: FluxCost;
+  cooldown?: CooldownDef;
+  hit?: HitProfile;
+  dot?: DotProfile;
+  minion?: SatelliteProfile;
+  arenaEffect?: HazardProfile;
+  scaling?: ScalingRule[];
 };
 
 export type ArenaCircuitDef = {
@@ -100,11 +169,56 @@ export type TopPartSlotId = "core" | "attackRing" | "weightDisk" | "tip" | "laun
 
 export type TopPartRarity = "common" | "tuned" | "engraved" | "relic";
 
+export type TopAffixSlot = "prefix" | "suffix";
+
+export type TopAffixTier = {
+  min: number;
+  max: number;
+  itemLevel: number;
+};
+
+export type TopEngravingDef = {
+  id: string;
+  displayName: string;
+  slot: TopAffixSlot;
+  group: string;
+  minItemLevel: number;
+  weight: number;
+  slots?: TopPartSlotId[];
+  tags?: DriveTag[];
+  statBonuses?: TopStatBlock;
+  resistanceBonuses?: TopResistanceBlock;
+  modifiers?: TopModifierDef[];
+  tiers?: TopAffixTier[];
+};
+
+export type TopRolledEngraving = {
+  engravingId: string;
+  displayName: string;
+  slot: TopAffixSlot;
+  group: string;
+  tier: number;
+  statBonuses: TopStatBlock;
+  resistanceBonuses: TopResistanceBlock;
+  modifiers: TopModifierDef[];
+};
+
+export type TopPartGeneratedBy = {
+  arenaId: string;
+  enemyLevel: number;
+  balanceVersion: string;
+  seed: string;
+  source: "drop" | "starter" | "craft" | "debug";
+};
+
 export type TopPartBaseDef = {
   id: string;
   slot: TopPartSlotId;
   displayName: string;
   tags: DriveTag[];
+  itemClass?: string;
+  requiredLevel?: number;
+  baseWeight?: number;
   implicitStats?: TopStatBlock;
   implicitResistances?: TopResistanceBlock;
   implicitModifiers?: TopModifierDef[];
@@ -117,11 +231,14 @@ export type TopPartInstance = {
   slot: TopPartSlotId;
   rarity: TopPartRarity;
   itemLevel: number;
+  affixes?: TopRolledEngraving[];
   statBonuses: TopStatBlock;
   resistanceBonuses: TopResistanceBlock;
   modifiers: TopModifierDef[];
   locked?: boolean;
   sourceDropId?: string;
+  generatedAt?: string;
+  generatedBy?: TopPartGeneratedBy;
 };
 
 export type TopEquipment = Partial<Record<TopPartSlotId, TopPartInstance | null>>;
@@ -130,6 +247,11 @@ export type TuningRuneDef = {
   id: string;
   displayName: string;
   requiredTags: DriveTag[];
+  excludedTags?: DriveTag[];
+  supportFamily?: string;
+  costMultiplier?: number;
+  instability?: number;
+  behavior?: "projectileCount" | "repeat" | "chain" | "area" | "duration" | "trigger" | "defense" | "risk";
   statBonuses?: TopStatBlock;
   resistanceBonuses?: TopResistanceBlock;
   modifiers: TopModifierDef[];
@@ -165,11 +287,18 @@ export type TopRuntimeStats = {
   edge: number;
   fracture: number;
   resonance: number;
+  fluxCost?: number;
+  cooldownRecovery?: number;
+  reservationEfficiency?: number;
+  stagger?: number;
+  ringOutPressure?: number;
   partQuantity: number;
   partRarity: number;
   resistances: Required<TopResistanceBlock>;
   modifiers: TopModifierDef[];
 };
+
+export type EnemyBehaviorId = "hunter" | "charger" | "orbiter" | "mineLayer" | "bossJudicator";
 
 export type TopRuntimeEntity = {
   id: string;
@@ -185,12 +314,38 @@ export type TopRuntimeEntity = {
   spinIntegrity: number;
   fluxGuard: number;
   spinPower: number;
+  wobble: number;
   cooldownRemaining: number;
   stats: TopRuntimeStats;
   driveId?: string;
+  enemyModifier?: EnemyModifierState;
+  behaviorId?: EnemyBehaviorId;
 };
 
-export type ArenaEffectKind = "spark" | "emberTrail" | "stormArc" | "shockwave" | "drop" | "spawn";
+export type TopCollisionKind = "scrape" | "clash" | "smash" | "grind";
+
+export type TopCollisionEvent = {
+  id: string;
+  playerId: string;
+  enemyId: string;
+  kind: TopCollisionKind;
+  x: number;
+  y: number;
+  normalX: number;
+  normalY: number;
+  tangentX: number;
+  tangentY: number;
+  normalImpulse: number;
+  tangentImpulse: number;
+  relativeNormalSpeed: number;
+  relativeTangentialSpeed: number;
+  surfaceShear: number;
+  sparkIntensity: number;
+  contactAge: number;
+  heavy: boolean;
+};
+
+export type ArenaEffectKind = "spark" | "frictionSpark" | "emberTrail" | "stormArc" | "shockwave" | "hazard" | "chargeLine" | "drop" | "spawn";
 
 export type ArenaEffect = {
   id: string;
@@ -207,6 +362,7 @@ export type ArenaEffect = {
 export type ArenaDrop = {
   id: string;
   label: string;
+  slot: TopPartSlotId;
   rarity: "common" | "tuned" | "engraved" | "relic";
   x: number;
   y: number;
@@ -222,6 +378,8 @@ export type ArenaLogEvent = {
 export type TopArenaRuntime = {
   seed: string;
   arenaId: string;
+  arenaKey?: ArenaKey;
+  activeEvent?: ArenaEventState;
   frameId: string;
   driveId: string;
   loadout: TopLoadoutConfig;
@@ -236,6 +394,145 @@ export type TopArenaRuntime = {
   effects: ArenaEffect[];
   drops: ArenaDrop[];
   events: ArenaLogEvent[];
+  lastCollision?: TopCollisionEvent;
+  collisionContacts: Record<string, number>;
+};
+
+export type ArenaKeyRarity = TopPartRarity;
+
+export type ArenaRewardBias = {
+  target: TopPartSlotId | "forgeMedia" | "bossFragment" | "any";
+  weight: number;
+};
+
+export type EnemyModifierDef = {
+  id: string;
+  displayName: string;
+  minTier: number;
+  weight: number;
+  tags?: DriveTag[];
+  integrityMultiplier?: number;
+  impactMultiplier?: number;
+  guardMultiplier?: number;
+  rpmMultiplier?: number;
+  resistanceBonuses?: TopResistanceBlock;
+  rewardQuantity?: number;
+  rewardRarity?: number;
+};
+
+export type EnemyModifierState = {
+  modifierId: string;
+  displayName: string;
+  rewardQuantity: number;
+  rewardRarity: number;
+};
+
+export type ArenaEventDef = {
+  id: string;
+  displayName: string;
+  minTier: number;
+  weight: number;
+  logText: string;
+  enemyIntegrityMultiplier?: number;
+  enemyImpactMultiplier?: number;
+  enemyGuardMultiplier?: number;
+  enemyRpmMultiplier?: number;
+  playerDriftMultiplier?: number;
+  rewardQuantity?: number;
+  rewardRarity?: number;
+  rewardBias?: ArenaRewardBias[];
+};
+
+export type ArenaEventState = {
+  eventId: string;
+  displayName: string;
+  logText: string;
+  enemyIntegrityMultiplier: number;
+  enemyImpactMultiplier: number;
+  enemyGuardMultiplier: number;
+  enemyRpmMultiplier: number;
+  playerDriftMultiplier: number;
+  rewardQuantity: number;
+  rewardRarity: number;
+  rewardBias: ArenaRewardBias[];
+};
+
+export type ArenaKeyAffixDef = {
+  id: string;
+  displayName: string;
+  slot: TopAffixSlot;
+  group: string;
+  minTier: number;
+  weight: number;
+  enemyIntegrityMultiplier?: number;
+  enemyImpactMultiplier?: number;
+  enemyGuardMultiplier?: number;
+  enemyRpmMultiplier?: number;
+  rewardQuantity?: number;
+  rewardRarity?: number;
+  bossPressure?: number;
+  rewardBias?: ArenaRewardBias[];
+};
+
+export type ArenaKeyAffix = {
+  affixId: string;
+  displayName: string;
+  slot: TopAffixSlot;
+  group: string;
+  tier: number;
+  enemyIntegrityMultiplier: number;
+  enemyImpactMultiplier: number;
+  enemyGuardMultiplier: number;
+  enemyRpmMultiplier: number;
+  rewardQuantity: number;
+  rewardRarity: number;
+  bossPressure: number;
+  rewardBias: ArenaRewardBias[];
+};
+
+export type ArenaKey = {
+  id: string;
+  tier: number;
+  arenaBaseId: string;
+  rarity: ArenaKeyRarity;
+  itemLevel: number;
+  quality: number;
+  prefixes: ArenaKeyAffix[];
+  suffixes: ArenaKeyAffix[];
+  rewardBias: ArenaRewardBias[];
+  bossGateId?: string;
+  generatedAt: string;
+  generatedBy: {
+    arenaId: string;
+    balanceVersion: string;
+    seed: string;
+  };
+};
+
+export type BossGateDef = {
+  id: string;
+  displayName: string;
+  arenaId: string;
+  tier: number;
+  bossIntegrity: number;
+  requiredDps: number;
+  requiredTracking: number;
+  requiredGuard: number;
+  requiredDrift: number;
+  requiredGrip: number;
+  requiredResistance: Partial<Record<TopDamageType, number>>;
+  rewardUnlocks: string[];
+};
+
+export type BossGateFailureReason = "dps" | "tracking" | "guard" | "drift" | "grip" | "resistance" | "sustain";
+
+export type BossGateAttemptProjection = {
+  gateId: string;
+  successChance: number;
+  estimatedTtk: number;
+  failureReasons: BossGateFailureReason[];
+  recommendedStats: Partial<Record<BossGateFailureReason, number>>;
+  rewardUnlocks: string[];
 };
 
 export const emptyDamagePacket = (): DamagePacket => ({

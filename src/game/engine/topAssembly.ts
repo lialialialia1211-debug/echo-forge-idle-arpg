@@ -1,7 +1,8 @@
 import { getDriveCoreDef } from "../data/driveCores";
 import { getTalentNodeDef } from "../data/talentNodes";
 import { getTopFrameDef } from "../data/topFrames";
-import { getTuningRuneDef, isRuneCompatible } from "../data/tuningRunes";
+import { getTuningRuneDef } from "../data/tuningRunes";
+import { validateRuneLoadout } from "./driveRuneValidation";
 import type { TopLoadoutConfig, TopModifierDef, TopResistanceBlock, TopRuntimeStats, TopStatBlock } from "./topTypes";
 import { zeroResistances } from "./topTypes";
 
@@ -32,7 +33,6 @@ function cloneModifiers(modifiers: TopModifierDef[] = [], suffix: string): TopMo
 }
 
 export function resolveTopLoadoutBonuses(loadout: TopLoadoutConfig = {}, driveId = "drive_shard_barrage"): LoadoutBonuses {
-  const drive = getDriveCoreDef(driveId);
   let statBonuses: TopStatBlock = {};
   let resistanceBonuses: TopResistanceBlock = {};
   let modifiers: TopModifierDef[] = [];
@@ -46,11 +46,8 @@ export function resolveTopLoadoutBonuses(loadout: TopLoadoutConfig = {}, driveId
     modifiers = [...modifiers, ...cloneModifiers(part.modifiers, part.id)];
   }
 
-  for (const runeId of loadout.runeIds ?? []) {
+  for (const runeId of validateRuneLoadout(driveId, loadout.runeIds ?? []).validRuneIds) {
     const rune = getTuningRuneDef(runeId);
-    if (!isRuneCompatible(rune, drive.tags)) {
-      continue;
-    }
     statBonuses = addStats(statBonuses, rune.statBonuses);
     resistanceBonuses = addResistances(resistanceBonuses, rune.resistanceBonuses);
     modifiers = [...modifiers, ...cloneModifiers(rune.modifiers, rune.id)];
@@ -81,6 +78,11 @@ function applyStatBonuses(stats: TopRuntimeStats, bonuses: TopStatBlock): TopRun
     edge: stats.edge + (bonuses.edge ?? 0),
     fracture: stats.fracture + (bonuses.fracture ?? 0),
     resonance: stats.resonance + (bonuses.resonance ?? 0),
+    fluxCost: (stats.fluxCost ?? 0) + (bonuses.fluxCost ?? 0),
+    cooldownRecovery: (stats.cooldownRecovery ?? 0) + (bonuses.cooldownRecovery ?? 0),
+    reservationEfficiency: (stats.reservationEfficiency ?? 0) + (bonuses.reservationEfficiency ?? 0),
+    stagger: (stats.stagger ?? 0) + (bonuses.stagger ?? 0),
+    ringOutPressure: (stats.ringOutPressure ?? 0) + (bonuses.ringOutPressure ?? 0),
     partQuantity: stats.partQuantity + (bonuses.partQuantity ?? 0),
     partRarity: stats.partRarity + (bonuses.partRarity ?? 0),
   };

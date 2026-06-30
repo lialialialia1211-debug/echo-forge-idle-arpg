@@ -1,4 +1,5 @@
-import { accountSaveSchema, createNewAccountSave, type AccountSave } from "./schema";
+import { createNewAccountSave, type AccountSave } from "./schema";
+import { migrateUnknownSave } from "./migrations";
 
 const SAVE_KEY = "echo_forge_account_save_v1";
 
@@ -8,8 +9,11 @@ export function loadLocalSave(): AccountSave {
     return createNewAccountSave();
   }
 
-  const parsed = accountSaveSchema.safeParse(JSON.parse(raw));
-  return parsed.success ? parsed.data : createNewAccountSave();
+  try {
+    return migrateUnknownSave(JSON.parse(raw));
+  } catch {
+    return createNewAccountSave();
+  }
 }
 
 export function writeLocalSave(save: AccountSave): void {
@@ -22,5 +26,5 @@ export function exportLocalSave(save: AccountSave): string {
 
 export function importLocalSave(encoded: string): AccountSave {
   const decoded = JSON.parse(decodeURIComponent(escape(atob(encoded))));
-  return accountSaveSchema.parse(decoded);
+  return migrateUnknownSave(decoded);
 }

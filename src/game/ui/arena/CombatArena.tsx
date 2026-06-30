@@ -31,9 +31,23 @@ import {
 } from "../../data/topParts";
 import { isRuneCompatible, tuningRunes } from "../../data/tuningRunes";
 import { createTopArenaRuntime, stepTopArenaRuntime } from "../../engine/arenaRuntime";
+import { generateArenaKey, summarizeArenaKeyRiskReward } from "../../engine/arenaKeys";
+import { projectBossGateAttempt } from "../../engine/bossGate";
+import { validateRuneLoadout } from "../../engine/driveRuneValidation";
 import { clamp, formatNumber, formatPercent, round } from "../../engine/math";
 import { resolveTopRuntimeStats } from "../../engine/topAssembly";
+import {
+  addRandomEngraving,
+  removeRandomEngraving,
+  rerollTopPartAffixes,
+  rerollTopPartValues,
+  salvageTopPart,
+  upgradeTopPartRarity,
+  type TopCraftResult,
+} from "../../engine/topCrafting";
+import { loadLocalSave, writeLocalSave } from "../../save/localStore";
 import type {
+  ArenaKey,
   ArenaCircuitDef,
   ArenaDrop,
   ArenaEffect,
@@ -60,7 +74,7 @@ type Palette = {
   text: string;
 };
 
-type ActivePanel = "loadout" | "inventory" | "skills" | "talents";
+type ActivePanel = "loadout" | "inventory" | "skills" | "forge" | "route" | "talents";
 
 type CurrencyWallet = {
   ash: number;
@@ -70,7 +84,7 @@ type CurrencyWallet = {
 
 type LootNotice = {
   id: string;
-  tone: "drop" | "salvage";
+  tone: "drop" | "salvage" | "reward";
   text: string;
 };
 
@@ -139,6 +153,11 @@ const statLabels: Record<keyof TopStatBlock, string> = {
   edge: "Edge",
   fracture: "Fracture",
   resonance: "Resonance",
+  fluxCost: "Flux Cost",
+  cooldownRecovery: "Cooldown",
+  reservationEfficiency: "Reserve",
+  stagger: "Stagger",
+  ringOutPressure: "Ring-Out",
   partQuantity: "Quantity",
   partRarity: "Rarity",
 };
@@ -146,6 +165,14 @@ const statLabels: Record<keyof TopStatBlock, string> = {
 const trackedStats: Array<keyof TopStatBlock> = ["spinIntegrity", "impact", "rpm", "guard", "tracking", "edge", "resonance", "partQuantity", "partRarity"];
 
 const inventoryCapacity = 48;
+const keyForgeCost: CurrencyWallet = { ash: 6, glass: 1, echo: 0 };
+const forgeActionCosts: Record<"upgrade" | "rerollAffixes" | "rerollValues" | "add" | "remove", CurrencyWallet> = {
+  upgrade: { ash: 6, glass: 1, echo: 0 },
+  rerollAffixes: { ash: 3, glass: 2, echo: 0 },
+  rerollValues: { ash: 0, glass: 2, echo: 0 },
+  add: { ash: 8, glass: 0, echo: 0 },
+  remove: { ash: 0, glass: 0, echo: 1 },
+};
 
 const talentNodePositions: Record<string, { x: number; y: number }> = {
   talent_iron_rotation: { x: 50, y: 52 },
@@ -329,11 +356,88 @@ function drawEffect(ctx: CanvasRenderingContext2D, effect: ArenaEffect, map: Ret
     return;
   }
 
+  if (effect.kind === "chargeLine") {
+    const target = map.point(effect.x2 ?? effect.x, effect.y2 ?? effect.y);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = "#df624c";
+    ctx.lineWidth = 2.6 * effect.intensity;
+    ctx.shadowColor = "#df624c";
+    ctx.shadowBlur = 18;
+    ctx.setLineDash([10, 8]);
+    ctx.beginPath();
+    ctx.moveTo(point.x, point.y);
+    ctx.lineTo(target.x, target.y);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  if (effect.kind === "frictionSpark") {
+    const target = map.point(effect.x2 ?? effect.x, effect.y2 ?? effect.y);
+    const dx = target.x - point.x;
+    const dy = target.y - point.y;
+    const length = Math.sqrt(dx * dx + dy * dy) || 1;
+    const nx = dx / length;
+    const ny = dy / length;
+    const branchCount = Math.min(7, Math.max(3, Math.ceil(effect.intensity * 2.2)));
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.lineCap = "round";
+    ctx.shadowColor = "#ffd47a";
+    ctx.shadowBlur = 22 + effect.intensity * 9;
+    ctx.strokeStyle = "#fff4c7";
+    ctx.lineWidth = 3.2 + effect.intensity * 1.05;
+    ctx.beginPath();
+    ctx.moveTo(point.x, point.y);
+    ctx.lineTo(target.x, target.y);
+    ctx.stroke();
+    ctx.strokeStyle = "#ff7a2d";
+    ctx.lineWidth = 1.8 + effect.intensity * 0.55;
+    for (let i = 0; i < branchCount; i += 1) {
+      const offset = (i - (branchCount - 1) / 2) * 0.42;
+      const branchLength = length * (0.28 + 0.07 * i) * Math.min(1.45, effect.intensity);
+      const side = i % 2 === 0 ? 1 : -1;
+      const start = 0.18 + i * 0.1;
+      const sx = point.x + dx * start;
+      const sy = point.y + dy * start;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + (nx * 0.72 - ny * side * (0.42 + offset * 0.2)) * branchLength, sy + (ny * 0.72 + nx * side * (0.42 + offset * 0.2)) * branchLength);
+      ctx.stroke();
+    }
+    const coreRadius = 3 + effect.intensity * 2.2;
+    ctx.fillStyle = "#fff4c7";
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, coreRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  if (effect.kind === "hazard") {
+    const radius = (52 + ratio * 16) * effect.intensity;
+    const glow = ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, radius);
+    glow.addColorStop(0, `rgba(223, 98, 76, ${0.3 * alpha})`);
+    glow.addColorStop(0.62, `rgba(217, 165, 84, ${0.18 * alpha})`);
+    glow.addColorStop(1, "rgba(223, 98, 76, 0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = `rgba(223, 98, 76, ${0.58 * alpha})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, radius * 0.82, 0, Math.PI * 2);
+    ctx.stroke();
+    return;
+  }
+
   const ringRadius = (18 + ratio * 34) * effect.intensity;
-  ctx.strokeStyle = effect.kind === "drop" ? `rgba(182, 140, 255, ${alpha})` : `rgba(217, 165, 84, ${alpha})`;
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = effect.kind === "drop" ? `rgba(182, 140, 255, ${alpha})` : effect.kind === "shockwave" ? `rgba(223, 98, 76, ${alpha})` : `rgba(217, 165, 84, ${alpha})`;
+  ctx.lineWidth = effect.kind === "shockwave" ? 3 : 2;
   ctx.beginPath();
-  ctx.arc(point.x, point.y, ringRadius, 0, Math.PI * 2);
+  ctx.arc(point.x, point.y, effect.kind === "shockwave" ? ringRadius * 2.4 : ringRadius, 0, Math.PI * 2);
   ctx.stroke();
 }
 
@@ -341,12 +445,17 @@ function drawTop(ctx: CanvasRenderingContext2D, entity: TopRuntimeEntity, map: R
   const point = map.point(entity.x, entity.y);
   const radius = map.radius(entity.radius);
   const integrityRatio = clamp(entity.spinIntegrity / entity.stats.maxSpinIntegrity, 0, 1);
+  const spinRatio = clamp(entity.spinPower / 100, 0.04, 1);
+  const wobble = clamp(entity.wobble ?? 0, 0, 1);
+  const wobbleX = Math.cos(entity.angle * 1.7) * radius * wobble * 0.16;
+  const wobbleY = Math.sin(entity.angle * 1.35) * radius * wobble * 0.12;
 
   ctx.save();
-  ctx.translate(point.x, point.y);
+  ctx.translate(point.x + wobbleX, point.y + wobbleY);
   ctx.rotate(entity.angle);
+  ctx.scale(1 + wobble * 0.06, 1 - wobble * 0.09);
   ctx.shadowColor = palette.glow;
-  ctx.shadowBlur = entity.team === "player" ? 22 : 14;
+  ctx.shadowBlur = (entity.team === "player" ? 22 : 14) * (0.55 + spinRatio * 0.45);
   ctx.fillStyle = "rgba(0, 0, 0, 0.38)";
   ctx.beginPath();
   ctx.ellipse(radius * 0.16, radius * 0.22, radius * 1.1, radius * 0.74, 0, 0, Math.PI * 2);
@@ -386,6 +495,14 @@ function drawTop(ctx: CanvasRenderingContext2D, entity: TopRuntimeEntity, map: R
   ctx.fill();
   ctx.restore();
 
+  if (wobble > 0.05) {
+    ctx.strokeStyle = `rgba(223, 98, 76, ${Math.min(0.42, wobble * 0.65)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(point.x + wobbleX * 1.8, point.y + wobbleY * 1.8, radius * (1.12 + wobble * 0.22), radius * (0.8 - wobble * 0.12), entity.angle * 0.35, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
   ctx.strokeStyle = "rgba(0, 0, 0, 0.72)";
   ctx.lineWidth = 5;
   ctx.beginPath();
@@ -397,6 +514,14 @@ function drawTop(ctx: CanvasRenderingContext2D, entity: TopRuntimeEntity, map: R
   ctx.beginPath();
   ctx.arc(point.x, point.y, radius + 7, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * integrityRatio);
   ctx.stroke();
+
+  ctx.strokeStyle = `rgba(101, 198, 176, ${0.22 + spinRatio * 0.42})`;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 5]);
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, radius + 12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * spinRatio);
+  ctx.stroke();
+  ctx.setLineDash([]);
 
   ctx.font = "600 11px Inter, system-ui, sans-serif";
   ctx.textAlign = "center";
@@ -445,7 +570,8 @@ function drawScene(canvas: HTMLCanvasElement, runtime: TopArenaRuntime) {
   drawArenaFloor(ctx, width, height, arena, runtime);
 
   const map = createWorldMapper(width, height, arena);
-  for (const effect of [...runtime.effects].reverse()) {
+  const effects = [...runtime.effects].reverse();
+  for (const effect of effects.filter((entry) => entry.kind !== "frictionSpark")) {
     drawEffect(ctx, effect, map);
   }
   drawDrops(ctx, runtime.drops, map);
@@ -454,6 +580,9 @@ function drawScene(canvas: HTMLCanvasElement, runtime: TopArenaRuntime) {
     drawTop(ctx, enemy, map, enemyPalette[enemy.rank]);
   }
   drawTop(ctx, runtime.player, map, framePalette[runtime.frameId] ?? framePalette.frame_swift_razor);
+  for (const effect of effects.filter((entry) => entry.kind === "frictionSpark")) {
+    drawEffect(ctx, effect, map);
+  }
 }
 
 function isPart(part: TopPartInstance | null | undefined): part is TopPartInstance {
@@ -480,7 +609,7 @@ function statFromRuntime(stats: TopRuntimeStats, stat: keyof TopStatBlock): numb
   if (stat === "fluxGuard") {
     return stats.maxFluxGuard;
   }
-  return stats[stat];
+  return stats[stat] ?? 0;
 }
 
 function formatStatLines(stats: TopStatBlock | undefined): string[] {
@@ -584,23 +713,70 @@ function compactRuneSlots(slots: RuneSlotState): string[] {
   return slots.filter((runeId): runeId is string => Boolean(runeId));
 }
 
+function toRuneSlots(runeIds: string[]): RuneSlotState {
+  return [runeIds[0] ?? null, runeIds[1] ?? null, runeIds[2] ?? null];
+}
+
+function completeEquipment(
+  saved: Partial<Record<TopPartSlotId, TopPartInstance | null>> | undefined,
+  fallback: Record<TopPartSlotId, TopPartInstance>,
+): Record<TopPartSlotId, TopPartInstance> {
+  return partSlotOrder.reduce(
+    (equipment, slot) => ({
+      ...equipment,
+      [slot]: saved?.[slot] ?? fallback[slot],
+    }),
+    {} as Record<TopPartSlotId, TopPartInstance>,
+  );
+}
+
+function canSpend(wallet: CurrencyWallet, cost: CurrencyWallet): boolean {
+  return wallet.ash >= cost.ash && wallet.glass >= cost.glass && wallet.echo >= cost.echo;
+}
+
+function spendWallet(wallet: CurrencyWallet, cost: CurrencyWallet): CurrencyWallet {
+  return {
+    ash: wallet.ash - cost.ash,
+    glass: wallet.glass - cost.glass,
+    echo: wallet.echo - cost.echo,
+  };
+}
+
+function formatCost(cost: CurrencyWallet): string {
+  return [`Ash ${cost.ash}`, `Glass ${cost.glass}`, `Echo ${cost.echo}`].join(" / ");
+}
+
+function formatKeyTitle(key: ArenaKey): string {
+  const arena = getArenaCircuitDef(key.arenaBaseId);
+  return `T${key.tier} ${arena.displayName}`;
+}
+
 function StatPill({
   icon,
   label,
   value,
   tone = "neutral",
+  meter,
 }: {
   icon: ReactNode;
   label: string;
   value: string;
   tone?: "neutral" | "good" | "warn" | "rare";
+  meter?: number;
 }) {
+  const meterValue = typeof meter === "number" ? `${clamp(meter, 0, 1) * 100}%` : undefined;
+
   return (
     <div className={`arena-stat arena-stat-${tone}`}>
-      <span aria-hidden>{icon}</span>
+      <span className="arena-stat-icon" aria-hidden>{icon}</span>
       <div>
         <small>{label}</small>
         <strong>{value}</strong>
+        {meterValue ? (
+          <span className="arena-stat-meter" aria-hidden>
+            <i style={{ width: meterValue }} />
+          </span>
+        ) : null}
       </div>
     </div>
   );
@@ -615,30 +791,78 @@ function PanelTab({ active, icon, label, onClick }: { active: boolean; icon: Rea
   );
 }
 
+function drivePhysicsLines(driveId: string): string[] {
+  switch (driveId) {
+    case "drive_shard_barrage":
+      return ["Scrape / Clash: surface shear and tangent impulse add impact shards.", "High RPM raises shear, making contact-fired shards more reliable."];
+    case "drive_razor_rebound":
+      return ["Scrape: tangent impulse adds cutting damage.", "Smash: normal impulse adds rebound burst damage."];
+    case "drive_ember_scour":
+      return ["Scrape / Grind: surface shear adds heat.", "Grind: contact age increases burn pressure."];
+    case "drive_molten_groove":
+      return ["Grind: sustained high-shear contact drops a molten hazard.", "Grip and RPM make the contact easier to hold."];
+    case "drive_storm_lattice":
+      return ["High Spark: spark intensity over the threshold redirects static discharge into the contact target.", "RPM increases spark intensity through surface shear."];
+    case "drive_chain_tempest":
+      return ["Smash / Heavy Clash: collision impulse amplifies chain lightning.", "High spark intensity can convert heavy contact into a burst window."];
+    default:
+      return ["Collision data can scale this drive when its trigger supports contact."];
+  }
+}
+
 export function CombatArena() {
   const starterEquipment = useMemo(() => createStarterEquipment(), []);
   const starterInventory = useMemo(() => createStarterInventory(), []);
-  const [frameId, setFrameId] = useState(topFrames[0].id);
-  const [driveId, setDriveId] = useState(topFrames[0].startingDriveId);
-  const [arenaId, setArenaId] = useState(arenaCircuits[0].id);
+  const initialSave = useMemo(() => loadLocalSave(), []);
+  const initialEquipment = useMemo(
+    () => completeEquipment(initialSave.top.equipment as Partial<Record<TopPartSlotId, TopPartInstance | null>>, starterEquipment),
+    [initialSave.top.equipment, starterEquipment],
+  );
+  const initialInventory = useMemo(
+    () => ((initialSave.top.inventory as TopPartInstance[]).length > 0 ? (initialSave.top.inventory as TopPartInstance[]) : starterInventory),
+    [initialSave.top.inventory, starterInventory],
+  );
+  const initialRuneSlots = useMemo(
+    () => toRuneSlots(validateRuneLoadout(initialSave.top.selectedDriveId, initialSave.top.runeIds).validRuneIds),
+    [initialSave.top.runeIds, initialSave.top.selectedDriveId],
+  );
+  const initialLoadout = useMemo<TopLoadoutConfig>(
+    () => ({
+      equipment: initialEquipment,
+      runeIds: compactRuneSlots(initialRuneSlots),
+      talentIds: initialSave.top.talentIds,
+    }),
+    [initialEquipment, initialRuneSlots, initialSave.top.talentIds],
+  );
+  const saveShellRef = useRef(initialSave);
+  const [frameId, setFrameId] = useState(initialSave.top.selectedFrameId);
+  const [driveId, setDriveId] = useState(initialSave.top.selectedDriveId);
+  const [arenaId, setArenaId] = useState(initialSave.top.selectedArenaId);
   const [speed, setSpeed] = useState(1);
   const [running, setRunning] = useState(false);
+  const [showDebugHud, setShowDebugHud] = useState(false);
   const [activePanel, setActivePanel] = useState<ActivePanel>("loadout");
   const [inventoryFilter, setInventoryFilter] = useState<TopPartSlotId | "all">("all");
-  const [equipment, setEquipment] = useState<Record<TopPartSlotId, TopPartInstance>>(starterEquipment);
-  const [inventory, setInventory] = useState<TopPartInstance[]>(starterInventory);
-  const [selectedPartId, setSelectedPartId] = useState(starterInventory[0]?.id ?? starterEquipment.core.id);
-  const [runeSlots, setRuneSlots] = useState<RuneSlotState>(["rune_splintered_edge", null, null]);
+  const [equipment, setEquipment] = useState<Record<TopPartSlotId, TopPartInstance>>(initialEquipment);
+  const [inventory, setInventory] = useState<TopPartInstance[]>(initialInventory);
+  const [selectedPartId, setSelectedPartId] = useState(initialInventory[0]?.id ?? initialEquipment.core.id);
+  const [runeSlots, setRuneSlots] = useState<RuneSlotState>(initialRuneSlots);
   const [selectedRuneSocket, setSelectedRuneSocket] = useState(0);
-  const [talentIds, setTalentIds] = useState<string[]>(["talent_iron_rotation"]);
+  const [talentIds, setTalentIds] = useState<string[]>(initialSave.top.talentIds);
   const [selectedTalentId, setSelectedTalentId] = useState(talentNodes[0].id);
-  const [wallet, setWallet] = useState<CurrencyWallet>({ ash: 0, glass: 0, echo: 0 });
+  const [wallet, setWallet] = useState<CurrencyWallet>(initialSave.top.wallet);
+  const [arenaKeys, setArenaKeys] = useState<ArenaKey[]>(initialSave.top.arenaKeys as ArenaKey[]);
+  const [selectedArenaKeyId, setSelectedArenaKeyId] = useState<string | null>((initialSave.top.arenaKeys as ArenaKey[])[0]?.id ?? null);
+  const [currentArenaKey, setCurrentArenaKey] = useState<ArenaKey | null>(null);
+  const [clearedBossGateIds, setClearedBossGateIds] = useState<string[]>(initialSave.top.clearedBossGateIds);
+  const [routeClears, setRouteClears] = useState<Record<string, number>>(initialSave.top.routeClears);
   const [totalKills, setTotalKills] = useState(0);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [lootNotices, setLootNotices] = useState<LootNotice[]>([]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const seenDropIdsRef = useRef(new Set<string>());
   const lastKillRef = useRef({ seed: "", kills: 0 });
+  const lastRouteClearRef = useRef({ seed: "", routeClears: 0 });
   const runeIds = useMemo(() => compactRuneSlots(runeSlots), [runeSlots]);
 
   const makeLoadout = useCallback(
@@ -652,10 +876,10 @@ export function CombatArena() {
 
   const [runtime, setRuntime] = useState(() =>
     createTopArenaRuntime({
-      arenaId: arenaCircuits[0].id,
-      frameId: topFrames[0].id,
-      driveId: topFrames[0].startingDriveId,
-      loadout: { equipment: starterEquipment, runeIds: ["rune_splintered_edge"], talentIds: ["talent_iron_rotation"] },
+      arenaId: initialSave.top.selectedArenaId,
+      frameId: initialSave.top.selectedFrameId,
+      driveId: initialSave.top.selectedDriveId,
+      loadout: initialLoadout,
       seed: `arena_${Date.now()}`,
     }),
   );
@@ -670,6 +894,20 @@ export function CombatArena() {
   const drive = useMemo(() => getDriveCoreDef(driveId), [driveId]);
   const arena = useMemo(() => getArenaCircuitDef(arenaId), [arenaId]);
   const loadout = useMemo(() => makeLoadout(), [makeLoadout]);
+  const selectedArenaKey = useMemo(() => arenaKeys.find((key) => key.id === selectedArenaKeyId) ?? null, [arenaKeys, selectedArenaKeyId]);
+  const selectedArenaKeySummary = useMemo(() => (selectedArenaKey ? summarizeArenaKeyRiskReward(selectedArenaKey) : null), [selectedArenaKey]);
+  const currentArenaKeySummary = useMemo(() => (currentArenaKey ? summarizeArenaKeyRiskReward(currentArenaKey) : null), [currentArenaKey]);
+  const bossProjection = useMemo(
+    () =>
+      projectBossGateAttempt({
+        gateId: "boss_gate_brass_judicator",
+        frameId,
+        driveId,
+        loadout,
+        arenaKey: selectedArenaKey ?? undefined,
+      }),
+    [driveId, frameId, loadout, selectedArenaKey],
+  );
   const allKnownParts = useMemo(() => [...inventory, ...Object.values(equipment).filter(isPart)], [equipment, inventory]);
   const filteredInventory = useMemo(
     () => (inventoryFilter === "all" ? inventory : inventory.filter((part) => part.slot === inventoryFilter)),
@@ -692,24 +930,28 @@ export function CombatArena() {
   const cooldownRatio = drive.baseCooldown > 0 ? 1 - clamp(runtime.player.cooldownRemaining / drive.baseCooldown, 0, 1) : 1;
   const target = runtime.enemies[0] ?? null;
   const targetIntegrity = target ? clamp(target.spinIntegrity / target.stats.maxSpinIntegrity, 0, 1) : 0;
+  const lastCollision = runtime.lastCollision;
+  const collisionDebugClass = lastCollision ? `collision-debug collision-debug-${lastCollision.kind}` : "collision-debug collision-debug-idle";
   const spentTalentPoints = useMemo(() => talentIds.reduce((total, id) => total + getTalentNodeDef(id).cost, 0), [talentIds]);
   const talentPoints = 3 + Math.floor(totalKills / 5);
   const availableTalentPoints = talentPoints - spentTalentPoints;
 
   const resetArena = useCallback(
-    (nextFrameId = frameId, nextDriveId = driveId, nextArenaId = arenaId, nextLoadout = makeLoadout()) => {
+    (nextFrameId = frameId, nextDriveId = driveId, nextArenaId = arenaId, nextLoadout = makeLoadout(), nextArenaKey: ArenaKey | null = currentArenaKey) => {
       setRuntimeError(null);
+      setCurrentArenaKey(nextArenaKey);
       publishRuntime(
         createTopArenaRuntime({
           arenaId: nextArenaId,
           frameId: nextFrameId,
           driveId: nextDriveId,
           loadout: nextLoadout,
+          arenaKey: nextArenaKey ?? undefined,
           seed: `arena_${nextFrameId}_${nextDriveId}_${nextArenaId}_${Date.now()}`,
         }),
       );
     },
-    [arenaId, driveId, frameId, makeLoadout, publishRuntime],
+    [arenaId, currentArenaKey, driveId, frameId, makeLoadout, publishRuntime],
   );
 
   const selectFrame = (nextFrameId: string) => {
@@ -746,7 +988,7 @@ export function CombatArena() {
 
   const selectArena = (nextArenaId: string) => {
     setArenaId(nextArenaId);
-    resetArena(frameId, driveId, nextArenaId);
+    resetArena(frameId, driveId, nextArenaId, makeLoadout(), null);
   };
 
   const equipPart = (part: TopPartInstance) => {
@@ -769,7 +1011,7 @@ export function CombatArena() {
     if (part.locked) {
       return;
     }
-    const value = salvageValue(part);
+    const value = salvageTopPart(part);
     setWallet((current) => ({
       ash: current.ash + value.ash,
       glass: current.glass + value.glass,
@@ -779,6 +1021,97 @@ export function CombatArena() {
     if (selectedPartId === part.id) {
       setSelectedPartId(inventory.find((item) => item.id !== part.id)?.id ?? equipment.core.id);
     }
+  };
+
+  const replacePartEverywhere = (previous: TopPartInstance, next: TopPartInstance) => {
+    const equipped = equipment[previous.slot]?.id === previous.id;
+    const nextEquipment = equipped ? { ...equipment, [previous.slot]: next } : equipment;
+    setEquipment(nextEquipment);
+    setInventory((items) => items.map((item) => (item.id === previous.id ? next : item)));
+    setSelectedPartId(next.id);
+    if (equipped) {
+      resetArena(frameId, driveId, arenaId, makeLoadout(nextEquipment, runeIds, talentIds), currentArenaKey);
+    }
+  };
+
+  const applyCraftResult = (sourcePart: TopPartInstance, result: TopCraftResult) => {
+    if (!canSpend(wallet, result.spent)) {
+      return;
+    }
+    setWallet((current) => spendWallet(current, result.spent));
+    replacePartEverywhere(sourcePart, result.part);
+    setLootNotices((current) => [
+      {
+        id: `craft_${result.part.id}`,
+        tone: "reward" as const,
+        text: `Forged ${result.part.displayName}`,
+      },
+      ...current,
+    ].slice(0, 8));
+  };
+
+  const craftSelectedPart = (action: "upgrade" | "rerollAffixes" | "rerollValues" | "add" | "remove") => {
+    if (!selectedPart) {
+      return;
+    }
+    const seed = `${action}_${selectedPart.id}_${Date.now()}`;
+    const result =
+      action === "upgrade"
+        ? upgradeTopPartRarity(selectedPart, seed)
+        : action === "rerollAffixes"
+          ? rerollTopPartAffixes(selectedPart, seed)
+          : action === "rerollValues"
+            ? rerollTopPartValues(selectedPart, seed)
+            : action === "add"
+              ? addRandomEngraving(selectedPart, seed)
+              : removeRandomEngraving(selectedPart, seed);
+
+    applyCraftResult(selectedPart, result);
+  };
+
+  const forgeArenaKey = () => {
+    if (!canSpend(wallet, keyForgeCost)) {
+      return;
+    }
+    const key = generateArenaKey({
+      arenaBaseId: arenaId,
+      tier: arena.tier,
+      rarity: "tuned",
+      quality: Math.min(20, arena.tier * 4),
+      seed: `manual_key_${arenaId}_${Date.now()}`,
+      bossGateId: arena.tier >= 3 ? "boss_gate_brass_judicator" : undefined,
+    });
+    setWallet((current) => spendWallet(current, keyForgeCost));
+    setArenaKeys((keys) => [key, ...keys].slice(0, 24));
+    setSelectedArenaKeyId(key.id);
+    setLootNotices((current) => [{ id: `manual_key_${key.id}`, tone: "reward" as const, text: `Forged route key: ${formatKeyTitle(key)}` }, ...current].slice(0, 8));
+  };
+
+  const runSelectedArenaKey = () => {
+    if (!selectedArenaKey) {
+      return;
+    }
+    const remainingKeys = arenaKeys.filter((key) => key.id !== selectedArenaKey.id);
+    setArenaKeys(remainingKeys);
+    setSelectedArenaKeyId(remainingKeys[0]?.id ?? null);
+    setArenaId(selectedArenaKey.arenaBaseId);
+    resetArena(frameId, driveId, selectedArenaKey.arenaBaseId, makeLoadout(), selectedArenaKey);
+  };
+
+  const attemptBossGate = () => {
+    const passed = bossProjection.successChance >= 0.5;
+    const tone: LootNotice["tone"] = passed ? "reward" : "salvage";
+    if (passed) {
+      setClearedBossGateIds((ids) => (ids.includes(bossProjection.gateId) ? ids : [...ids, bossProjection.gateId]));
+    }
+    setLootNotices((current) => [
+      {
+        id: `boss_attempt_${Date.now()}`,
+        tone,
+        text: passed ? "Brass Judicator gate cleared" : `Boss gate failed: ${bossProjection.failureReasons.join(" / ") || "unstable build"}`,
+      },
+      ...current,
+    ].slice(0, 8));
   };
 
   const assignRuneToSocket = (runeId: string, socketIndex = selectedRuneSocket) => {
@@ -903,6 +1236,67 @@ export function CombatArena() {
       lastKillRef.current = { seed: runtime.seed, kills: runtime.kills };
     }
   }, [runtime.kills, runtime.seed]);
+
+  useEffect(() => {
+    const last = lastRouteClearRef.current;
+    if (last.seed !== runtime.seed) {
+      lastRouteClearRef.current = { seed: runtime.seed, routeClears: runtime.routeClears };
+      return;
+    }
+
+    if (runtime.routeClears > last.routeClears) {
+      const gained = runtime.routeClears - last.routeClears;
+      const newKeys = Array.from({ length: gained }, (_, index) =>
+        generateArenaKey({
+          arenaBaseId: arenaId,
+          tier: arena.tier,
+          seed: `${runtime.seed}_route_key_${runtime.routeClears}_${index}`,
+          rarity: arena.tier >= 3 ? "engraved" : "tuned",
+          quality: Math.min(20, arena.tier * 4),
+          bossGateId: arena.tier >= 3 ? "boss_gate_brass_judicator" : undefined,
+        }),
+      );
+      setArenaKeys((keys) => [...newKeys, ...keys].slice(0, 24));
+      setSelectedArenaKeyId(newKeys[0]?.id ?? selectedArenaKeyId);
+      setRouteClears((current) => ({ ...current, [arenaId]: (current[arenaId] ?? 0) + gained }));
+      setLootNotices((current) => [
+        ...newKeys.map((key) => ({ id: `key_${key.id}`, tone: "reward" as const, text: `Forged route key: ${formatKeyTitle(key)}` })),
+        ...current,
+      ].slice(0, 8));
+      lastRouteClearRef.current = { seed: runtime.seed, routeClears: runtime.routeClears };
+    }
+  }, [arena.tier, arenaId, runtime.routeClears, runtime.seed, selectedArenaKeyId]);
+
+  useEffect(() => {
+    const now = new Date().toISOString();
+    const nextSave = {
+      ...saveShellRef.current,
+      schemaVersion: 2 as const,
+      currencies: {
+        ...saveShellRef.current.currencies,
+        ash: wallet.ash,
+        glass: wallet.glass,
+        echo: wallet.echo,
+      },
+      top: {
+        selectedFrameId: frameId,
+        selectedDriveId: driveId,
+        selectedArenaId: arenaId,
+        equipment,
+        inventory,
+        runeIds,
+        talentIds,
+        wallet,
+        arenaKeys,
+        clearedBossGateIds,
+        routeClears,
+        lastSettledAt: now,
+      },
+      lastSavedAt: now,
+    };
+    saveShellRef.current = nextSave;
+    writeLocalSave(nextSave);
+  }, [arenaId, arenaKeys, clearedBossGateIds, driveId, equipment, frameId, inventory, routeClears, runeIds, talentIds, wallet]);
 
   useEffect(() => {
     const newParts: TopPartInstance[] = [];
@@ -1138,6 +1532,12 @@ export function CombatArena() {
                   <em key={type}>{type} {value}</em>
                 ))}
             </div>
+            <div className="skill-physics">
+              <small>Collision hooks</small>
+              {drivePhysicsLines(drive.id).map((line) => (
+                <span key={line}>{line}</span>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -1236,6 +1636,180 @@ export function CombatArena() {
     );
   };
 
+  const renderForgePanel = () => (
+    <>
+      <section className="workbench-section">
+        <div className="section-title">
+          <Recycle size={17} aria-hidden />
+          <h2>Forge</h2>
+          <span className="section-counter">{selectedPart ? selectedPart.rarity : "none"}</span>
+        </div>
+        {selectedPart ? (
+          <div className={`part-detail part-detail-${selectedPart.rarity}`}>
+            <div className="part-detail-title">
+              <div>
+                <small>{partSlotLabels[selectedPart.slot]} / ilvl {selectedPart.itemLevel}</small>
+                <strong>{selectedPart.displayName}</strong>
+              </div>
+              <span>{(selectedPart.affixes ?? []).length}/6</span>
+            </div>
+            <div className="modifier-lines">
+              {formatPartLines(selectedPart).map((line) => (
+                <span key={line}>{line}</span>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <span className="empty-drop">No part selected</span>
+        )}
+      </section>
+
+      <section className="workbench-section">
+        <div className="section-title">
+          <Gem size={17} aria-hidden />
+          <h2>Actions</h2>
+        </div>
+        <div className="forge-action-grid">
+          {[
+            ["upgrade", "Upgrade", "Raise rarity"],
+            ["rerollAffixes", "Reroll", "New engravings"],
+            ["rerollValues", "Values", "Same lines"],
+            ["add", "Add", "One engraving"],
+            ["remove", "Remove", "One engraving"],
+          ].map(([action, label, detail]) => {
+            const key = action as keyof typeof forgeActionCosts;
+            const cost = forgeActionCosts[key];
+            const disabled = !selectedPart || !canSpend(wallet, cost) || (key === "remove" && (selectedPart.affixes ?? []).length === 0);
+            return (
+              <button className="forge-action" disabled={disabled} key={action} onClick={() => craftSelectedPart(key)} type="button">
+                <strong>{label}</strong>
+                <span>{detail}</span>
+                <small>{formatCost(cost)}</small>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    </>
+  );
+
+  const renderRoutePanel = () => (
+    <>
+      <section className="workbench-section">
+        <div className="section-title">
+          <Flame size={17} aria-hidden />
+          <h2>Route</h2>
+          <span className="section-counter">{currentArenaKey ? "keyed" : "open"}</span>
+        </div>
+        <div className="route-summary-grid">
+          <StatPill icon={<Flame size={15} />} label="Circuit" value={`T${arena.tier}`} tone="rare" />
+          <StatPill icon={<Gem size={15} />} label="Keys" value={formatNumber(arenaKeys.length, 0)} tone="good" />
+          <StatPill icon={<Swords size={15} />} label="Quantity" value={formatPercent(currentArenaKeySummary?.rewardQuantity ?? 0, 0)} />
+          <StatPill icon={<Sparkles size={15} />} label="Rarity" value={formatPercent(currentArenaKeySummary?.rewardRarity ?? 0, 0)} />
+        </div>
+      </section>
+
+      <section className="workbench-section">
+        <div className="section-title">
+          <PackageOpen size={17} aria-hidden />
+          <h2>Arena Keys</h2>
+          <span className="section-counter">{arenaKeys.length}/24</span>
+        </div>
+        <div className="key-action-row">
+          <button className="arena-button" disabled={!canSpend(wallet, keyForgeCost)} onClick={forgeArenaKey} type="button">
+            <Gem size={15} aria-hidden />
+            Forge Key
+          </button>
+          <button className="arena-button" disabled={!selectedArenaKey} onClick={runSelectedArenaKey} type="button">
+            <Play size={15} aria-hidden />
+            Run Key
+          </button>
+        </div>
+        <div className="key-list">
+          {arenaKeys.length > 0 ? (
+            arenaKeys.map((key) => {
+              const summary = summarizeArenaKeyRiskReward(key);
+              return (
+                <button className={key.id === selectedArenaKeyId ? "key-card key-card-active" : "key-card"} key={key.id} onClick={() => setSelectedArenaKeyId(key.id)} type="button">
+                  <div>
+                    <small>{key.rarity} / ilvl {key.itemLevel}</small>
+                    <strong>{formatKeyTitle(key)}</strong>
+                  </div>
+                  <span>Q {formatPercent(summary.rewardQuantity, 0)} / R {formatPercent(summary.rewardRarity, 0)}</span>
+                </button>
+              );
+            })
+          ) : (
+            <span className="empty-drop">No arena key</span>
+          )}
+        </div>
+        {selectedArenaKey ? (
+          <div className="key-detail">
+            <div className="modifier-lines">
+              {[...selectedArenaKey.prefixes, ...selectedArenaKey.suffixes].map((affix) => (
+                <span key={`${selectedArenaKey.id}_${affix.affixId}`}>
+                  {affix.displayName}: enemies {round((affix.enemyIntegrityMultiplier - 1) * 100, 0)}% integrity / rewards {formatPercent(affix.rewardQuantity + affix.rewardRarity, 0)}
+                </span>
+              ))}
+            </div>
+            <div className="delta-list">
+              <div className="delta-line delta-bad">
+                <span>Integrity</span>
+                <strong>{formatPercent((selectedArenaKeySummary?.enemyIntegrityMultiplier ?? 1) - 1, 0)}</strong>
+              </div>
+              <div className="delta-line delta-bad">
+                <span>Impact</span>
+                <strong>{formatPercent((selectedArenaKeySummary?.enemyImpactMultiplier ?? 1) - 1, 0)}</strong>
+              </div>
+              <div className="delta-line delta-good">
+                <span>Reward</span>
+                <strong>{formatPercent((selectedArenaKeySummary?.rewardQuantity ?? 0) + (selectedArenaKeySummary?.rewardRarity ?? 0), 0)}</strong>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="workbench-section">
+        <div className="section-title">
+          <Network size={17} aria-hidden />
+          <h2>Boss Gate</h2>
+          <span className="section-counter">{clearedBossGateIds.includes(bossProjection.gateId) ? "cleared" : "locked"}</span>
+        </div>
+        <div className="boss-projection">
+          <StatPill icon={<Gauge size={15} />} label="Chance" value={formatPercent(bossProjection.successChance, 0)} tone={bossProjection.successChance >= 0.5 ? "good" : "warn"} />
+          <StatPill icon={<Activity size={15} />} label="TTK" value={`${round(bossProjection.estimatedTtk, 1)}s`} />
+        </div>
+        <div className="modifier-lines">
+          {bossProjection.failureReasons.length > 0 ? (
+            bossProjection.failureReasons.map((reason) => <span key={reason}>{reason}: target {formatNumber(bossProjection.recommendedStats[reason] ?? 0, 1)}</span>)
+          ) : (
+            <span>Gate pressure stable</span>
+          )}
+        </div>
+        <button className="arena-button" onClick={attemptBossGate} type="button">
+          <Swords size={15} aria-hidden />
+          Attempt Gate
+        </button>
+      </section>
+
+      <section className="workbench-section">
+        <div className="section-title">
+          <Radar size={17} aria-hidden />
+          <h2>Clears</h2>
+        </div>
+        <div className="route-clear-list">
+          {arenaCircuits.map((entry) => (
+            <div className="route-clear-line" key={entry.id}>
+              <span>{entry.displayName}</span>
+              <strong>{routeClears[entry.id] ?? 0}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
+  );
+
   const renderTalentsPanel = () => {
     const selectedTalent = getTalentNodeDef(selectedTalentId);
     const selectedTalentActive = talentIds.includes(selectedTalent.id);
@@ -1322,7 +1896,7 @@ export function CombatArena() {
   };
 
   return (
-    <main className="top-arena-shell">
+    <main className={["top-arena-shell", running ? "top-arena-running" : "", currentArenaKey ? "top-arena-keyed" : ""].filter(Boolean).join(" ")}>
       <header className="arena-topbar">
         <div className="arena-brand">
           <div className="brand-sigil">
@@ -1334,6 +1908,8 @@ export function CombatArena() {
           </div>
         </div>
         <div className="wallet-strip">
+          <span className={running ? "run-state run-state-live" : "run-state"}>{running ? "Live" : "Ready"}</span>
+          {currentArenaKey ? <span className="run-state run-state-keyed">Keyed</span> : null}
           <span>Ash {wallet.ash}</span>
           <span>Glass {wallet.glass}</span>
           <span>Echo {wallet.echo}</span>
@@ -1347,6 +1923,16 @@ export function CombatArena() {
             <RotateCcw size={16} aria-hidden />
             Reset
           </button>
+          <button
+            aria-pressed={showDebugHud}
+            className={showDebugHud ? "arena-button arena-button-debug-active" : "arena-button"}
+            onClick={() => setShowDebugHud((value) => !value)}
+            title="Toggle collision telemetry"
+            type="button"
+          >
+            <Gauge size={16} aria-hidden />
+            Debug
+          </button>
           <div className="speed-tabs" aria-label="Speed">
             {[1, 2, 4].map((value) => (
               <button className={speed === value ? "speed-tab speed-tab-active" : "speed-tab"} key={value} onClick={() => setSpeed(value)} type="button">
@@ -1358,15 +1944,22 @@ export function CombatArena() {
       </header>
 
       <section className="arena-layout">
-        <section className="arena-stage-panel">
+        <section className={["arena-stage-panel", running ? "arena-stage-live" : "", currentArenaKey ? "arena-stage-keyed" : ""].filter(Boolean).join(" ")}>
           <div className="arena-stage-header">
             <div>
-              <span className="arena-kicker">{arena.displayName}</span>
+              <span className="arena-kicker">{runtime.activeEvent ? `${arena.displayName} / ${runtime.activeEvent.displayName}` : arena.displayName}</span>
               <h1>{frame.displayName}</h1>
             </div>
-            <div className="target-strip">
-              <span>{target ? target.name : "No target"}</span>
-              <strong>{target ? `${formatPercent(targetIntegrity, 0)} integrity` : "spooling"}</strong>
+            <div className={target ? "target-strip target-strip-active" : "target-strip"}>
+              <div>
+                <span>{target ? target.name : "No target"}</span>
+                <strong>{target ? `${formatPercent(targetIntegrity, 0)} integrity` : "spooling"}</strong>
+              </div>
+              {target ? (
+                <div className="target-meter" aria-hidden>
+                  <i style={{ width: `${targetIntegrity * 100}%` }} />
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -1393,18 +1986,35 @@ export function CombatArena() {
             ) : null}
             <div className="arena-hud-grid">
               <StatPill icon={<Activity size={16} />} label="Wave" value={formatNumber(runtime.wave, 0)} tone="rare" />
-              <StatPill icon={<Gauge size={16} />} label="Integrity" value={formatPercent(playerIntegrity, 0)} tone={playerIntegrity > 0.35 ? "good" : "warn"} />
-              <StatPill icon={<Zap size={16} />} label="Drive" value={formatPercent(cooldownRatio, 0)} tone="good" />
+              <StatPill icon={<Gauge size={16} />} label="Integrity" value={formatPercent(playerIntegrity, 0)} tone={playerIntegrity > 0.35 ? "good" : "warn"} meter={playerIntegrity} />
+              <StatPill icon={<Zap size={16} />} label="Drive" value={formatPercent(cooldownRatio, 0)} tone="good" meter={cooldownRatio} />
               <StatPill icon={<Gem size={16} />} label="Kills" value={formatNumber(totalKills, 0)} tone="rare" />
             </div>
           </div>
 
           <div className="combat-bottom">
-            <div className="telemetry-grid">
-              <StatPill icon={<Gauge size={15} />} label="RPM" value={round(runtime.player.stats.rpm, 1).toString()} />
-              <StatPill icon={<Swords size={15} />} label="Impact" value={formatNumber(runtime.player.stats.impact, 0)} />
-              <StatPill icon={<Radar size={15} />} label="Tracking" value={formatNumber(runtime.player.stats.tracking, 0)} />
-              <StatPill icon={<Shield size={15} />} label="Guard" value={formatNumber(runtime.player.stats.guard, 0)} />
+            <div className="combat-telemetry">
+              <div className="telemetry-grid">
+                <StatPill icon={<Gauge size={15} />} label="RPM" value={round(runtime.player.stats.rpm, 1).toString()} />
+                <StatPill icon={<Swords size={15} />} label="Impact" value={formatNumber(runtime.player.stats.impact, 0)} />
+                <StatPill icon={<Radar size={15} />} label="Tracking" value={formatNumber(runtime.player.stats.tracking, 0)} />
+                <StatPill icon={<Shield size={15} />} label="Guard" value={formatNumber(runtime.player.stats.guard, 0)} />
+              </div>
+              {showDebugHud ? (
+                <div className={collisionDebugClass}>
+                  <div>
+                    <small>Collision</small>
+                    <strong>{lastCollision ? lastCollision.kind.toUpperCase() : "IDLE"}</strong>
+                  </div>
+                  <span>N {lastCollision ? formatNumber(lastCollision.normalImpulse, 0) : "-"}</span>
+                  <span>T {lastCollision ? formatNumber(Math.abs(lastCollision.tangentImpulse), 0) : "-"}</span>
+                  <span>Shear {lastCollision ? formatNumber(lastCollision.surfaceShear, 0) : "-"}</span>
+                  <span>Spark {lastCollision ? round(lastCollision.sparkIntensity, 1) : "-"}</span>
+                  <span>Age {lastCollision ? `${round(lastCollision.contactAge, 2)}s` : "-"}</span>
+                  <span>Spin {formatPercent(runtime.player.spinPower / 100, 0)}</span>
+                  <span>Wobble {formatPercent(runtime.player.wobble, 0)}</span>
+                </div>
+              ) : null}
             </div>
             <div className="event-feed compact-events">
               {runtime.events.map((event) => (
@@ -1421,12 +2031,16 @@ export function CombatArena() {
             <PanelTab active={activePanel === "loadout"} icon={<CircleDot size={15} aria-hidden />} label="Loadout" onClick={() => setActivePanel("loadout")} />
             <PanelTab active={activePanel === "inventory"} icon={<PackageOpen size={15} aria-hidden />} label="Inventory" onClick={() => setActivePanel("inventory")} />
             <PanelTab active={activePanel === "skills"} icon={<Sparkles size={15} aria-hidden />} label="Skills" onClick={() => setActivePanel("skills")} />
+            <PanelTab active={activePanel === "forge"} icon={<Recycle size={15} aria-hidden />} label="Forge" onClick={() => setActivePanel("forge")} />
+            <PanelTab active={activePanel === "route"} icon={<Flame size={15} aria-hidden />} label="Route" onClick={() => setActivePanel("route")} />
             <PanelTab active={activePanel === "talents"} icon={<Network size={15} aria-hidden />} label="Talents" onClick={() => setActivePanel("talents")} />
           </nav>
           <div className="workbench-content">
             {activePanel === "loadout" && renderLoadoutPanel()}
             {activePanel === "inventory" && renderInventoryPanel()}
             {activePanel === "skills" && renderSkillsPanel()}
+            {activePanel === "forge" && renderForgePanel()}
+            {activePanel === "route" && renderRoutePanel()}
             {activePanel === "talents" && renderTalentsPanel()}
           </div>
         </aside>

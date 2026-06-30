@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createStarterBuild } from "../engine/character";
+import { createStarterEquipment, createStarterInventory } from "../data/topParts";
 
 export const characterSaveSchema = z.object({
   id: z.string(),
@@ -15,8 +16,124 @@ export const characterSaveSchema = z.object({
   lastSettledAt: z.string(),
 });
 
+const topModifierSchema = z.object({
+  id: z.string(),
+  stat: z.string(),
+  type: z.string(),
+  value: z.number(),
+  tags: z.array(z.string()).optional(),
+  fromDamageType: z.string().optional(),
+  toDamageType: z.string().optional(),
+  scope: z.enum(["local", "global"]).optional(),
+});
+
+const topRolledEngravingSchema = z.object({
+  engravingId: z.string(),
+  displayName: z.string(),
+  slot: z.enum(["prefix", "suffix"]),
+  group: z.string(),
+  tier: z.number(),
+  statBonuses: z.record(z.string(), z.number()),
+  resistanceBonuses: z.record(z.string(), z.number()),
+  modifiers: z.array(topModifierSchema),
+});
+
+export const topPartSaveSchema = z.object({
+  id: z.string(),
+  baseId: z.string(),
+  displayName: z.string(),
+  slot: z.enum(["core", "attackRing", "weightDisk", "tip", "launcher", "seal", "circuitChip"]),
+  rarity: z.enum(["common", "tuned", "engraved", "relic"]),
+  itemLevel: z.number().int().min(1),
+  affixes: z.array(topRolledEngravingSchema).optional(),
+  statBonuses: z.record(z.string(), z.number()),
+  resistanceBonuses: z.record(z.string(), z.number()),
+  modifiers: z.array(topModifierSchema),
+  locked: z.boolean().optional(),
+  sourceDropId: z.string().optional(),
+  generatedAt: z.string().optional(),
+  generatedBy: z
+    .object({
+      arenaId: z.string(),
+      enemyLevel: z.number(),
+      balanceVersion: z.string(),
+      seed: z.string(),
+      source: z.enum(["drop", "starter", "craft", "debug"]),
+    })
+    .optional(),
+});
+
+const equipmentSaveSchema = z.object({
+  core: topPartSaveSchema.nullable().optional(),
+  attackRing: topPartSaveSchema.nullable().optional(),
+  weightDisk: topPartSaveSchema.nullable().optional(),
+  tip: topPartSaveSchema.nullable().optional(),
+  launcher: topPartSaveSchema.nullable().optional(),
+  seal: topPartSaveSchema.nullable().optional(),
+  circuitChip: topPartSaveSchema.nullable().optional(),
+});
+
+const arenaRewardBiasSchema = z.object({
+  target: z.string(),
+  weight: z.number(),
+});
+
+const arenaKeyAffixSaveSchema = z.object({
+  affixId: z.string(),
+  displayName: z.string(),
+  slot: z.enum(["prefix", "suffix"]),
+  group: z.string(),
+  tier: z.number(),
+  enemyIntegrityMultiplier: z.number(),
+  enemyImpactMultiplier: z.number(),
+  enemyGuardMultiplier: z.number(),
+  enemyRpmMultiplier: z.number(),
+  rewardQuantity: z.number(),
+  rewardRarity: z.number(),
+  bossPressure: z.number(),
+  rewardBias: z.array(arenaRewardBiasSchema),
+});
+
+export const arenaKeySaveSchema = z.object({
+  id: z.string(),
+  tier: z.number().int().min(1),
+  arenaBaseId: z.string(),
+  rarity: z.enum(["common", "tuned", "engraved", "relic"]),
+  itemLevel: z.number().int().min(1),
+  quality: z.number().min(0),
+  prefixes: z.array(arenaKeyAffixSaveSchema),
+  suffixes: z.array(arenaKeyAffixSaveSchema),
+  rewardBias: z.array(arenaRewardBiasSchema),
+  bossGateId: z.string().optional(),
+  generatedAt: z.string(),
+  generatedBy: z.object({
+    arenaId: z.string(),
+    balanceVersion: z.string(),
+    seed: z.string(),
+  }),
+});
+
+export const topAccountStateSchema = z.object({
+  selectedFrameId: z.string(),
+  selectedDriveId: z.string(),
+  selectedArenaId: z.string(),
+  equipment: equipmentSaveSchema,
+  inventory: z.array(topPartSaveSchema),
+  runeIds: z.array(z.string()).max(5),
+  talentIds: z.array(z.string()),
+  wallet: z.object({
+    ash: z.number(),
+    glass: z.number(),
+    echo: z.number(),
+  }),
+  arenaKeys: z.array(arenaKeySaveSchema),
+  clearedBossGateIds: z.array(z.string()),
+  routeClears: z.record(z.string(), z.number()),
+  lastSettledAt: z.string(),
+});
+
 export const accountSaveSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   accountId: z.string().nullable(),
   settings: z.object({
     reduceMotion: z.boolean(),
@@ -27,6 +144,7 @@ export const accountSaveSchema = z.object({
     itemIds: z.array(z.string()),
   }),
   currencies: z.record(z.string(), z.number()),
+  top: topAccountStateSchema,
   achievements: z.record(z.string(), z.boolean()),
   lastSavedAt: z.string(),
 });
@@ -34,12 +152,34 @@ export const accountSaveSchema = z.object({
 export type AccountSave = z.infer<typeof accountSaveSchema>;
 export type CharacterSave = z.infer<typeof characterSaveSchema>;
 
+function starterFrameForClass(classId: string): string {
+  if (classId === "ashweaver") {
+    return "frame_ember_crucible";
+  }
+  if (classId === "ironbound") {
+    return "frame_ember_crucible";
+  }
+  return "frame_swift_razor";
+}
+
+function starterDriveForFrame(frameId: string): string {
+  if (frameId === "frame_ember_crucible") {
+    return "drive_ember_scour";
+  }
+  if (frameId === "frame_storm_needle") {
+    return "drive_storm_lattice";
+  }
+  return "drive_shard_barrage";
+}
+
 export function createNewAccountSave(classId = "veilrunner"): AccountSave {
   const starter = createStarterBuild(classId);
   const now = new Date().toISOString();
+  const selectedFrameId = starterFrameForClass(classId);
+  const selectedDriveId = starterDriveForFrame(selectedFrameId);
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     accountId: null,
     settings: {
       reduceMotion: false,
@@ -67,6 +207,24 @@ export function createNewAccountSave(classId = "veilrunner"): AccountSave {
       ash: 0,
       glass: 0,
       echo: 0,
+    },
+    top: {
+      selectedFrameId,
+      selectedDriveId,
+      selectedArenaId: "arena_cinder_crucible",
+      equipment: createStarterEquipment(),
+      inventory: createStarterInventory(),
+      runeIds: [],
+      talentIds: [],
+      wallet: {
+        ash: 0,
+        glass: 0,
+        echo: 0,
+      },
+      arenaKeys: [],
+      clearedBossGateIds: [],
+      routeClears: {},
+      lastSettledAt: now,
     },
     achievements: {},
     lastSavedAt: now,
