@@ -43,6 +43,7 @@ pnpm build
 ## GitHub Pages 臨時 QA 網頁
 
 - 朋友遠端 QA 使用 GitHub Pages 臨時站：https://lialialialia1211-debug.github.io/echo-forge-idle-arpg/
+- GitHub Pages 需要 repo 為 public，或帳號方案支援 private repo Pages；若 repo 保持 private，workflow 只做檢查與 build，不會發布頁面。
 - 部署設定在 `.github/workflows/pages.yml`，每次 push 到 `main` 都會自動執行 typecheck、test、`pnpm build:pages`，並發布 `dist`。
 - 不要手動 commit `dist`；臨時網頁只能透過 workflow 產生，確保本機、GitHub、QA 站同步。
 - 在另一台電腦改過並 push 後，這台要先執行 `git pull --ff-only origin main` 同步，再繼續開發。
