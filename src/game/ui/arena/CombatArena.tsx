@@ -527,9 +527,9 @@ function StatPill({
 
 function PanelTab({ active, icon, label, onClick }: { active: boolean; icon: ReactNode; label: string; onClick: () => void }) {
   return (
-    <button className={active ? "panel-tab panel-tab-active" : "panel-tab"} onClick={onClick} type="button">
+    <button aria-label={label} className={active ? "panel-tab panel-tab-active" : "panel-tab"} onClick={onClick} title={label} type="button">
       {icon}
-      <span>{label}</span>
+      <span aria-hidden>{label}</span>
     </button>
   );
 }

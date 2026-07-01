@@ -31,25 +31,25 @@
 
 .arena-topbar {
   min-width: 0;
-  min-height: 72px;
+  min-height: 58px;
   display: grid;
   grid-template-columns: minmax(210px, auto) minmax(180px, 1fr) auto;
   align-items: center;
   gap: 14px;
   border-bottom: 1px solid rgba(230, 215, 181, 0.13);
   background: rgba(8, 9, 10, 0.86);
-  padding: 12px 18px;
+  padding: 8px 16px;
 }
 
 .next-action-strip {
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(150px, 1fr) minmax(260px, 0.82fr) auto;
+  grid-template-columns: auto minmax(170px, 0.75fr) minmax(280px, 1fr) auto;
   align-items: center;
   gap: 10px;
   border-bottom: 1px solid rgba(230, 215, 181, 0.12);
   background: rgba(10, 12, 13, 0.92);
-  padding: 9px 18px;
+  padding: 7px 16px;
 }
 
 .next-action-icon {
@@ -95,7 +95,7 @@
 
 .decision-chip {
   min-width: 0;
-  min-height: 34px;
+  min-height: 30px;
   display: grid;
   align-content: center;
   gap: 1px;
@@ -332,10 +332,10 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(560px, 1fr) minmax(360px, 440px);
-  gap: 14px;
+  grid-template-columns: minmax(680px, 1fr) clamp(300px, 24vw, 360px);
+  gap: 10px;
   overflow: hidden;
-  padding: 14px;
+  padding: 10px;
 }
 
 .arena-stage-panel,
@@ -352,7 +352,7 @@
 
 .arena-stage-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(360px, 1fr) auto;
 }
 
 .arena-stage-live {
@@ -376,12 +376,12 @@
   justify-content: space-between;
   gap: 12px;
   border-bottom: 1px solid rgba(230, 215, 181, 0.12);
-  padding: 12px 14px;
+  padding: 9px 12px;
 }
 
 .arena-stage-header h1 {
   margin: 2px 0 0;
-  font-size: 1.32rem;
+  font-size: 1.18rem;
   letter-spacing: 0;
 }
 
@@ -450,7 +450,7 @@
   left: 12px;
   top: 12px;
   z-index: 2;
-  width: min(390px, calc(100% - 24px));
+  width: min(360px, calc(100% - 24px));
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 5px;
@@ -500,8 +500,8 @@
   left: 12px;
   top: 12px;
   z-index: 3;
-  width: min(310px, calc(100% - 28px));
-  min-height: 42px;
+  width: min(290px, calc(100% - 28px));
+  min-height: 38px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -510,7 +510,7 @@
   border-radius: 6px;
   background: rgba(8, 10, 11, 0.84);
   color: var(--brass);
-  padding: 8px 10px;
+  padding: 7px 9px;
   pointer-events: none;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
 }
@@ -575,8 +575,8 @@
   bottom: 12px;
   z-index: 1;
   display: grid;
-  grid-template-columns: repeat(4, minmax(112px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(4, minmax(96px, 1fr));
+  gap: 6px;
   pointer-events: none;
 }
 
@@ -613,9 +613,9 @@
 .loot-toast-stack {
   position: absolute;
   right: 14px;
-  top: 14px;
+  top: 12px;
   z-index: 2;
-  width: min(320px, calc(100% - 28px));
+  width: min(270px, calc(100% - 28px));
   display: grid;
   gap: 7px;
   pointer-events: none;
@@ -628,7 +628,7 @@
   border-radius: 6px;
   background: rgba(10, 12, 13, 0.88);
   color: var(--brass);
-  padding: 8px 10px;
+  padding: 7px 9px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -691,30 +691,32 @@
 
 .combat-bottom {
   display: grid;
-  grid-template-columns: minmax(320px, 0.78fr) minmax(260px, 1fr);
-  gap: 10px;
+  grid-template-columns: minmax(520px, 1fr) minmax(220px, 0.38fr);
+  gap: 8px;
   border-top: 1px solid rgba(230, 215, 181, 0.12);
-  padding: 10px;
+  padding: 8px;
+  max-height: 96px;
+  overflow: hidden;
 }
 
 .combat-telemetry {
   min-width: 0;
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .telemetry-grid {
-  display: grid;
+  display: none;
   grid-template-columns: repeat(4, minmax(86px, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .run-review-strip {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(150px, 0.9fr) minmax(240px, 1.2fr) minmax(170px, 0.8fr) auto;
   align-items: stretch;
-  gap: 7px;
+  gap: 6px;
   border: 1px solid rgba(230, 215, 181, 0.1);
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.3);
@@ -749,7 +751,7 @@
 
 .run-objective-rail {
   min-width: 0;
-  grid-column: 1 / -1;
+  grid-column: auto;
   display: grid;
   grid-template-columns: minmax(100px, 0.62fr) minmax(0, 1fr);
   align-items: center;
@@ -758,7 +760,7 @@
   border: 1px solid rgba(217, 165, 84, 0.13);
   border-radius: 5px;
   background: rgba(217, 165, 84, 0.055);
-  padding: 6px 7px;
+  padding: 5px 6px;
 }
 
 .run-objective-copy {
@@ -839,7 +841,7 @@
 
 .run-review-metrics {
   min-width: 0;
-  grid-column: 1 / -1;
+  grid-column: auto;
   display: grid;
   grid-template-columns: 0.62fr minmax(0, 1.18fr) 0.62fr;
   gap: 6px;
@@ -847,7 +849,7 @@
 
 .run-review-metrics span {
   min-width: 0;
-  min-height: 34px;
+  min-height: 30px;
   display: grid;
   align-content: center;
   gap: 2px;
@@ -869,8 +871,8 @@
 }
 
 .run-review-strip .arena-button {
-  grid-column: 2;
-  grid-row: 1;
+  grid-column: auto;
+  grid-row: auto;
   min-width: 74px;
   min-height: 34px;
   padding: 0 9px;
@@ -907,15 +909,15 @@
 .collision-debug {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(82px, 1.2fr) repeat(7, minmax(54px, 1fr));
-  gap: 6px;
+  grid-template-columns: minmax(82px, 1.1fr) repeat(7, minmax(48px, 1fr));
+  gap: 5px;
   align-items: stretch;
 }
 
 .collision-debug div,
 .collision-debug span {
   min-width: 0;
-  min-height: 34px;
+  min-height: 30px;
   display: grid;
   align-content: center;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -959,20 +961,20 @@
 
 .arena-stat {
   min-width: 0;
-  min-height: 56px;
+  min-height: 46px;
   display: flex;
   align-items: center;
   gap: 8px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.36);
-  padding: 8px;
+  padding: 7px;
 }
 
 .arena-stat-icon {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
   display: grid;
   place-items: center;
   border-radius: 5px;
@@ -997,7 +999,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.98rem;
+  font-size: 0.88rem;
 }
 
 .arena-stat-good strong,
@@ -1025,24 +1027,24 @@
 
 .event-feed {
   display: grid;
-  gap: 7px;
+  gap: 6px;
   overflow: auto;
 }
 
 .compact-events {
-  max-height: 128px;
+  max-height: 76px;
 }
 
 .event-line,
 .empty-drop {
-  min-height: 32px;
+  min-height: 29px;
   display: flex;
   align-items: center;
   border: 1px solid rgba(230, 215, 181, 0.09);
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.035);
-  padding: 7px 8px;
-  font-size: 0.8rem;
+  padding: 6px 8px;
+  font-size: 0.74rem;
 }
 
 .event-line-skill {
@@ -1070,34 +1072,32 @@
 .panel-tabs {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
+  gap: 5px;
   border-bottom: 1px solid rgba(230, 215, 181, 0.12);
-  padding: 8px;
+  padding: 7px;
 }
 
 .panel-tab {
   min-width: 0;
-  min-height: 36px;
+  min-height: 34px;
   justify-content: center;
-  gap: 6px;
+  gap: 0;
   border-radius: 6px;
   padding: 0 7px;
 }
 
 .panel-tab span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: none;
 }
 
 .workbench-content {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 10px;
+  padding: 8px;
 }
 
 .workbench-section {
@@ -1105,7 +1105,7 @@
   border: 1px solid rgba(230, 215, 181, 0.13);
   border-radius: 8px;
   background: rgba(13, 15, 16, 0.86);
-  padding: 10px;
+  padding: 8px;
 }
 
 .section-title {
@@ -1152,7 +1152,7 @@
   align-content: center;
   gap: 4px;
   border-radius: 6px;
-  padding: 8px 10px;
+  padding: 7px 9px;
   text-align: left;
 }
 
@@ -1466,7 +1466,7 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 5px;
   background: rgba(0, 0, 0, 0.28);
-  padding: 7px;
+  padding: 6px;
 }
 
 .delta-line span {
@@ -1998,7 +1998,7 @@
   }
 
   .arena-stage-panel {
-    min-height: 640px;
+    min-height: 760px;
   }
 
   .workbench-panel {
@@ -2043,7 +2043,7 @@
   }
 
   .canvas-wrap {
-    height: clamp(320px, 52vh, 440px);
+    height: clamp(480px, 64vh, 620px);
   }
 
   .arena-hud-grid,
@@ -2129,9 +2129,12 @@
   }
 
   .arena-hud-grid {
-    position: static;
-    padding: 8px;
-    background: rgba(8, 9, 10, 0.95);
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    padding: 0;
+    background: transparent;
   }
 
   .arena-renderer-debug {
@@ -2164,7 +2167,7 @@
   }
 
   .canvas-wrap {
-    height: clamp(300px, 48vh, 380px);
+    height: clamp(460px, 62vh, 560px);
   }
 
   .arena-hud-grid,
@@ -2195,6 +2198,14 @@
 
   .inventory-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .arena-hud-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .arena-hud-grid .arena-stat {
+    min-height: 42px;
   }
 
   .skill-link-board {

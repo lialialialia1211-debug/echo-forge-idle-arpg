@@ -115,8 +115,8 @@ const telegraphConfig: Partial<Record<EnemyBehaviorId, TelegraphConfig>> = {
 
 function createWorldMapper(width: number, height: number, arena: ArenaCircuitDef) {
   const centerX = width / 2;
-  const centerY = height / 2 + Math.min(28, height * 0.035);
-  const scale = Math.min((width * 0.9) / (arena.radius * 2), (height * 0.82) / (arena.radius * 2));
+  const centerY = height / 2;
+  const scale = Math.min((width * 0.94) / (arena.radius * 2), (height * 0.94) / (arena.radius * 2));
 
   return {
     centerX,
