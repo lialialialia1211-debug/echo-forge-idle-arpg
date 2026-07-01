@@ -15,10 +15,11 @@
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
+    "phaser": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "zustand": "^4.5.5",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "zustand": "^4.5.5"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",

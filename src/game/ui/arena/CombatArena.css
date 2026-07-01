@@ -380,6 +380,15 @@
   isolation: isolate;
 }
 
+.arena-phaser-view {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.arena-phaser-view canvas,
 .canvas-wrap canvas {
   display: block;
   width: 100%;
@@ -1549,6 +1558,16 @@
     box-shadow: 0 16px 42px rgba(0, 0, 0, 0.42);
   }
 
+  .panel-tab {
+    gap: 4px;
+    padding: 0 5px;
+    font-size: 0.84rem;
+  }
+
+  .panel-tab svg {
+    flex: 0 0 auto;
+  }
+
   .workbench-content {
     overflow: visible;
     padding-bottom: 82px;
@@ -1597,6 +1616,23 @@
 }
 
 @media (max-width: 460px) {
+  .panel-tabs {
+    gap: 4px;
+    padding: 6px;
+  }
+
+  .panel-tab {
+    min-height: 40px;
+    gap: 3px;
+    padding: 0 4px;
+    font-size: 0.78rem;
+  }
+
+  .panel-tab svg {
+    width: 14px;
+    height: 14px;
+  }
+
   .next-action-strip {
     grid-template-columns: auto minmax(0, 1fr);
   }

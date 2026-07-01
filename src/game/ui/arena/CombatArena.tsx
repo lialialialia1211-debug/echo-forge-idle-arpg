@@ -48,9 +48,6 @@ import {
 import { loadLocalSave, writeLocalSave } from "../../save/localStore";
 import type {
   ArenaKey,
-  ArenaCircuitDef,
-  ArenaDrop,
-  ArenaEffect,
   TalentNodeDef,
   TopArenaRuntime,
   TopEquipment,
@@ -60,19 +57,12 @@ import type {
   TopPartRarity,
   TopPartSlotId,
   TopResistanceBlock,
-  TopRuntimeEntity,
   TopRuntimeStats,
   TopStatBlock,
   TuningRuneDef,
 } from "../../engine/topTypes";
+import { ArenaPhaserView } from "./ArenaPhaserView";
 import "./CombatArena.css";
-
-type Palette = {
-  core: string;
-  rim: string;
-  glow: string;
-  text: string;
-};
 
 type ActivePanel = "build" | "loot" | "forge" | "route";
 
@@ -89,49 +79,6 @@ type LootNotice = {
 };
 
 type RuneSlotState = [string | null, string | null, string | null];
-
-const framePalette: Record<string, Palette> = {
-  frame_swift_razor: {
-    core: "#cfd7d8",
-    rim: "#df624c",
-    glow: "rgba(223, 98, 76, 0.46)",
-    text: "#f0c7b6",
-  },
-  frame_ember_crucible: {
-    core: "#f0a35c",
-    rim: "#d9a554",
-    glow: "rgba(217, 100, 54, 0.55)",
-    text: "#f6d399",
-  },
-  frame_storm_needle: {
-    core: "#90e2ff",
-    rim: "#65c6b0",
-    glow: "rgba(101, 198, 176, 0.5)",
-    text: "#b9f2f0",
-  },
-};
-
-const enemyPalette: Record<TopRuntimeEntity["rank"], Palette> = {
-  player: framePalette.frame_swift_razor,
-  pack: {
-    core: "#b8aba0",
-    rim: "#6f7470",
-    glow: "rgba(191, 116, 78, 0.3)",
-    text: "#d8c6b7",
-  },
-  elite: {
-    core: "#f1c36d",
-    rim: "#df624c",
-    glow: "rgba(217, 165, 84, 0.46)",
-    text: "#f6dca4",
-  },
-  boss: {
-    core: "#d2bdff",
-    rim: "#b68cff",
-    glow: "rgba(182, 140, 255, 0.5)",
-    text: "#eadfff",
-  },
-};
 
 const rarityTone: Record<TopPartRarity, "neutral" | "good" | "rare" | "warn"> = {
   common: "neutral",
@@ -183,407 +130,6 @@ const talentNodePositions: Record<string, { x: number; y: number }> = {
   talent_salvage_rites: { x: 18, y: 59 },
   talent_last_rotation: { x: 50, y: 11 },
 };
-
-function getCanvasSize(canvas: HTMLCanvasElement): { width: number; height: number; dpr: number } {
-  const rect = canvas.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  const width = Math.max(1, Math.floor(rect.width));
-  const height = Math.max(1, Math.floor(rect.height));
-  const scaledWidth = Math.floor(width * dpr);
-  const scaledHeight = Math.floor(height * dpr);
-
-  if (canvas.width !== scaledWidth || canvas.height !== scaledHeight) {
-    canvas.width = scaledWidth;
-    canvas.height = scaledHeight;
-  }
-
-  return { width, height, dpr };
-}
-
-function createWorldMapper(width: number, height: number, arena: ArenaCircuitDef) {
-  const centerX = width / 2;
-  const centerY = height / 2 + Math.min(28, height * 0.035);
-  const scale = Math.min((width * 0.9) / (arena.radius * 2), (height * 0.82) / (arena.radius * 2));
-
-  return {
-    centerX,
-    centerY,
-    scale,
-    point(x: number, y: number) {
-      return {
-        x: centerX + x * scale,
-        y: centerY + y * scale,
-      };
-    },
-    radius(value: number) {
-      return value * scale;
-    },
-  };
-}
-
-function drawArenaFloor(ctx: CanvasRenderingContext2D, width: number, height: number, arena: ArenaCircuitDef, runtime: TopArenaRuntime) {
-  const map = createWorldMapper(width, height, arena);
-  const radius = map.radius(arena.radius);
-  const background = ctx.createRadialGradient(map.centerX, map.centerY, radius * 0.05, map.centerX, map.centerY, radius * 1.18);
-  background.addColorStop(0, "#1d2222");
-  background.addColorStop(0.42, "#101414");
-  background.addColorStop(0.78, "#080a0b");
-  background.addColorStop(1, "#050607");
-
-  ctx.fillStyle = "#070809";
-  ctx.fillRect(0, 0, width, height);
-  ctx.fillStyle = background;
-  ctx.fillRect(0, 0, width, height);
-
-  const sweep = (runtime.time * 0.22) % (Math.PI * 2);
-  const halo = ctx.createRadialGradient(map.centerX, map.centerY, radius * 0.55, map.centerX, map.centerY, radius * 1.1);
-  halo.addColorStop(0, "rgba(101, 198, 176, 0.02)");
-  halo.addColorStop(0.8, "rgba(217, 165, 84, 0.16)");
-  halo.addColorStop(1, "rgba(223, 98, 76, 0.2)");
-  ctx.fillStyle = halo;
-  ctx.beginPath();
-  ctx.arc(map.centerX, map.centerY, radius * 1.07, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(map.centerX, map.centerY, radius, 0, Math.PI * 2);
-  ctx.clip();
-
-  ctx.fillStyle = "rgba(230, 215, 181, 0.025)";
-  for (let y = map.centerY - radius; y < map.centerY + radius; y += 28) {
-    ctx.fillRect(map.centerX - radius, y, radius * 2, 1);
-  }
-  for (let x = map.centerX - radius; x < map.centerX + radius; x += 34) {
-    ctx.fillRect(x, map.centerY - radius, 1, radius * 2);
-  }
-
-  ctx.strokeStyle = "rgba(217, 165, 84, 0.18)";
-  ctx.lineWidth = 1;
-  for (let i = 1; i <= 5; i += 1) {
-    ctx.beginPath();
-    ctx.arc(map.centerX, map.centerY, (radius / 6) * i, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-
-  ctx.strokeStyle = "rgba(101, 198, 176, 0.16)";
-  for (let i = 0; i < 12; i += 1) {
-    const angle = (Math.PI * 2 * i) / 12 + sweep * 0.08;
-    ctx.beginPath();
-    ctx.moveTo(map.centerX, map.centerY);
-    ctx.lineTo(map.centerX + Math.cos(angle) * radius, map.centerY + Math.sin(angle) * radius);
-    ctx.stroke();
-  }
-
-  ctx.strokeStyle = "rgba(223, 98, 76, 0.28)";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(map.centerX, map.centerY, radius * 0.82, sweep, sweep + Math.PI * 0.42);
-  ctx.stroke();
-  ctx.restore();
-
-  ctx.strokeStyle = "rgba(230, 215, 181, 0.34)";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(map.centerX, map.centerY, radius, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.strokeStyle = "rgba(0, 0, 0, 0.74)";
-  ctx.lineWidth = 8;
-  ctx.beginPath();
-  ctx.arc(map.centerX, map.centerY, radius + 4, 0, Math.PI * 2);
-  ctx.stroke();
-}
-
-function drawSpark(ctx: CanvasRenderingContext2D, x: number, y: number, ageRatio: number, intensity: number) {
-  const alpha = 1 - ageRatio;
-  const spokes = 8;
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.globalAlpha = alpha;
-  ctx.strokeStyle = "#f4c56d";
-  ctx.lineWidth = Math.max(1, 2 * intensity);
-  for (let i = 0; i < spokes; i += 1) {
-    const angle = (Math.PI * 2 * i) / spokes + ageRatio * 1.8;
-    const inner = 4 * intensity;
-    const outer = (18 + 20 * ageRatio) * intensity;
-    ctx.beginPath();
-    ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
-    ctx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
-function drawEffect(ctx: CanvasRenderingContext2D, effect: ArenaEffect, map: ReturnType<typeof createWorldMapper>) {
-  const point = map.point(effect.x, effect.y);
-  const ratio = clamp(effect.age / effect.lifetime, 0, 1);
-  const alpha = 1 - ratio;
-
-  if (effect.kind === "spark") {
-    drawSpark(ctx, point.x, point.y, ratio, effect.intensity);
-    return;
-  }
-
-  if (effect.kind === "emberTrail") {
-    const radius = (20 + ratio * 42) * effect.intensity;
-    const glow = ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, radius);
-    glow.addColorStop(0, `rgba(255, 168, 75, ${0.45 * alpha})`);
-    glow.addColorStop(0.42, `rgba(223, 98, 76, ${0.24 * alpha})`);
-    glow.addColorStop(1, "rgba(223, 98, 76, 0)");
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
-    ctx.fill();
-    return;
-  }
-
-  if (effect.kind === "stormArc") {
-    const target = map.point(effect.x2 ?? effect.x, effect.y2 ?? effect.y);
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = "#9ff8ff";
-    ctx.lineWidth = 2.2 * effect.intensity;
-    ctx.shadowColor = "#65c6b0";
-    ctx.shadowBlur = 18;
-    ctx.beginPath();
-    ctx.moveTo(point.x, point.y);
-    const midX = (point.x + target.x) / 2 + Math.sin(effect.age * 30) * 16;
-    const midY = (point.y + target.y) / 2 + Math.cos(effect.age * 22) * 12;
-    ctx.quadraticCurveTo(midX, midY, target.x, target.y);
-    ctx.stroke();
-    ctx.restore();
-    return;
-  }
-
-  if (effect.kind === "chargeLine") {
-    const target = map.point(effect.x2 ?? effect.x, effect.y2 ?? effect.y);
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = "#df624c";
-    ctx.lineWidth = 2.6 * effect.intensity;
-    ctx.shadowColor = "#df624c";
-    ctx.shadowBlur = 18;
-    ctx.setLineDash([10, 8]);
-    ctx.beginPath();
-    ctx.moveTo(point.x, point.y);
-    ctx.lineTo(target.x, target.y);
-    ctx.stroke();
-    ctx.restore();
-    return;
-  }
-
-  if (effect.kind === "frictionSpark") {
-    const target = map.point(effect.x2 ?? effect.x, effect.y2 ?? effect.y);
-    const dx = target.x - point.x;
-    const dy = target.y - point.y;
-    const length = Math.sqrt(dx * dx + dy * dy) || 1;
-    const nx = dx / length;
-    const ny = dy / length;
-    const branchCount = Math.min(7, Math.max(3, Math.ceil(effect.intensity * 2.2)));
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.lineCap = "round";
-    ctx.shadowColor = "#ffd47a";
-    ctx.shadowBlur = 22 + effect.intensity * 9;
-    ctx.strokeStyle = "#fff4c7";
-    ctx.lineWidth = 3.2 + effect.intensity * 1.05;
-    ctx.beginPath();
-    ctx.moveTo(point.x, point.y);
-    ctx.lineTo(target.x, target.y);
-    ctx.stroke();
-    ctx.strokeStyle = "#ff7a2d";
-    ctx.lineWidth = 1.8 + effect.intensity * 0.55;
-    for (let i = 0; i < branchCount; i += 1) {
-      const offset = (i - (branchCount - 1) / 2) * 0.42;
-      const branchLength = length * (0.28 + 0.07 * i) * Math.min(1.45, effect.intensity);
-      const side = i % 2 === 0 ? 1 : -1;
-      const start = 0.18 + i * 0.1;
-      const sx = point.x + dx * start;
-      const sy = point.y + dy * start;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(sx + (nx * 0.72 - ny * side * (0.42 + offset * 0.2)) * branchLength, sy + (ny * 0.72 + nx * side * (0.42 + offset * 0.2)) * branchLength);
-      ctx.stroke();
-    }
-    const coreRadius = 3 + effect.intensity * 2.2;
-    ctx.fillStyle = "#fff4c7";
-    ctx.beginPath();
-    ctx.arc(point.x, point.y, coreRadius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-    return;
-  }
-
-  if (effect.kind === "hazard") {
-    const radius = (52 + ratio * 16) * effect.intensity;
-    const glow = ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, radius);
-    glow.addColorStop(0, `rgba(223, 98, 76, ${0.3 * alpha})`);
-    glow.addColorStop(0.62, `rgba(217, 165, 84, ${0.18 * alpha})`);
-    glow.addColorStop(1, "rgba(223, 98, 76, 0)");
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = `rgba(223, 98, 76, ${0.58 * alpha})`;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(point.x, point.y, radius * 0.82, 0, Math.PI * 2);
-    ctx.stroke();
-    return;
-  }
-
-  const ringRadius = (18 + ratio * 34) * effect.intensity;
-  ctx.strokeStyle = effect.kind === "drop" ? `rgba(182, 140, 255, ${alpha})` : effect.kind === "shockwave" ? `rgba(223, 98, 76, ${alpha})` : `rgba(217, 165, 84, ${alpha})`;
-  ctx.lineWidth = effect.kind === "shockwave" ? 3 : 2;
-  ctx.beginPath();
-  ctx.arc(point.x, point.y, effect.kind === "shockwave" ? ringRadius * 2.4 : ringRadius, 0, Math.PI * 2);
-  ctx.stroke();
-}
-
-function drawTop(ctx: CanvasRenderingContext2D, entity: TopRuntimeEntity, map: ReturnType<typeof createWorldMapper>, palette: Palette) {
-  const point = map.point(entity.x, entity.y);
-  const radius = map.radius(entity.radius);
-  const integrityRatio = clamp(entity.spinIntegrity / entity.stats.maxSpinIntegrity, 0, 1);
-  const spinRatio = clamp(entity.spinPower / 100, 0.04, 1);
-  const wobble = clamp(entity.wobble ?? 0, 0, 1);
-  const wobbleX = Math.cos(entity.angle * 1.7) * radius * wobble * 0.16;
-  const wobbleY = Math.sin(entity.angle * 1.35) * radius * wobble * 0.12;
-
-  ctx.save();
-  ctx.translate(point.x + wobbleX, point.y + wobbleY);
-  ctx.rotate(entity.angle);
-  ctx.scale(1 + wobble * 0.06, 1 - wobble * 0.09);
-  ctx.shadowColor = palette.glow;
-  ctx.shadowBlur = (entity.team === "player" ? 22 : 14) * (0.55 + spinRatio * 0.45);
-  ctx.fillStyle = "rgba(0, 0, 0, 0.38)";
-  ctx.beginPath();
-  ctx.ellipse(radius * 0.16, radius * 0.22, radius * 1.1, radius * 0.74, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = palette.rim;
-  for (let i = 0; i < 4; i += 1) {
-    ctx.rotate(Math.PI / 2);
-    ctx.beginPath();
-    ctx.moveTo(0, -radius * 1.18);
-    ctx.lineTo(radius * 0.34, -radius * 0.24);
-    ctx.lineTo(0, -radius * 0.03);
-    ctx.lineTo(-radius * 0.34, -radius * 0.24);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  const body = ctx.createRadialGradient(-radius * 0.28, -radius * 0.34, radius * 0.08, 0, 0, radius);
-  body.addColorStop(0, "#ffffff");
-  body.addColorStop(0.18, palette.core);
-  body.addColorStop(0.58, "#303638");
-  body.addColorStop(1, "#08090a");
-  ctx.fillStyle = body;
-  ctx.beginPath();
-  ctx.arc(0, 0, radius, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.strokeStyle = "rgba(0, 0, 0, 0.58)";
-  ctx.lineWidth = Math.max(2, radius * 0.11);
-  ctx.beginPath();
-  ctx.arc(0, 0, radius * 0.66, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.fillStyle = palette.rim;
-  ctx.beginPath();
-  ctx.arc(0, 0, radius * 0.28, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-
-  if (wobble > 0.05) {
-    ctx.strokeStyle = `rgba(223, 98, 76, ${Math.min(0.42, wobble * 0.65)})`;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.ellipse(point.x + wobbleX * 1.8, point.y + wobbleY * 1.8, radius * (1.12 + wobble * 0.22), radius * (0.8 - wobble * 0.12), entity.angle * 0.35, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-
-  ctx.strokeStyle = "rgba(0, 0, 0, 0.72)";
-  ctx.lineWidth = 5;
-  ctx.beginPath();
-  ctx.arc(point.x, point.y, radius + 7, -Math.PI / 2, Math.PI * 1.5);
-  ctx.stroke();
-
-  ctx.strokeStyle = integrityRatio > 0.33 ? palette.rim : "#df624c";
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.arc(point.x, point.y, radius + 7, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * integrityRatio);
-  ctx.stroke();
-
-  ctx.strokeStyle = `rgba(101, 198, 176, ${0.22 + spinRatio * 0.42})`;
-  ctx.lineWidth = 2;
-  ctx.setLineDash([6, 5]);
-  ctx.beginPath();
-  ctx.arc(point.x, point.y, radius + 12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * spinRatio);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  ctx.font = "600 11px Inter, system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillStyle = palette.text;
-  ctx.fillText(entity.name, point.x, point.y + radius + 24);
-
-  const barWidth = Math.max(42, radius * 2.2);
-  const barY = point.y + radius + 30;
-  ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
-  ctx.fillRect(point.x - barWidth / 2, barY, barWidth, 4);
-  ctx.fillStyle = integrityRatio > 0.45 ? palette.rim : "#df624c";
-  ctx.fillRect(point.x - barWidth / 2, barY, barWidth * integrityRatio, 4);
-}
-
-function drawDrops(ctx: CanvasRenderingContext2D, drops: ArenaDrop[], map: ReturnType<typeof createWorldMapper>) {
-  for (const drop of drops) {
-    const point = map.point(drop.x, drop.y);
-    const bob = Math.sin(drop.age * 4) * 2;
-    ctx.save();
-    ctx.translate(point.x, point.y + bob);
-    ctx.rotate(Math.PI / 4);
-    ctx.fillStyle =
-      drop.rarity === "relic"
-        ? "#b68cff"
-        : drop.rarity === "engraved"
-          ? "#d9a554"
-          : drop.rarity === "tuned"
-            ? "#65c6b0"
-            : "#cbbf9d";
-    ctx.shadowColor = ctx.fillStyle;
-    ctx.shadowBlur = 12;
-    ctx.fillRect(-5, -5, 10, 10);
-    ctx.restore();
-  }
-}
-
-function drawScene(canvas: HTMLCanvasElement, runtime: TopArenaRuntime) {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    return;
-  }
-
-  const arena = getArenaCircuitDef(runtime.arenaId);
-  const { width, height, dpr } = getCanvasSize(canvas);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  drawArenaFloor(ctx, width, height, arena, runtime);
-
-  const map = createWorldMapper(width, height, arena);
-  const effects = [...runtime.effects].reverse();
-  for (const effect of effects.filter((entry) => entry.kind !== "frictionSpark")) {
-    drawEffect(ctx, effect, map);
-  }
-  drawDrops(ctx, runtime.drops, map);
-
-  for (const enemy of runtime.enemies) {
-    drawTop(ctx, enemy, map, enemyPalette[enemy.rank]);
-  }
-  drawTop(ctx, runtime.player, map, framePalette[runtime.frameId] ?? framePalette.frame_swift_razor);
-  for (const effect of effects.filter((entry) => entry.kind === "frictionSpark")) {
-    drawEffect(ctx, effect, map);
-  }
-}
 
 function isPart(part: TopPartInstance | null | undefined): part is TopPartInstance {
   return Boolean(part);
@@ -859,7 +405,6 @@ export function CombatArena() {
   const [totalKills, setTotalKills] = useState(0);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [lootNotices, setLootNotices] = useState<LootNotice[]>([]);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const seenDropIdsRef = useRef(new Set<string>());
   const lastKillRef = useRef({ seed: "", kills: 0 });
   const lastRouteClearRef = useRef({ seed: "", routeClears: 0 });
@@ -1167,24 +712,10 @@ export function CombatArena() {
   };
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (canvas && !running) {
+    if (!running) {
       runtimeRef.current = runtime;
-      drawScene(canvas, runtime);
     }
   }, [running, runtime]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      return undefined;
-    }
-
-    const redraw = () => drawScene(canvas, runtimeRef.current);
-    window.addEventListener("resize", redraw);
-    redraw();
-    return () => window.removeEventListener("resize", redraw);
-  }, []);
 
   useEffect(() => {
     if (!running) {
@@ -1200,10 +731,6 @@ export function CombatArena() {
         lastTime = now;
         const nextRuntime = stepTopArenaRuntime(runtimeRef.current, elapsed * speed);
         runtimeRef.current = nextRuntime;
-        const canvas = canvasRef.current;
-        if (canvas) {
-          drawScene(canvas, nextRuntime);
-        }
         if (now - lastUiPublish >= 100) {
           setRuntime(nextRuntime);
           lastUiPublish = now;
@@ -2053,7 +1580,7 @@ export function CombatArena() {
           </div>
 
           <div className="canvas-wrap">
-            <canvas aria-label="Live battle top arena" data-testid="arena-canvas" ref={canvasRef} />
+            <ArenaPhaserView runtime={runtime} runtimeRef={runtimeRef} />
             {runtimeError ? (
               <div className="arena-runtime-error" role="alert">
                 <strong>Combat loop stopped</strong>
