@@ -44,7 +44,7 @@
 .next-action-strip {
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(150px, 1fr) minmax(260px, 0.82fr) auto;
   align-items: center;
   gap: 10px;
   border-bottom: 1px solid rgba(230, 215, 181, 0.12);
@@ -63,27 +63,76 @@
   color: var(--brass);
 }
 
-.next-action-strip > div {
+.next-action-copy {
   min-width: 0;
   display: grid;
   gap: 2px;
 }
 
-.next-action-strip strong,
-.next-action-strip span {
+.next-action-copy strong,
+.next-action-copy span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.next-action-strip strong {
+.next-action-copy strong {
   font-size: 0.9rem;
 }
 
-.next-action-strip span {
+.next-action-copy span {
   color: var(--muted);
   font-size: 0.76rem;
+}
+
+.next-action-cues {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.decision-chip {
+  min-width: 0;
+  min-height: 34px;
+  display: grid;
+  align-content: center;
+  gap: 1px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 5px 7px;
+}
+
+.decision-chip small,
+.decision-chip strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.decision-chip small {
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.decision-chip strong {
+  color: var(--soft);
+  font-size: 0.72rem;
+}
+
+.decision-chip-good strong {
+  color: var(--teal);
+}
+
+.decision-chip-warn strong {
+  color: var(--ember);
+}
+
+.decision-chip-rare strong {
+  color: var(--violet);
 }
 
 .next-action-good .next-action-icon {
@@ -1916,6 +1965,15 @@
     padding: 8px 10px;
   }
 
+  .next-action-cues {
+    grid-column: 2 / -1;
+  }
+
+  .next-action-strip .arena-button {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
   .wallet-strip,
   .arena-controls {
     justify-content: stretch;
@@ -2051,11 +2109,23 @@
   }
 
   .next-action-strip {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) minmax(74px, auto);
+    gap: 8px;
+  }
+
+  .next-action-cues {
+    grid-column: 1 / -1;
+  }
+
+  .decision-chip {
+    min-height: 32px;
+    padding: 4px 6px;
   }
 
   .next-action-strip .arena-button {
-    grid-column: 1 / -1;
+    grid-column: 3;
+    grid-row: 1;
+    min-width: 74px;
   }
 
   .arena-hud-grid {

@@ -110,6 +110,24 @@ type PartVerdict = {
   score: number;
 };
 
+type DecisionCueTone = "neutral" | "good" | "warn" | "rare";
+
+type DecisionCue = {
+  label: string;
+  value: string;
+  tone?: DecisionCueTone;
+};
+
+type NextActionPrompt = {
+  tone: DecisionCueTone;
+  icon: ReactNode;
+  label: string;
+  detail: string;
+  button: string;
+  cues: [DecisionCue, DecisionCue, DecisionCue];
+  onClick: () => void;
+};
+
 type ObjectiveSegmentState = "cleared" | "active" | "pending" | "boss";
 
 type RuneSlotState = [string | null, string | null, string | null];
@@ -1691,67 +1709,184 @@ export function CombatArena() {
 
   const renderNextActionStrip = () => {
     const recentDropCount = lootNotices.filter((notice) => notice.tone === "drop").length;
-    const action =
-      runtimeError
-        ? {
-            tone: "warn",
-            icon: <RotateCcw size={17} aria-hidden />,
-            label: "Combat stopped",
-            detail: runtimeError,
-            button: "Reset",
-            onClick: () => resetArena(),
-          }
-        : running
-          ? {
-              tone: "good",
-              icon: <Pause size={17} aria-hidden />,
-              label: "Run in progress",
-              detail: `Wave ${formatNumber(runtime.wave, 0)} / ${formatNumber(totalKills, 0)} kills`,
-              button: "Pause",
-              onClick: toggleRunning,
-            }
-        : recentDropCount > 0
-          ? {
-              tone: "rare",
-              icon: <PackageOpen size={17} aria-hidden />,
-              label: `${recentDropCount} drops ready`,
-              detail: selectedPart ? selectedPart.displayName : "Review inventory",
-              button: "Loot",
-              onClick: () => setActivePanel("loot"),
-            }
-          : !running && selectedArenaKey
-            ? {
-                tone: "rare",
-                icon: <Flame size={17} aria-hidden />,
-                label: "Arena key ready",
-                detail: formatKeyTitle(selectedArenaKey),
-                button: "Route",
-                onClick: () => setActivePanel("route"),
-              }
-            : bossProjection.successChance >= 0.5 && !clearedBossGateIds.includes(bossProjection.gateId)
-              ? {
-                  tone: "rare",
-                  icon: <Network size={17} aria-hidden />,
-                  label: "Boss gate viable",
-                  detail: `${formatPercent(bossProjection.successChance, 0)} projected`,
-                  button: "Route",
-                  onClick: () => setActivePanel("route"),
-                }
-              : {
-                  tone: "neutral",
-                  icon: <Play size={17} aria-hidden />,
-                  label: "Ready to run",
-                  detail: arena.displayName,
-                  button: "Start",
-                  onClick: toggleRunning,
-                };
+    const visibleDropCount = Math.max(runtime.drops.length, recentDropCount);
+    const selectedPartSignal = selectedPartVerdict ? selectedPartVerdict.label : selectedPart ? selectedPart.displayName : "No part selected";
+    const routeSignal = runReview.routeProgress >= 8 ? "Boss route" : `${runReview.routeProgress}/8 route`;
+    let action: NextActionPrompt;
+
+    if (runtimeError) {
+      action = {
+        tone: "warn",
+        icon: <RotateCcw size={17} aria-hidden />,
+        label: "Reset combat loop",
+        detail: runtimeError,
+        button: "Reset",
+        cues: [
+          { label: "Now", value: "Stopped", tone: "warn" },
+          { label: "Signal", value: "Runtime halted", tone: "warn" },
+          { label: "Then", value: "Restart run" },
+        ],
+        onClick: () => resetArena(),
+      };
+    } else if (running && dangerCue) {
+      action = {
+        tone: dangerCue.tone === "danger" ? "warn" : dangerCue.tone,
+        icon: <AlertTriangle size={17} aria-hidden />,
+        label: dangerCue.tone === "danger" ? "Break danger pattern" : dangerCue.label,
+        detail: dangerCue.detail,
+        button: "Pause",
+        cues: [
+          { label: "Now", value: dangerCue.label, tone: dangerCue.tone === "danger" ? "warn" : dangerCue.tone },
+          { label: "Signal", value: formatPercent(clamp(dangerCue.progress, 0, 1), 0), tone: dangerCue.tone === "danger" ? "warn" : dangerCue.tone },
+          { label: "Then", value: playerIntegrity < 0.35 ? "Check build" : routeSignal },
+        ],
+        onClick: toggleRunning,
+      };
+    } else if (running && runtime.drops.length > 0) {
+      action = {
+        tone: "rare",
+        icon: <PackageOpen size={17} aria-hidden />,
+        label: "Loot window open",
+        detail: `${runtime.drops.length} drops in this run`,
+        button: "Pause",
+        cues: [
+          { label: "Now", value: "Secure drops", tone: "rare" },
+          { label: "Signal", value: runReview.bestDropText, tone: runReview.tone },
+          { label: "Then", value: "Open Loot" },
+        ],
+        onClick: toggleRunning,
+      };
+    } else if (running && runReview.routeProgress >= 8) {
+      action = {
+        tone: "rare",
+        icon: <Flame size={17} aria-hidden />,
+        label: "Boss wave active",
+        detail: "Shatter boss to forge route key",
+        button: "Pause",
+        cues: [
+          { label: "Now", value: "Finish boss", tone: "rare" },
+          { label: "Signal", value: routeSignal, tone: "rare" },
+          { label: "Then", value: "Check route key" },
+        ],
+        onClick: toggleRunning,
+      };
+    } else if (running) {
+      action = {
+        tone: "good",
+        icon: <Pause size={17} aria-hidden />,
+        label: "Hold the run",
+        detail: `Wave ${formatNumber(runtime.wave, 0)} / ${formatNumber(totalKills, 0)} kills`,
+        button: "Pause",
+        cues: [
+          { label: "Now", value: "Keep farming", tone: "good" },
+          { label: "Signal", value: routeSignal },
+          { label: "Then", value: visibleDropCount > 0 ? "Review loot" : "Push boss" },
+        ],
+        onClick: toggleRunning,
+      };
+    } else if (visibleDropCount > 0) {
+      action = {
+        tone: "rare",
+        icon: <PackageOpen size={17} aria-hidden />,
+        label: `${visibleDropCount} drops ready`,
+        detail: selectedPart ? selectedPart.displayName : "Review inventory",
+        button: "Loot",
+        cues: [
+          { label: "Now", value: "Inspect loot", tone: "rare" },
+          { label: "Signal", value: selectedPartSignal, tone: selectedPartVerdict?.tone },
+          { label: "Then", value: selectedPartVerdict?.action === "forge" ? "Forge roll" : "Restart run" },
+        ],
+        onClick: () => setActivePanel("loot"),
+      };
+    } else if (selectedPartVerdict?.action === "forge") {
+      action = {
+        tone: "rare",
+        icon: <Recycle size={17} aria-hidden />,
+        label: "Forge candidate",
+        detail: selectedPartVerdict.detail,
+        button: "Forge",
+        cues: [
+          { label: "Now", value: "Craft part", tone: "rare" },
+          { label: "Signal", value: selectedPartVerdict.label, tone: selectedPartVerdict.tone },
+          { label: "Then", value: "Recheck build" },
+        ],
+        onClick: () => setActivePanel("forge"),
+      };
+    } else if (selectedPartVerdict?.action === "equip") {
+      action = {
+        tone: "good",
+        icon: <PackageOpen size={17} aria-hidden />,
+        label: "Equip upgrade",
+        detail: selectedPartVerdict.detail,
+        button: "Loot",
+        cues: [
+          { label: "Now", value: "Swap part", tone: "good" },
+          { label: "Signal", value: selectedPartVerdict.label, tone: selectedPartVerdict.tone },
+          { label: "Then", value: "Start run" },
+        ],
+        onClick: () => setActivePanel("loot"),
+      };
+    } else if (selectedArenaKey) {
+      const keySummary = selectedArenaKeySummary ?? summarizeArenaKeyRiskReward(selectedArenaKey);
+      const keyEnemyPressure = Math.max(keySummary.enemyIntegrityMultiplier, keySummary.enemyImpactMultiplier, keySummary.enemyGuardMultiplier, keySummary.enemyRpmMultiplier) - 1;
+      const keyReward = keySummary.rewardQuantity + keySummary.rewardRarity;
+      action = {
+        tone: "rare",
+        icon: <Flame size={17} aria-hidden />,
+        label: "Arena key ready",
+        detail: formatKeyTitle(selectedArenaKey),
+        button: "Route",
+        cues: [
+          { label: "Now", value: "Choose route", tone: "rare" },
+          { label: "Signal", value: `Risk ${formatPercent(keyEnemyPressure, 0)}`, tone: keyEnemyPressure > 0 ? "warn" : "neutral" },
+          { label: "Then", value: `Reward ${formatPercent(keyReward, 0)}`, tone: "rare" },
+        ],
+        onClick: () => setActivePanel("route"),
+      };
+    } else if (bossProjection.successChance >= 0.5 && !clearedBossGateIds.includes(bossProjection.gateId)) {
+      action = {
+        tone: "rare",
+        icon: <Network size={17} aria-hidden />,
+        label: "Boss gate viable",
+        detail: `${formatPercent(bossProjection.successChance, 0)} projected`,
+        button: "Route",
+        cues: [
+          { label: "Now", value: "Attempt gate", tone: "rare" },
+          { label: "Signal", value: `${formatPercent(bossProjection.successChance, 0)} chance`, tone: "rare" },
+          { label: "Then", value: "Unlock route" },
+        ],
+        onClick: () => setActivePanel("route"),
+      };
+    } else {
+      action = {
+        tone: "neutral",
+        icon: <Play size={17} aria-hidden />,
+        label: "Ready to run",
+        detail: arena.displayName,
+        button: "Start",
+        cues: [
+          { label: "Now", value: "Start farming" },
+          { label: "Signal", value: `${formatPercent(bossProjection.successChance, 0)} gate` },
+          { label: "Then", value: "Build power" },
+        ],
+        onClick: toggleRunning,
+      };
+    }
 
     return (
       <section className={`next-action-strip next-action-${action.tone}`} aria-label="Next action">
         <span className="next-action-icon">{action.icon}</span>
-        <div>
+        <div className="next-action-copy">
           <strong>{action.label}</strong>
           <span>{action.detail}</span>
+        </div>
+        <div className="next-action-cues" aria-label="Decision signals">
+          {action.cues.map((cue) => (
+            <span className={`decision-chip decision-chip-${cue.tone ?? action.tone}`} key={cue.label}>
+              <small>{cue.label}</small>
+              <strong>{cue.value}</strong>
+            </span>
+          ))}
         </div>
         <button className="arena-button" onClick={action.onClick} type="button">
           {action.button}
