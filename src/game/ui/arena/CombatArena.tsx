@@ -61,7 +61,7 @@ import type {
   TopStatBlock,
   TuningRuneDef,
 } from "../../engine/topTypes";
-import { ArenaPhaserView } from "./ArenaPhaserView";
+import { ArenaPhaserView, type ArenaRendererMetrics } from "./ArenaPhaserView";
 import "./CombatArena.css";
 
 type ActivePanel = "build" | "loot" | "forge" | "route";
@@ -76,6 +76,16 @@ type LootNotice = {
   id: string;
   tone: "drop" | "salvage" | "reward";
   text: string;
+};
+
+const initialRendererMetrics: ArenaRendererMetrics = {
+  fps: 0,
+  renderMs: 0,
+  entities: 0,
+  effects: 0,
+  drops: 0,
+  skippedFrames: 0,
+  hitStop: false,
 };
 
 type RuneSlotState = [string | null, string | null, string | null];
@@ -387,6 +397,7 @@ export function CombatArena() {
   const [speed, setSpeed] = useState(1);
   const [running, setRunning] = useState(false);
   const [showDebugHud, setShowDebugHud] = useState(false);
+  const [rendererMetrics, setRendererMetrics] = useState<ArenaRendererMetrics>(initialRendererMetrics);
   const [activePanel, setActivePanel] = useState<ActivePanel>("build");
   const [inventoryFilter, setInventoryFilter] = useState<TopPartSlotId | "all">("all");
   const [equipment, setEquipment] = useState<Record<TopPartSlotId, TopPartInstance>>(initialEquipment);
@@ -1580,7 +1591,35 @@ export function CombatArena() {
           </div>
 
           <div className="canvas-wrap">
-            <ArenaPhaserView runtime={runtime} runtimeRef={runtimeRef} />
+            <ArenaPhaserView onMetrics={showDebugHud ? setRendererMetrics : undefined} runtime={runtime} runtimeRef={runtimeRef} />
+            {showDebugHud ? (
+              <div className="arena-renderer-debug" aria-label="Renderer telemetry">
+                <span>
+                  FPS <strong>{round(rendererMetrics.fps, 0)}</strong>
+                </span>
+                <span>
+                  Render <strong>{round(rendererMetrics.renderMs, 2)}ms</strong>
+                </span>
+                <span>
+                  Objects <strong>{rendererMetrics.entities}</strong>
+                </span>
+                <span>
+                  FX <strong>{rendererMetrics.effects}</strong>
+                </span>
+                <span>
+                  Drops <strong>{rendererMetrics.drops}</strong>
+                </span>
+                <span>
+                  Skip <strong>{rendererMetrics.skippedFrames}</strong>
+                </span>
+                <span>
+                  Hit <strong>{rendererMetrics.lastHitKind ? rendererMetrics.lastHitKind.toUpperCase() : "IDLE"}</strong>
+                </span>
+                <span>
+                  Stop <strong>{rendererMetrics.hitStop ? "ON" : "OFF"}</strong>
+                </span>
+              </div>
+            ) : null}
             {runtimeError ? (
               <div className="arena-runtime-error" role="alert">
                 <strong>Combat loop stopped</strong>

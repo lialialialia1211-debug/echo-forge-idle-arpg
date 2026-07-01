@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { useEffect, useRef, type RefObject } from "react";
 import { getArenaCircuitDef } from "../../data/arenaCircuits";
 import { clamp } from "../../engine/math";
-import type { ArenaCircuitDef, ArenaDrop, ArenaEffect, TopArenaRuntime, TopRuntimeEntity } from "../../engine/topTypes";
+import type { ArenaCircuitDef, ArenaDrop, ArenaEffect, TopArenaRuntime, TopCollisionKind, TopRuntimeEntity } from "../../engine/topTypes";
 
 type Palette = {
   core: number;
@@ -13,9 +13,36 @@ type Palette = {
 
 type WorldMapper = ReturnType<typeof createWorldMapper>;
 
+export type ArenaRendererMetrics = {
+  fps: number;
+  renderMs: number;
+  entities: number;
+  effects: number;
+  drops: number;
+  skippedFrames: number;
+  lastHitKind?: TopCollisionKind;
+  hitStop: boolean;
+};
+
 type ArenaPhaserViewProps = {
   runtime: TopArenaRuntime;
   runtimeRef: RefObject<TopArenaRuntime>;
+  onMetrics?: (metrics: ArenaRendererMetrics) => void;
+};
+
+type HitFlash = {
+  id: string;
+  kind: TopCollisionKind;
+  x: number;
+  y: number;
+  normalX: number;
+  normalY: number;
+  tangentX: number;
+  tangentY: number;
+  intensity: number;
+  heavy: boolean;
+  startedAt: number;
+  until: number;
 };
 
 const framePalette: Record<string, Palette> = {
@@ -246,10 +273,59 @@ function drawEffect(graphics: Phaser.GameObjects.Graphics, effect: ArenaEffect, 
   graphics.strokeCircle(point.x, point.y, effect.kind === "shockwave" ? ringRadius * 2.4 : ringRadius);
 }
 
+function collisionColor(kind: TopCollisionKind, heavy: boolean) {
+  if (heavy || kind === "smash") {
+    return 0xdf624c;
+  }
+  if (kind === "grind") {
+    return 0x65c6b0;
+  }
+  if (kind === "scrape") {
+    return 0xffa84b;
+  }
+  return 0xd9a554;
+}
+
+function drawHitFlash(graphics: Phaser.GameObjects.Graphics, flash: HitFlash, map: WorldMapper, now: number) {
+  const lifetime = Math.max(1, flash.until - flash.startedAt);
+  const ratio = clamp((now - flash.startedAt) / lifetime, 0, 1);
+  const alpha = Math.pow(1 - ratio, 0.72);
+  const point = map.point(flash.x, flash.y);
+  const color = collisionColor(flash.kind, flash.heavy);
+  const radius = (18 + ratio * (flash.heavy ? 58 : 34)) * flash.intensity;
+  const normalLength = (24 + flash.intensity * 28) * (flash.heavy ? 1.35 : 1);
+  const tangentLength = (22 + flash.intensity * 24) * (flash.kind === "grind" || flash.kind === "scrape" ? 1.3 : 0.86);
+
+  graphics.fillStyle(color, 0.13 * alpha);
+  graphics.fillCircle(point.x, point.y, radius * 0.72);
+  graphics.lineStyle(flash.heavy ? 4 : 2.5, color, 0.86 * alpha);
+  graphics.strokeCircle(point.x, point.y, radius);
+  graphics.lineStyle(1.5, 0xfff4c7, 0.7 * alpha);
+  graphics.strokeCircle(point.x, point.y, radius * 0.52);
+
+  graphics.lineStyle(flash.heavy ? 4.2 : 2.8, 0xfff4c7, alpha);
+  graphics.lineBetween(point.x - flash.normalX * normalLength, point.y - flash.normalY * normalLength, point.x + flash.normalX * normalLength, point.y + flash.normalY * normalLength);
+
+  graphics.lineStyle(2.2, color, 0.74 * alpha);
+  graphics.lineBetween(point.x - flash.tangentX * tangentLength, point.y - flash.tangentY * tangentLength, point.x + flash.tangentX * tangentLength, point.y + flash.tangentY * tangentLength);
+
+  if (flash.heavy) {
+    graphics.lineStyle(2, 0xffffff, 0.42 * alpha);
+    for (let i = 0; i < 6; i += 1) {
+      const angle = (Math.PI * 2 * i) / 6 + ratio * 1.2;
+      graphics.lineBetween(point.x + Math.cos(angle) * radius * 0.22, point.y + Math.sin(angle) * radius * 0.22, point.x + Math.cos(angle) * radius * 0.88, point.y + Math.sin(angle) * radius * 0.88);
+    }
+  }
+
+  graphics.fillStyle(0xfff4c7, alpha);
+  graphics.fillCircle(point.x, point.y, 3 + flash.intensity * 2.2);
+}
+
 function drawDrops(graphics: Phaser.GameObjects.Graphics, drops: ArenaDrop[], map: WorldMapper) {
   for (const drop of drops) {
     const point = map.point(drop.x, drop.y);
     const bob = Math.sin(drop.age * 4) * 2;
+    const pulse = (Math.sin(drop.age * 5.2) + 1) / 2;
     const color =
       drop.rarity === "relic"
         ? 0xb68cff
@@ -258,8 +334,22 @@ function drawDrops(graphics: Phaser.GameObjects.Graphics, drops: ArenaDrop[], ma
           : drop.rarity === "tuned"
             ? 0x65c6b0
             : 0xcbbf9d;
+    const glow = drop.rarity === "relic" ? 0.35 : drop.rarity === "engraved" ? 0.27 : drop.rarity === "tuned" ? 0.22 : 0.12;
+    const beamHeight = drop.rarity === "relic" ? 52 : drop.rarity === "engraved" ? 42 : drop.rarity === "tuned" ? 34 : 0;
     const cx = point.x;
     const cy = point.y + bob;
+
+    graphics.fillStyle(0x000000, 0.28);
+    graphics.fillEllipse(cx, cy + 12, 28, 9, 24);
+    graphics.fillStyle(color, glow * (0.65 + pulse * 0.35));
+    graphics.fillCircle(cx, cy, 18 + pulse * 8);
+    if (beamHeight > 0) {
+      graphics.lineStyle(drop.rarity === "relic" ? 3 : 2, color, 0.2 + pulse * 0.18);
+      graphics.lineBetween(cx, cy - beamHeight, cx, cy + 14);
+      graphics.lineStyle(1, 0xfff4c7, 0.28 + pulse * 0.18);
+      graphics.lineBetween(cx, cy - beamHeight * 0.72, cx, cy + 8);
+    }
+
     graphics.fillStyle(color, 0.95);
     graphics.fillPoints(
       [
@@ -271,8 +361,10 @@ function drawDrops(graphics: Phaser.GameObjects.Graphics, drops: ArenaDrop[], ma
       true,
       true,
     );
-    graphics.lineStyle(2, color, 0.28);
-    graphics.strokeCircle(cx, cy, 13);
+    graphics.lineStyle(2, color, 0.3 + pulse * 0.18);
+    graphics.strokeCircle(cx, cy, 13 + pulse * 2);
+    graphics.lineStyle(1, 0xfff4c7, drop.rarity === "common" ? 0.24 : 0.48);
+    graphics.strokeCircle(cx, cy, 6);
   }
 }
 
@@ -344,6 +436,7 @@ function drawTop(graphics: Phaser.GameObjects.Graphics, entity: TopRuntimeEntity
 class ArenaPhaserScene extends Phaser.Scene {
   private runtime: TopArenaRuntime | null = null;
   private readonly getRuntime: () => TopArenaRuntime;
+  private readonly getOnMetrics: () => ((metrics: ArenaRendererMetrics) => void) | undefined;
   private floor!: Phaser.GameObjects.Graphics;
   private effectsBack!: Phaser.GameObjects.Graphics;
   private drops!: Phaser.GameObjects.Graphics;
@@ -351,11 +444,22 @@ class ArenaPhaserScene extends Phaser.Scene {
   private effectsFront!: Phaser.GameObjects.Graphics;
   private labels = new Map<string, Phaser.GameObjects.Text>();
   private lastCollisionId: string | null = null;
+  private lastHitKind: TopCollisionKind | undefined;
+  private lastHitFlash: HitFlash | null = null;
+  private hitStopUntil = 0;
+  private frozenRuntime: TopArenaRuntime | null = null;
   private lastRenderSignature = "";
+  private frameCount = 0;
+  private fpsWindowStarted = 0;
+  private currentFps = 0;
+  private skippedFrames = 0;
+  private lastMetricsAt = 0;
+  private lastRenderMs = 0;
 
-  constructor(getRuntime: () => TopArenaRuntime) {
+  constructor(getRuntime: () => TopArenaRuntime, getOnMetrics: () => ((metrics: ArenaRendererMetrics) => void) | undefined) {
     super("ArenaPhaserScene");
     this.getRuntime = getRuntime;
+    this.getOnMetrics = getOnMetrics;
   }
 
   create() {
@@ -370,21 +474,78 @@ class ArenaPhaserScene extends Phaser.Scene {
   setRuntime(runtime: TopArenaRuntime) {
     this.runtime = runtime;
     if (this.floor) {
-      this.renderRuntime(runtime);
+      const now = performance.now();
+      this.registerCollision(runtime, now);
+      this.renderRuntime(this.resolveVisualRuntime(runtime, now), now);
     }
   }
 
-  update() {
-    this.renderRuntime(this.getRuntime() ?? this.runtime);
+  update(_time: number, _delta: number) {
+    const now = performance.now();
+    const runtime = this.getRuntime() ?? this.runtime;
+    if (runtime) {
+      this.registerCollision(runtime, now);
+    }
+    this.renderRuntime(this.resolveVisualRuntime(runtime, now), now);
   }
 
-  private renderRuntime(runtime: TopArenaRuntime | null) {
+  private resolveVisualRuntime(runtime: TopArenaRuntime | null, now: number) {
+    if (this.lastHitFlash && now > this.lastHitFlash.until) {
+      this.lastHitFlash = null;
+    }
+    if (this.hitStopUntil > now && this.frozenRuntime) {
+      return this.frozenRuntime;
+    }
+    this.frozenRuntime = null;
+    return runtime;
+  }
+
+  private registerCollision(runtime: TopArenaRuntime, now: number) {
+    const collision = runtime.lastCollision;
+    if (!collision || collision.id === this.lastCollisionId) {
+      return;
+    }
+
+    this.lastCollisionId = collision.id;
+    this.lastHitKind = collision.kind;
+    const intensity = clamp(collision.sparkIntensity * 0.42 + collision.normalImpulse / 130, 0.75, collision.heavy ? 2.45 : 1.75);
+    const freezeMs = collision.heavy ? clamp(55 + collision.normalImpulse * 0.45 + collision.sparkIntensity * 8, 60, 116) : 0;
+
+    this.lastHitFlash = {
+      id: collision.id,
+      kind: collision.kind,
+      x: collision.x,
+      y: collision.y,
+      normalX: collision.normalX,
+      normalY: collision.normalY,
+      tangentX: collision.tangentX,
+      tangentY: collision.tangentY,
+      intensity,
+      heavy: collision.heavy,
+      startedAt: now,
+      until: now + (collision.heavy ? 280 : 180),
+    };
+
+    if (freezeMs > 0) {
+      this.hitStopUntil = Math.max(this.hitStopUntil, now + freezeMs);
+      this.frozenRuntime = runtime;
+      this.cameras.main.shake(95, clamp(collision.normalImpulse / 2200 + collision.sparkIntensity / 1600, 0.006, 0.022));
+      return;
+    }
+
+    this.cameras.main.shake(45, clamp(collision.sparkIntensity / 2400, 0.0015, 0.005));
+  }
+
+  private renderRuntime(runtime: TopArenaRuntime | null, now: number) {
+    const renderStartedAt = performance.now();
     if (!runtime || !this.floor) {
       return;
     }
 
     const width = Math.max(1, this.scale.gameSize.width);
     const height = Math.max(1, this.scale.gameSize.height);
+    const flashClock = this.lastHitFlash ? `${this.lastHitFlash.id}:${Math.floor((now - this.lastHitFlash.startedAt) / 16)}` : "";
+    const stopClock = this.hitStopUntil > now ? `stop:${Math.floor((this.hitStopUntil - now) / 16)}` : "";
     const signature = [
       runtime.seed,
       width,
@@ -400,8 +561,12 @@ class ArenaPhaserScene extends Phaser.Scene {
       runtime.effects.map((effect) => `${effect.kind}:${effect.age.toFixed(2)}`).join(","),
       runtime.drops.map((drop) => `${drop.id}:${drop.age.toFixed(2)}`).join(","),
       runtime.lastCollision?.id ?? "",
+      flashClock,
+      stopClock,
     ].join("|");
     if (signature === this.lastRenderSignature) {
+      this.skippedFrames += 1;
+      this.publishMetrics(runtime, now);
       return;
     }
     this.lastRenderSignature = signature;
@@ -434,17 +599,43 @@ class ArenaPhaserScene extends Phaser.Scene {
     for (const effect of effects.filter((entry) => entry.kind === "frictionSpark")) {
       drawEffect(this.effectsFront, effect, map);
     }
+    if (this.lastHitFlash) {
+      drawHitFlash(this.effectsFront, this.lastHitFlash, map, now);
+    }
 
     for (const [id, label] of this.labels.entries()) {
       label.setVisible(visibleLabels.has(id));
     }
 
-    if (runtime.lastCollision && runtime.lastCollision.id !== this.lastCollisionId) {
-      this.lastCollisionId = runtime.lastCollision.id;
-      if (runtime.lastCollision.heavy) {
-        this.cameras.main.shake(90, clamp(runtime.lastCollision.normalImpulse / 2400, 0.004, 0.018));
-      }
+    this.lastRenderMs = performance.now() - renderStartedAt;
+    this.publishMetrics(runtime, now);
+  }
+
+  private publishMetrics(runtime: TopArenaRuntime, now: number) {
+    this.frameCount += 1;
+    if (this.fpsWindowStarted === 0) {
+      this.fpsWindowStarted = now;
     }
+    if (now - this.fpsWindowStarted >= 500) {
+      this.currentFps = (this.frameCount * 1000) / Math.max(1, now - this.fpsWindowStarted);
+      this.frameCount = 0;
+      this.fpsWindowStarted = now;
+    }
+    if (now - this.lastMetricsAt < 250) {
+      return;
+    }
+
+    this.lastMetricsAt = now;
+    this.getOnMetrics()?.({
+      fps: this.currentFps,
+      renderMs: this.lastRenderMs,
+      entities: 1 + runtime.enemies.length,
+      effects: runtime.effects.length,
+      drops: runtime.drops.length,
+      skippedFrames: this.skippedFrames,
+      lastHitKind: this.lastHitKind,
+      hitStop: this.hitStopUntil > now,
+    });
   }
 
   private syncLabel(entity: TopRuntimeEntity, map: WorldMapper, palette: Palette, visibleLabels: Set<string>) {
@@ -471,15 +662,20 @@ class ArenaPhaserScene extends Phaser.Scene {
   }
 }
 
-export function ArenaPhaserView({ runtime, runtimeRef }: ArenaPhaserViewProps) {
+export function ArenaPhaserView({ runtime, runtimeRef, onMetrics }: ArenaPhaserViewProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<ArenaPhaserScene | null>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const latestRuntimeRef = useRef(runtime);
+  const metricsCallbackRef = useRef(onMetrics);
 
   useEffect(() => {
     latestRuntimeRef.current = runtime;
   }, [runtime]);
+
+  useEffect(() => {
+    metricsCallbackRef.current = onMetrics;
+  }, [onMetrics]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -487,7 +683,10 @@ export function ArenaPhaserView({ runtime, runtimeRef }: ArenaPhaserViewProps) {
       return undefined;
     }
 
-    const scene = new ArenaPhaserScene(() => runtimeRef.current ?? latestRuntimeRef.current);
+    const scene = new ArenaPhaserScene(
+      () => runtimeRef.current ?? latestRuntimeRef.current,
+      () => metricsCallbackRef.current,
+    );
     const game = new Phaser.Game({
       type: Phaser.AUTO,
       parent: host,
