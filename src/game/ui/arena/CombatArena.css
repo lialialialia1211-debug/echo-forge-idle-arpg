@@ -6,7 +6,7 @@
   height: 100vh;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
   background:
     radial-gradient(circle at 16% 12%, rgba(223, 98, 76, 0.14), transparent 24rem),
@@ -39,6 +39,69 @@
   border-bottom: 1px solid rgba(230, 215, 181, 0.13);
   background: rgba(8, 9, 10, 0.86);
   padding: 12px 18px;
+}
+
+.next-action-strip {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid rgba(230, 215, 181, 0.12);
+  background: rgba(10, 12, 13, 0.92);
+  padding: 9px 18px;
+}
+
+.next-action-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(217, 165, 84, 0.26);
+  border-radius: 6px;
+  background: rgba(217, 165, 84, 0.09);
+  color: var(--brass);
+}
+
+.next-action-strip > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.next-action-strip strong,
+.next-action-strip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.next-action-strip strong {
+  font-size: 0.9rem;
+}
+
+.next-action-strip span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.next-action-good .next-action-icon {
+  border-color: rgba(101, 198, 176, 0.42);
+  background: rgba(101, 198, 176, 0.12);
+  color: var(--teal);
+}
+
+.next-action-warn .next-action-icon {
+  border-color: rgba(223, 98, 76, 0.48);
+  background: rgba(223, 98, 76, 0.12);
+  color: var(--ember);
+}
+
+.next-action-rare .next-action-icon {
+  border-color: rgba(182, 140, 255, 0.46);
+  background: rgba(182, 140, 255, 0.12);
+  color: var(--violet);
 }
 
 .arena-brand,
@@ -609,7 +672,7 @@
 
 .panel-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   border-bottom: 1px solid rgba(230, 215, 181, 0.12);
   padding: 8px;
@@ -666,6 +729,7 @@
 
 .choice-stack,
 .drive-grid,
+.build-summary-grid,
 .inventory-filter,
 .inventory-list,
 .equipment-slots,
@@ -677,6 +741,10 @@
   display: grid;
   gap: 8px;
   margin-top: 8px;
+}
+
+.build-summary-grid {
+  grid-template-columns: 1fr 1fr;
 }
 
 .choice-card,
@@ -1424,11 +1492,17 @@
     height: auto;
     min-height: 100vh;
     overflow: auto;
+    padding-bottom: 74px;
   }
 
   .arena-topbar {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+
+  .next-action-strip {
+    grid-template-columns: auto minmax(0, 1fr) minmax(86px, auto);
+    padding: 8px 10px;
   }
 
   .wallet-strip,
@@ -1455,15 +1529,29 @@
   }
 
   .arena-stage-panel {
-    min-height: 720px;
+    min-height: 640px;
   }
 
   .workbench-panel {
     min-height: 620px;
   }
 
+  .panel-tabs {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    z-index: 20;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    border: 1px solid rgba(230, 215, 181, 0.18);
+    border-radius: 8px;
+    background: rgba(8, 9, 10, 0.94);
+    box-shadow: 0 16px 42px rgba(0, 0, 0, 0.42);
+  }
+
   .workbench-content {
     overflow: visible;
+    padding-bottom: 82px;
   }
 
   .arena-stage-header {
@@ -1476,13 +1564,14 @@
   }
 
   .canvas-wrap {
-    height: clamp(360px, 58vh, 500px);
+    height: clamp(320px, 52vh, 440px);
   }
 
   .arena-hud-grid,
   .telemetry-grid,
   .collision-debug,
   .combat-bottom,
+  .build-summary-grid,
   .equipment-slots,
   .delta-list,
   .rune-library,
@@ -1508,8 +1597,12 @@
 }
 
 @media (max-width: 460px) {
-  .panel-tabs {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .next-action-strip {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .next-action-strip .arena-button {
+    grid-column: 1 / -1;
   }
 
   .arena-hud-grid {
@@ -1519,12 +1612,13 @@
   }
 
   .canvas-wrap {
-    height: clamp(320px, 54vh, 420px);
+    height: clamp(300px, 48vh, 380px);
   }
 
   .arena-hud-grid,
   .telemetry-grid,
   .combat-bottom,
+  .build-summary-grid,
   .equipment-slots,
   .delta-list,
   .rune-library,

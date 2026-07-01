@@ -74,7 +74,7 @@ type Palette = {
   text: string;
 };
 
-type ActivePanel = "loadout" | "inventory" | "skills" | "forge" | "route" | "talents";
+type ActivePanel = "build" | "loot" | "forge" | "route";
 
 type CurrencyWallet = {
   ash: number;
@@ -841,7 +841,7 @@ export function CombatArena() {
   const [speed, setSpeed] = useState(1);
   const [running, setRunning] = useState(false);
   const [showDebugHud, setShowDebugHud] = useState(false);
-  const [activePanel, setActivePanel] = useState<ActivePanel>("loadout");
+  const [activePanel, setActivePanel] = useState<ActivePanel>("build");
   const [inventoryFilter, setInventoryFilter] = useState<TopPartSlotId | "all">("all");
   const [equipment, setEquipment] = useState<Record<TopPartSlotId, TopPartInstance>>(initialEquipment);
   const [inventory, setInventory] = useState<TopPartInstance[]>(initialInventory);
@@ -1326,10 +1326,88 @@ export function CombatArena() {
       }
       setLootNotices((current) => [...notices, ...current].slice(0, 8));
       if (!running) {
-        setActivePanel("inventory");
+        setActivePanel("loot");
       }
     }
   }, [arena.tier, inventory, running, runtime.drops, runtime.seed, runtime.wave]);
+
+  const selectedPartInInventory = selectedPart ? inventory.some((part) => part.id === selectedPart.id) : false;
+  const selectedPartEquipped = selectedPart ? selectedCurrentPart?.id === selectedPart.id : false;
+
+  const renderBuildSummaryPanel = () => (
+    <section className="workbench-section build-summary-section">
+      <div className="section-title">
+        <Activity size={17} aria-hidden />
+        <h2>Build Summary</h2>
+        <span className="section-counter">{frame.displayName}</span>
+      </div>
+      <div className="build-summary-grid">
+        <StatPill icon={<Swords size={15} />} label="Impact" value={formatNumber(statFromRuntime(currentStats, "impact"), 0)} />
+        <StatPill icon={<Shield size={15} />} label="EHP" value={formatNumber(statFromRuntime(currentStats, "spinIntegrity") + statFromRuntime(currentStats, "guard"), 0)} tone="good" />
+        <StatPill icon={<Radar size={15} />} label="Tracking" value={formatNumber(statFromRuntime(currentStats, "tracking"), 0)} />
+        <StatPill icon={<Gem size={15} />} label="Rewards" value={`${formatPercent(statFromRuntime(currentStats, "partQuantity"), 0)} / ${formatPercent(statFromRuntime(currentStats, "partRarity"), 0)}`} tone="rare" />
+      </div>
+    </section>
+  );
+
+  const renderSelectedPartInspector = ({ title = "Selected Part", showForgeAction = true }: { title?: string; showForgeAction?: boolean } = {}) => (
+    <section className="workbench-section part-inspector-section">
+      <div className="section-title">
+        <Gem size={17} aria-hidden />
+        <h2>{title}</h2>
+        <span className="section-counter">{selectedPart ? partSlotLabels[selectedPart.slot] : "none"}</span>
+      </div>
+      {selectedPart ? (
+        <div className={`part-detail part-detail-${selectedPart.rarity}`}>
+          <div className="part-detail-title">
+            <div>
+              <small>{partSlotLabels[selectedPart.slot]} / ilvl {selectedPart.itemLevel}</small>
+              <strong>{selectedPart.displayName}</strong>
+            </div>
+            <span>{selectedPart.rarity}</span>
+          </div>
+          <div className="delta-list">
+            {trackedStats.map((stat) => {
+              const delta = statFromRuntime(previewStats, stat) - statFromRuntime(currentStats, stat);
+              return (
+                <div className={delta >= 0 ? "delta-line delta-good" : "delta-line delta-bad"} key={stat}>
+                  <span>{statLabels[stat]}</span>
+                  <strong>{delta >= 0 ? "+" : ""}{formatStatValue(stat, delta)}</strong>
+                </div>
+              );
+            })}
+          </div>
+          <div className="modifier-lines">
+            {formatPartLines(selectedPart).map((line) => (
+              <span key={line}>{line}</span>
+            ))}
+          </div>
+          <div className="part-actions">
+            <button className="arena-button" disabled={selectedPartEquipped} onClick={() => equipPart(selectedPart)} type="button">
+              <CircleDot size={15} aria-hidden />
+              Equip
+            </button>
+            <button className="arena-button" disabled={!selectedPartInInventory} onClick={() => toggleLock(selectedPart.id)} type="button">
+              <Shield size={15} aria-hidden />
+              {selectedPart.locked ? "Unlock" : "Lock"}
+            </button>
+            <button className="arena-button arena-button-danger" disabled={selectedPart.locked || !selectedPartInInventory} onClick={() => salvagePart(selectedPart)} type="button">
+              <Recycle size={15} aria-hidden />
+              Salvage
+            </button>
+            {showForgeAction ? (
+              <button className="arena-button" onClick={() => setActivePanel("forge")} type="button">
+                <Gem size={15} aria-hidden />
+                Forge
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <span className="empty-drop">No part selected</span>
+      )}
+    </section>
+  );
 
   const renderLoadoutPanel = () => (
     <>
@@ -1367,21 +1445,6 @@ export function CombatArena() {
             <button className={entry.id === frameId ? "choice-card choice-card-active" : "choice-card"} key={entry.id} onClick={() => selectFrame(entry.id)} type="button">
               <strong>{entry.displayName}</strong>
               <span>{entry.role}</span>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="workbench-section">
-        <div className="section-title">
-          <Flame size={17} aria-hidden />
-          <h2>Circuit</h2>
-        </div>
-        <div className="circuit-grid">
-          {arenaCircuits.map((entry) => (
-            <button className={entry.id === arenaId ? "circuit-chip circuit-chip-active" : "circuit-chip"} key={entry.id} onClick={() => selectArena(entry.id)} type="button">
-              <span>T{entry.tier}</span>
-              <strong>{entry.displayName}</strong>
             </button>
           ))}
         </div>
@@ -1444,55 +1507,7 @@ export function CombatArena() {
         </section>
       ) : null}
 
-      <section className="workbench-section">
-        <div className="section-title">
-          <Gem size={17} aria-hidden />
-          <h2>Compare</h2>
-        </div>
-        {selectedPart ? (
-          <div className={`part-detail part-detail-${selectedPart.rarity}`}>
-            <div className="part-detail-title">
-              <div>
-                <small>{partSlotLabels[selectedPart.slot]} / ilvl {selectedPart.itemLevel}</small>
-                <strong>{selectedPart.displayName}</strong>
-              </div>
-              <span>{selectedPart.rarity}</span>
-            </div>
-            <div className="delta-list">
-              {trackedStats.map((stat) => {
-                const delta = statFromRuntime(previewStats, stat) - statFromRuntime(currentStats, stat);
-                return (
-                  <div className={delta >= 0 ? "delta-line delta-good" : "delta-line delta-bad"} key={stat}>
-                    <span>{statLabels[stat]}</span>
-                    <strong>{delta >= 0 ? "+" : ""}{formatStatValue(stat, delta)}</strong>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="modifier-lines">
-              {formatPartLines(selectedPart).map((line) => (
-                <span key={line}>{line}</span>
-              ))}
-            </div>
-            <div className="part-actions">
-              <button className="arena-button" disabled={selectedCurrentPart?.id === selectedPart.id} onClick={() => equipPart(selectedPart)} type="button">
-                <CircleDot size={15} aria-hidden />
-                Equip
-              </button>
-              <button className="arena-button" disabled={!inventory.some((part) => part.id === selectedPart.id)} onClick={() => toggleLock(selectedPart.id)} type="button">
-                <Shield size={15} aria-hidden />
-                {selectedPart.locked ? "Unlock" : "Lock"}
-              </button>
-              <button className="arena-button arena-button-danger" disabled={selectedPart.locked || !inventory.some((part) => part.id === selectedPart.id)} onClick={() => salvagePart(selectedPart)} type="button">
-                <Recycle size={15} aria-hidden />
-                Salvage
-              </button>
-            </div>
-          </div>
-        ) : (
-          <span className="empty-drop">No part selected</span>
-        )}
-      </section>
+      {renderSelectedPartInspector({ title: "Selected Part" })}
     </>
   );
 
@@ -1553,7 +1568,7 @@ export function CombatArena() {
               <line x1="50" y1="50" x2="80" y2="24" />
               <line x1="50" y1="50" x2="50" y2="82" />
             </svg>
-            <button className="socket-node socket-drive" onClick={() => setActivePanel("skills")} type="button">
+            <button className="socket-node socket-drive" onClick={() => setActivePanel("build")} type="button">
               <small>Drive</small>
               <strong>{drive.displayName}</strong>
               <span>{drive.tags.slice(0, 3).join(" / ")}</span>
@@ -1638,31 +1653,7 @@ export function CombatArena() {
 
   const renderForgePanel = () => (
     <>
-      <section className="workbench-section">
-        <div className="section-title">
-          <Recycle size={17} aria-hidden />
-          <h2>Forge</h2>
-          <span className="section-counter">{selectedPart ? selectedPart.rarity : "none"}</span>
-        </div>
-        {selectedPart ? (
-          <div className={`part-detail part-detail-${selectedPart.rarity}`}>
-            <div className="part-detail-title">
-              <div>
-                <small>{partSlotLabels[selectedPart.slot]} / ilvl {selectedPart.itemLevel}</small>
-                <strong>{selectedPart.displayName}</strong>
-              </div>
-              <span>{(selectedPart.affixes ?? []).length}/6</span>
-            </div>
-            <div className="modifier-lines">
-              {formatPartLines(selectedPart).map((line) => (
-                <span key={line}>{line}</span>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <span className="empty-drop">No part selected</span>
-        )}
-      </section>
+      {renderSelectedPartInspector({ title: "Forge Target", showForgeAction: false })}
 
       <section className="workbench-section">
         <div className="section-title">
@@ -1706,6 +1697,22 @@ export function CombatArena() {
           <StatPill icon={<Gem size={15} />} label="Keys" value={formatNumber(arenaKeys.length, 0)} tone="good" />
           <StatPill icon={<Swords size={15} />} label="Quantity" value={formatPercent(currentArenaKeySummary?.rewardQuantity ?? 0, 0)} />
           <StatPill icon={<Sparkles size={15} />} label="Rarity" value={formatPercent(currentArenaKeySummary?.rewardRarity ?? 0, 0)} />
+        </div>
+      </section>
+
+      <section className="workbench-section">
+        <div className="section-title">
+          <Radar size={17} aria-hidden />
+          <h2>Circuit</h2>
+          <span className="section-counter">{arena.displayName}</span>
+        </div>
+        <div className="circuit-grid">
+          {arenaCircuits.map((entry) => (
+            <button className={entry.id === arenaId ? "circuit-chip circuit-chip-active" : "circuit-chip"} key={entry.id} onClick={() => selectArena(entry.id)} type="button">
+              <span>T{entry.tier}</span>
+              <strong>{entry.displayName}</strong>
+            </button>
+          ))}
         </div>
       </section>
 
@@ -1895,6 +1902,86 @@ export function CombatArena() {
     setRunning((value) => !value);
   };
 
+  const renderBuildPanel = () => (
+    <>
+      {renderBuildSummaryPanel()}
+      {renderLoadoutPanel()}
+      {renderSkillsPanel()}
+      {renderTalentsPanel()}
+    </>
+  );
+
+  const renderNextActionStrip = () => {
+    const recentDropCount = lootNotices.filter((notice) => notice.tone === "drop").length;
+    const action =
+      runtimeError
+        ? {
+            tone: "warn",
+            icon: <RotateCcw size={17} aria-hidden />,
+            label: "Combat stopped",
+            detail: runtimeError,
+            button: "Reset",
+            onClick: () => resetArena(),
+          }
+        : running
+          ? {
+              tone: "good",
+              icon: <Pause size={17} aria-hidden />,
+              label: "Run in progress",
+              detail: `Wave ${formatNumber(runtime.wave, 0)} / ${formatNumber(totalKills, 0)} kills`,
+              button: "Pause",
+              onClick: toggleRunning,
+            }
+        : recentDropCount > 0
+          ? {
+              tone: "rare",
+              icon: <PackageOpen size={17} aria-hidden />,
+              label: `${recentDropCount} drops ready`,
+              detail: selectedPart ? selectedPart.displayName : "Review inventory",
+              button: "Loot",
+              onClick: () => setActivePanel("loot"),
+            }
+          : !running && selectedArenaKey
+            ? {
+                tone: "rare",
+                icon: <Flame size={17} aria-hidden />,
+                label: "Arena key ready",
+                detail: formatKeyTitle(selectedArenaKey),
+                button: "Route",
+                onClick: () => setActivePanel("route"),
+              }
+            : bossProjection.successChance >= 0.5 && !clearedBossGateIds.includes(bossProjection.gateId)
+              ? {
+                  tone: "rare",
+                  icon: <Network size={17} aria-hidden />,
+                  label: "Boss gate viable",
+                  detail: `${formatPercent(bossProjection.successChance, 0)} projected`,
+                  button: "Route",
+                  onClick: () => setActivePanel("route"),
+                }
+              : {
+                  tone: "neutral",
+                  icon: <Play size={17} aria-hidden />,
+                  label: "Ready to run",
+                  detail: arena.displayName,
+                  button: "Start",
+                  onClick: toggleRunning,
+                };
+
+    return (
+      <section className={`next-action-strip next-action-${action.tone}`} aria-label="Next action">
+        <span className="next-action-icon">{action.icon}</span>
+        <div>
+          <strong>{action.label}</strong>
+          <span>{action.detail}</span>
+        </div>
+        <button className="arena-button" onClick={action.onClick} type="button">
+          {action.button}
+        </button>
+      </section>
+    );
+  };
+
   return (
     <main className={["top-arena-shell", running ? "top-arena-running" : "", currentArenaKey ? "top-arena-keyed" : ""].filter(Boolean).join(" ")}>
       <header className="arena-topbar">
@@ -1942,6 +2029,8 @@ export function CombatArena() {
           </div>
         </div>
       </header>
+
+      {renderNextActionStrip()}
 
       <section className="arena-layout">
         <section className={["arena-stage-panel", running ? "arena-stage-live" : "", currentArenaKey ? "arena-stage-keyed" : ""].filter(Boolean).join(" ")}>
@@ -2028,20 +2117,16 @@ export function CombatArena() {
 
         <aside className="workbench-panel">
           <nav className="panel-tabs" aria-label="Workbench">
-            <PanelTab active={activePanel === "loadout"} icon={<CircleDot size={15} aria-hidden />} label="Loadout" onClick={() => setActivePanel("loadout")} />
-            <PanelTab active={activePanel === "inventory"} icon={<PackageOpen size={15} aria-hidden />} label="Inventory" onClick={() => setActivePanel("inventory")} />
-            <PanelTab active={activePanel === "skills"} icon={<Sparkles size={15} aria-hidden />} label="Skills" onClick={() => setActivePanel("skills")} />
+            <PanelTab active={activePanel === "build"} icon={<CircleDot size={15} aria-hidden />} label="Build" onClick={() => setActivePanel("build")} />
+            <PanelTab active={activePanel === "loot"} icon={<PackageOpen size={15} aria-hidden />} label="Loot" onClick={() => setActivePanel("loot")} />
             <PanelTab active={activePanel === "forge"} icon={<Recycle size={15} aria-hidden />} label="Forge" onClick={() => setActivePanel("forge")} />
             <PanelTab active={activePanel === "route"} icon={<Flame size={15} aria-hidden />} label="Route" onClick={() => setActivePanel("route")} />
-            <PanelTab active={activePanel === "talents"} icon={<Network size={15} aria-hidden />} label="Talents" onClick={() => setActivePanel("talents")} />
           </nav>
           <div className="workbench-content">
-            {activePanel === "loadout" && renderLoadoutPanel()}
-            {activePanel === "inventory" && renderInventoryPanel()}
-            {activePanel === "skills" && renderSkillsPanel()}
+            {activePanel === "build" && renderBuildPanel()}
+            {activePanel === "loot" && renderInventoryPanel()}
             {activePanel === "forge" && renderForgePanel()}
             {activePanel === "route" && renderRoutePanel()}
-            {activePanel === "talents" && renderTalentsPanel()}
           </div>
         </aside>
       </section>
