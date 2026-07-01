@@ -285,6 +285,66 @@ describe("top arena runtime", () => {
     expect(next.player.cooldownRemaining).toBeGreaterThan(0);
   });
 
+  it("launches tops farther from the basin center on high-speed impacts", () => {
+    const baseRuntime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_razor_rebound",
+      seed: "collision_launch_test",
+    });
+    const enemyStats = {
+      ...baseRuntime.player.stats,
+      maxSpinIntegrity: 12000,
+      maxFluxGuard: 800,
+      guard: 220,
+      impact: 60,
+      rpm: 6.2,
+      mass: 1,
+      grip: 0.44,
+      edge: 0.05,
+      fracture: 1,
+      resonance: 0.8,
+      partQuantity: 0,
+      partRarity: 0,
+      modifiers: [],
+    };
+    const makeImpactRuntime = (speed: number) => ({
+      ...baseRuntime,
+      player: { ...baseRuntime.player, x: -20, y: 0, vx: speed, vy: 0, cooldownRemaining: 10, spinPower: 100, wobble: 0 },
+      enemies: [
+        {
+          ...baseRuntime.player,
+          id: `launch_rival_${speed}`,
+          team: "enemy" as const,
+          name: "Launch Rival",
+          rank: "pack" as const,
+          x: 20,
+          y: 0,
+          vx: -speed,
+          vy: 0,
+          radius: 22,
+          spinIntegrity: enemyStats.maxSpinIntegrity,
+          fluxGuard: enemyStats.maxFluxGuard,
+          spinPower: 100,
+          wobble: 0,
+          cooldownRemaining: 10,
+          stats: enemyStats,
+          behaviorId: "hunter" as const,
+        },
+      ],
+      nextEnemyIn: 10,
+    });
+
+    const low = stepTopArenaRuntime(makeImpactRuntime(42), 0.05);
+    const high = stepTopArenaRuntime(makeImpactRuntime(190), 0.05);
+    const lowLaunchSpeed = Math.hypot(low.player.vx, low.player.vy);
+    const highLaunchSpeed = Math.hypot(high.player.vx, high.player.vy);
+
+    expect(high.lastCollision?.normalImpulse ?? 0).toBeGreaterThan(low.lastCollision?.normalImpulse ?? 0);
+    expect(highLaunchSpeed).toBeGreaterThan(lowLaunchSpeed * 1.45);
+    expect(Math.hypot(high.enemies[0]?.vx ?? 0, high.enemies[0]?.vy ?? 0)).toBeGreaterThan(Math.hypot(low.enemies[0]?.vx ?? 0, low.enemies[0]?.vy ?? 0) * 1.45);
+  });
+
   it("scales friction sparks with spin speed", () => {
     const baseRuntime = createTopArenaRuntime({
       arenaId: "arena_cinder_crucible",

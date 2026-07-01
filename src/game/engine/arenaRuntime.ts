@@ -395,7 +395,8 @@ function steerEntity(entity: TopRuntimeEntity, target: TopRuntimeEntity | null, 
   if (distanceBeforeMove > 0.001) {
     const slopeRatio = clamp(distanceBeforeMove / Math.max(1, arenaRadius), 0, 1);
     const centerPull = normalize(-entity.x, -entity.y);
-    const basinAcceleration = (entity.team === "player" ? 42 : 50) * (0.34 + slopeRatio * 0.9) * clamp(1.12 - entity.stats.grip * 0.22, 0.74, 1.16) * controlRatio;
+    const slopeForce = Math.pow(Math.max(0, slopeRatio - 0.12) / 0.88, 1.35);
+    const basinAcceleration = (entity.team === "player" ? 72 : 82) * slopeForce * clamp(1.12 - entity.stats.grip * 0.22, 0.74, 1.16) * controlRatio;
     vx += centerPull.x * basinAcceleration * deltaSeconds;
     vy += centerPull.y * basinAcceleration * deltaSeconds;
   }
@@ -743,6 +744,14 @@ function classifyCollision({
   return "clash";
 }
 
+function outwardFromBasin(entity: TopRuntimeEntity, fallbackX: number, fallbackY: number): { x: number; y: number } {
+  const distanceFromCenter = length(entity.x, entity.y);
+  if (distanceFromCenter > entity.radius * 0.4) {
+    return normalize(entity.x, entity.y);
+  }
+  return normalize(fallbackX, fallbackY);
+}
+
 function resolveTopCollisionPhysics(player: TopRuntimeEntity, enemy: TopRuntimeEntity, time: number, index: number, contactAge: number): { player: TopRuntimeEntity; enemy: TopRuntimeEntity; collision: TopCollisionEvent } {
   const dx = enemy.x - player.x;
   const dy = enemy.y - player.y;
@@ -774,7 +783,7 @@ function resolveTopCollisionPhysics(player: TopRuntimeEntity, enemy: TopRuntimeE
   const enemySurfaceSpeed = angularSurfaceSpeed(enemy);
   const spinShearSpeed = Math.abs(playerSurfaceSpeed) + Math.abs(enemySurfaceSpeed);
   const spinShearRatio = clamp(spinShearSpeed / 260, 0, 1.8);
-  const restitution = clamp(0.3 + (player.stats.edge + enemy.stats.edge) * 1.6 + (spinRatio(player) + spinRatio(enemy)) * 0.055, 0.32, 0.88);
+  const restitution = clamp(0.42 + (player.stats.edge + enemy.stats.edge) * 1.8 + (spinRatio(player) + spinRatio(enemy)) * 0.07 + closingSpeed / 460, 0.42, 1.08);
   const normalImpulse = ((1 + restitution) * closingSpeed + overlap * 10) / invMassSum;
   const relativeTangentialSpeed = relativeVx * tangent.x + relativeVy * tangent.y - playerSurfaceSpeed - enemySurfaceSpeed;
   const surfaceShear = Math.abs(relativeTangentialSpeed) + spinShearSpeed * 0.42;
@@ -783,6 +792,15 @@ function resolveTopCollisionPhysics(player: TopRuntimeEntity, enemy: TopRuntimeE
   const tangentImpulse = clamp(rawTangentImpulse, -normalImpulse * friction, normalImpulse * friction);
   const impulseX = normal.x * normalImpulse + tangent.x * tangentImpulse;
   const impulseY = normal.y * normalImpulse + tangent.y * tangentImpulse;
+  const centerDistance = Math.min(length(playerPositioned.x, playerPositioned.y), length(enemyPositioned.x, enemyPositioned.y));
+  const centerPocketBoost = clamp(1.28 - centerDistance / 220, 0.58, 1.28);
+  const launchEnergy = closingSpeed * 0.42 + normalImpulse * 0.56 + Math.abs(tangentImpulse) * 0.24 + spinShearSpeed * 0.06;
+  const launchPower = clamp(launchEnergy * (0.18 + spinShearRatio * 0.13) * centerPocketBoost, 0, 285);
+  const tangentSign = Math.sign(tangentImpulse || relativeTangentialSpeed || 1);
+  const playerOutward = outwardFromBasin(playerPositioned, -normal.x, -normal.y);
+  const enemyOutward = outwardFromBasin(enemyPositioned, normal.x, normal.y);
+  const playerLaunch = normalize(playerOutward.x * 0.86 - normal.x * 0.48 - tangent.x * tangentSign * 0.14, playerOutward.y * 0.86 - normal.y * 0.48 - tangent.y * tangentSign * 0.14);
+  const enemyLaunch = normalize(enemyOutward.x * 0.86 + normal.x * 0.48 + tangent.x * tangentSign * 0.14, enemyOutward.y * 0.86 + normal.y * 0.48 + tangent.y * tangentSign * 0.14);
   const skid = surfaceShear / 96;
   const playerSpinLoss =
     normalImpulse * (0.018 / Math.max(0.7, player.stats.mass)) + Math.abs(tangentImpulse) * (0.032 + enemy.stats.edge * 0.04) + skid * Math.max(0.1, 1 - player.stats.grip) * 0.48;
@@ -799,15 +817,15 @@ function resolveTopCollisionPhysics(player: TopRuntimeEntity, enemy: TopRuntimeE
   return {
     player: {
       ...playerPositioned,
-      vx: playerPositioned.vx - impulseX * playerInvMass,
-      vy: playerPositioned.vy - impulseY * playerInvMass,
+      vx: playerPositioned.vx - impulseX * playerInvMass + playerLaunch.x * launchPower * clamp(playerInvMass, 0.52, 1.7),
+      vy: playerPositioned.vy - impulseY * playerInvMass + playerLaunch.y * launchPower * clamp(playerInvMass, 0.52, 1.7),
       spinPower: Math.max(4, playerPositioned.spinPower - playerSpinLoss),
       wobble: clamp(playerPositioned.wobble + playerWobbleGain, 0, 1),
     },
     enemy: {
       ...enemyPositioned,
-      vx: enemyPositioned.vx + impulseX * enemyInvMass,
-      vy: enemyPositioned.vy + impulseY * enemyInvMass,
+      vx: enemyPositioned.vx + impulseX * enemyInvMass + enemyLaunch.x * launchPower * clamp(enemyInvMass, 0.52, 1.7),
+      vy: enemyPositioned.vy + impulseY * enemyInvMass + enemyLaunch.y * launchPower * clamp(enemyInvMass, 0.52, 1.7),
       spinPower: Math.max(4, enemyPositioned.spinPower - enemySpinLoss),
       wobble: clamp(enemyPositioned.wobble + enemyWobbleGain, 0, 1),
     },
