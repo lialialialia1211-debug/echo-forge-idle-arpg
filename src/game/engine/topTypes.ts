@@ -345,7 +345,16 @@ export type TopCollisionEvent = {
   heavy: boolean;
 };
 
-export type ArenaEffectKind = "spark" | "frictionSpark" | "emberTrail" | "stormArc" | "shockwave" | "hazard" | "chargeLine" | "drop" | "spawn";
+export type ArenaEffectKind = "spark" | "frictionSpark" | "emberTrail" | "stormArc" | "shockwave" | "hazard" | "chargeLine" | "drop" | "spawn" | "bossSignal";
+
+export type ArenaTuningConfig = {
+  basinPullMultiplier: number;
+  collisionLaunchMultiplier: number;
+  sparkMultiplier: number;
+  activeEnemyPressure: number;
+  bossWeightMultiplier: number;
+  hitStopMultiplier: number;
+};
 
 export type ArenaEffect = {
   id: string;

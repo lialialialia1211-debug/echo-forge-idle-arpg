@@ -187,7 +187,7 @@ describe("top arena runtime", () => {
     expect(next.enemies).toHaveLength(1);
     expect(next.bossSpawned).toBe(true);
     expect(next.enemies[0]?.cooldownRemaining).toBeGreaterThan(0.8);
-    expect(next.effects.some((effect) => effect.kind === "shockwave")).toBe(false);
+    expect(next.effects.some((effect) => effect.kind === "bossSignal")).toBe(true);
     expect(next.events.some((event) => event.text.includes("Judicator shockwave"))).toBe(false);
   });
 
@@ -487,5 +487,148 @@ describe("top arena runtime", () => {
     expect(next.lastCollision?.contactAge).toBeCloseTo(0.25, 5);
     expect(next.effects.some((effect) => effect.kind === "hazard")).toBe(true);
     expect(next.events.some((event) => event.text.includes("Molten Groove hits"))).toBe(true);
+  });
+
+  it("lets tuning raise active rival pressure without changing the map clear target", () => {
+    const baseRuntime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "tuned_density_test",
+    });
+    const settle = (activeEnemyPressure: number) => {
+      let next = baseRuntime;
+      for (let index = 0; index < 24; index += 1) {
+        next = stepTopArenaRuntime(next, 0.12, { activeEnemyPressure });
+      }
+      return next;
+    };
+
+    const lowPressure = settle(0.55);
+    const highPressure = settle(1.65);
+
+    expect(baseRuntime.mapKillTarget).toBeGreaterThanOrEqual(150);
+    expect(baseRuntime.mapKillTarget).toBeLessThanOrEqual(200);
+    expect(highPressure.enemies.length).toBeGreaterThan(lowPressure.enemies.length);
+    expect(highPressure.enemies.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it("lets tuning amplify basin pull and high-speed launch", () => {
+    const slopeRuntime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "tuned_basin_pull_test",
+    });
+    const onSlope = {
+      ...slopeRuntime,
+      nextEnemyIn: 10,
+      enemies: [],
+      player: { ...slopeRuntime.player, x: 220, y: 0, vx: 0, vy: 0, spinPower: 100, wobble: 0, cooldownRemaining: 10 },
+    };
+
+    const softBasin = stepTopArenaRuntime(onSlope, 0.25, { basinPullMultiplier: 0.6 });
+    const steepBasin = stepTopArenaRuntime(onSlope, 0.25, { basinPullMultiplier: 2.2 });
+
+    expect(steepBasin.player.vx).toBeLessThan(softBasin.player.vx - 80);
+    expect(Math.hypot(steepBasin.player.x, steepBasin.player.y)).toBeLessThan(Math.hypot(softBasin.player.x, softBasin.player.y) - 12);
+
+    const impactRuntime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_razor_rebound",
+      seed: "tuned_launch_test",
+    });
+    const enemyStats = {
+      ...impactRuntime.player.stats,
+      maxSpinIntegrity: 12000,
+      maxFluxGuard: 800,
+      guard: 220,
+      impact: 60,
+      rpm: 6.2,
+      mass: 1,
+      grip: 0.44,
+      edge: 0.05,
+      fracture: 1,
+      resonance: 0.8,
+      partQuantity: 0,
+      partRarity: 0,
+      modifiers: [],
+    };
+    const makeImpactRuntime = () => ({
+      ...impactRuntime,
+      player: { ...impactRuntime.player, x: -20, y: 0, vx: 170, vy: 0, cooldownRemaining: 10, spinPower: 100, wobble: 0 },
+      enemies: [
+        {
+          ...impactRuntime.player,
+          id: "tuned_launch_rival",
+          team: "enemy" as const,
+          name: "Tuned Launch Rival",
+          rank: "pack" as const,
+          x: 20,
+          y: 0,
+          vx: -170,
+          vy: 0,
+          radius: 22,
+          spinIntegrity: enemyStats.maxSpinIntegrity,
+          fluxGuard: enemyStats.maxFluxGuard,
+          spinPower: 100,
+          wobble: 0,
+          cooldownRemaining: 10,
+          stats: enemyStats,
+          behaviorId: "hunter" as const,
+        },
+      ],
+      nextEnemyIn: 10,
+    });
+
+    const lowLaunch = stepTopArenaRuntime(makeImpactRuntime(), 0.05, { collisionLaunchMultiplier: 0.65, sparkMultiplier: 0.6 });
+    const highLaunch = stepTopArenaRuntime(makeImpactRuntime(), 0.05, { collisionLaunchMultiplier: 2.2, sparkMultiplier: 1.8 });
+
+    expect(Math.hypot(highLaunch.player.vx, highLaunch.player.vy)).toBeGreaterThan(Math.hypot(lowLaunch.player.vx, lowLaunch.player.vy) * 1.35);
+    expect(highLaunch.lastCollision?.sparkIntensity ?? 0).toBeGreaterThan(lowLaunch.lastCollision?.sparkIntensity ?? 0);
+    expect(highLaunch.effects.some((effect) => effect.kind === "shockwave")).toBe(true);
+  });
+
+  it("signals the final boss once the 150-200 rival clear is complete", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_red_chancel_disk",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "boss_signal_test",
+    });
+    const defeatedRival = {
+      ...runtime.player,
+      id: "last_pack_before_boss",
+      team: "enemy" as const,
+      name: "Last Cinder Runner",
+      rank: "pack" as const,
+      x: 48,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      radius: 20,
+      spinIntegrity: 0,
+      cooldownRemaining: 10,
+      behaviorId: "hunter" as const,
+    };
+
+    const cleared = stepTopArenaRuntime(
+      {
+        ...runtime,
+        mapKills: runtime.mapKillTarget - 1,
+        enemies: [defeatedRival],
+        nextEnemyIn: 10,
+      },
+      0.05,
+    );
+    const bossSpawn = stepTopArenaRuntime({ ...cleared, enemies: [], nextEnemyIn: 0 }, 0.05);
+
+    expect(cleared.mapKills).toBe(cleared.mapKillTarget);
+    expect(cleared.effects.some((effect) => effect.kind === "bossSignal")).toBe(true);
+    expect(cleared.events.some((event) => event.text.includes("Brass Judicator is entering"))).toBe(true);
+    expect(bossSpawn.enemies).toHaveLength(1);
+    expect(bossSpawn.enemies[0]?.rank).toBe("boss");
+    expect(bossSpawn.effects.some((effect) => effect.kind === "bossSignal")).toBe(true);
   });
 });

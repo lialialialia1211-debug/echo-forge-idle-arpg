@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { useEffect, useRef, type RefObject } from "react";
 import { getArenaCircuitDef } from "../../data/arenaCircuits";
 import { clamp } from "../../engine/math";
-import type { ArenaCircuitDef, ArenaDrop, ArenaEffect, EnemyBehaviorId, TopArenaRuntime, TopCollisionKind, TopRuntimeEntity } from "../../engine/topTypes";
+import type { ArenaCircuitDef, ArenaDrop, ArenaEffect, ArenaTuningConfig, EnemyBehaviorId, TopArenaRuntime, TopCollisionKind, TopRuntimeEntity } from "../../engine/topTypes";
 
 type Palette = {
   core: number;
@@ -28,6 +28,7 @@ export type ArenaRendererMetrics = {
 type ArenaPhaserViewProps = {
   runtime: TopArenaRuntime;
   runtimeRef: RefObject<TopArenaRuntime>;
+  tuning: ArenaTuningConfig;
   onMetrics?: (metrics: ArenaRendererMetrics) => void;
 };
 
@@ -146,10 +147,16 @@ function rotatedPoint(cx: number, cy: number, x: number, y: number, angle: numbe
   return new Phaser.Math.Vector2(cx + x * cos - y * sin, cy + x * sin + y * cos);
 }
 
-function drawArenaFloor(graphics: Phaser.GameObjects.Graphics, width: number, height: number, arena: ArenaCircuitDef, runtime: TopArenaRuntime) {
+function normalizeVector(x: number, y: number) {
+  const magnitude = Math.sqrt(x * x + y * y) || 1;
+  return { x: x / magnitude, y: y / magnitude };
+}
+
+function drawArenaFloor(graphics: Phaser.GameObjects.Graphics, width: number, height: number, arena: ArenaCircuitDef, runtime: TopArenaRuntime, tuning: ArenaTuningConfig) {
   const map = createWorldMapper(width, height, arena);
   const radius = map.radius(arena.radius);
   const sweep = (runtime.time * 0.22) % (Math.PI * 2);
+  const basinPulse = 0.55 + tuning.basinPullMultiplier * 0.18 + (Math.sin(runtime.time * 2.2) + 1) * 0.035;
 
   graphics.fillStyle(0x070809, 1);
   graphics.fillRect(0, 0, width, height);
@@ -162,6 +169,8 @@ function drawArenaFloor(graphics: Phaser.GameObjects.Graphics, width: number, he
   graphics.fillCircle(map.centerX, map.centerY, radius * 0.7);
   graphics.fillStyle(0x050607, 0.82);
   graphics.fillCircle(map.centerX, map.centerY, radius * 0.38);
+  graphics.fillStyle(0x000000, 0.2 + basinPulse * 0.18);
+  graphics.fillCircle(map.centerX, map.centerY, radius * 0.24);
 
   graphics.fillStyle(0xd9a554, 0.045);
   graphics.fillCircle(map.centerX, map.centerY, radius * 1.06);
@@ -185,6 +194,18 @@ function drawArenaFloor(graphics: Phaser.GameObjects.Graphics, width: number, he
   graphics.lineStyle(1, 0xd9a554, 0.18);
   for (let i = 1; i <= 5; i += 1) {
     graphics.strokeCircle(map.centerX, map.centerY, (radius / 6) * i);
+  }
+
+  graphics.lineStyle(1.4, 0xe6d7b5, 0.08 + basinPulse * 0.04);
+  for (let i = 0; i < 18; i += 1) {
+    const angle = (Math.PI * 2 * i) / 18 + sweep * 0.12;
+    const outer = radius * (0.82 + (i % 3) * 0.035);
+    const inner = radius * (0.42 + (i % 2) * 0.035);
+    const ox = map.centerX + Math.cos(angle) * outer;
+    const oy = map.centerY + Math.sin(angle) * outer;
+    const ix = map.centerX + Math.cos(angle) * inner;
+    const iy = map.centerY + Math.sin(angle) * inner;
+    graphics.lineBetween(ox, oy, ix, iy);
   }
 
   graphics.lineStyle(2, 0x000000, 0.22);
@@ -318,6 +339,22 @@ function drawEffect(graphics: Phaser.GameObjects.Graphics, effect: ArenaEffect, 
       graphics.lineStyle(1.4, color, (0.26 + armRatio * 0.18) * alpha);
       drawArc(graphics, point.x, point.y, radius * 0.9, start, start + Math.PI * 0.24);
     }
+    return;
+  }
+
+  if (effect.kind === "bossSignal") {
+    const radius = map.radius(220 + ratio * 70) * effect.intensity;
+    graphics.fillStyle(0xb68cff, 0.055 * alpha);
+    graphics.fillCircle(point.x, point.y, radius * 0.72);
+    graphics.lineStyle(3.4, 0xb68cff, 0.62 * alpha);
+    graphics.strokeCircle(point.x, point.y, radius * (0.56 + ratio * 0.2));
+    graphics.lineStyle(1.6, 0xfff4c7, 0.52 * alpha);
+    for (let i = 0; i < 6; i += 1) {
+      const start = effect.age * 1.7 + (Math.PI * 2 * i) / 6;
+      drawArc(graphics, point.x, point.y, radius * 0.84, start, start + Math.PI * 0.22);
+    }
+    graphics.lineStyle(2.2, 0xdf624c, 0.36 * alpha);
+    graphics.strokeCircle(point.x, point.y, radius * 0.24);
     return;
   }
 
@@ -498,6 +535,16 @@ function drawTop(graphics: Phaser.GameObjects.Graphics, entity: TopRuntimeEntity
   const integrityRatio = clamp(entity.spinIntegrity / entity.stats.maxSpinIntegrity, 0, 1);
   const spinRatio = clamp(entity.spinPower / 100, 0.04, 1);
   const wobble = clamp(entity.wobble ?? 0, 0, 1);
+  const speed = Math.hypot(entity.vx, entity.vy);
+  if (speed > 82) {
+    const trailLength = map.radius(clamp(speed * 0.12, 14, entity.rank === "boss" ? 58 : 72));
+    const velocity = normalizeVector(entity.vx, entity.vy);
+    const trailAlpha = clamp((speed - 82) / 260, 0.12, entity.rank === "boss" ? 0.34 : 0.52);
+    graphics.lineStyle(Math.max(2, radius * 0.18), palette.glow, trailAlpha);
+    graphics.lineBetween(point.x - velocity.x * trailLength, point.y - velocity.y * trailLength, point.x, point.y);
+    graphics.lineStyle(Math.max(6, radius * 0.46), palette.glow, trailAlpha * 0.08);
+    graphics.lineBetween(point.x - velocity.x * trailLength * 0.72, point.y - velocity.y * trailLength * 0.72, point.x, point.y);
+  }
   const wobbleX = Math.cos(entity.angle * 1.7) * radius * wobble * 0.16;
   const wobbleY = Math.sin(entity.angle * 1.35) * radius * wobble * 0.12;
   const cx = point.x + wobbleX;
@@ -560,6 +607,7 @@ function drawTop(graphics: Phaser.GameObjects.Graphics, entity: TopRuntimeEntity
 class ArenaPhaserScene extends Phaser.Scene {
   private runtime: TopArenaRuntime | null = null;
   private readonly getRuntime: () => TopArenaRuntime;
+  private readonly getTuning: () => ArenaTuningConfig;
   private readonly getOnMetrics: () => ((metrics: ArenaRendererMetrics) => void) | undefined;
   private floor!: Phaser.GameObjects.Graphics;
   private effectsBack!: Phaser.GameObjects.Graphics;
@@ -580,9 +628,10 @@ class ArenaPhaserScene extends Phaser.Scene {
   private lastMetricsAt = 0;
   private lastRenderMs = 0;
 
-  constructor(getRuntime: () => TopArenaRuntime, getOnMetrics: () => ((metrics: ArenaRendererMetrics) => void) | undefined) {
+  constructor(getRuntime: () => TopArenaRuntime, getTuning: () => ArenaTuningConfig, getOnMetrics: () => ((metrics: ArenaRendererMetrics) => void) | undefined) {
     super("ArenaPhaserScene");
     this.getRuntime = getRuntime;
+    this.getTuning = getTuning;
     this.getOnMetrics = getOnMetrics;
   }
 
@@ -633,7 +682,8 @@ class ArenaPhaserScene extends Phaser.Scene {
     this.lastCollisionId = collision.id;
     this.lastHitKind = collision.kind;
     const intensity = clamp(collision.sparkIntensity * 0.5 + collision.normalImpulse / 95, 0.9, collision.heavy ? 3.6 : 2.1);
-    const freezeMs = collision.heavy ? clamp(62 + collision.normalImpulse * 0.32 + collision.sparkIntensity * 7, 72, 150) : 0;
+    const tuning = this.getTuning();
+    const freezeMs = collision.heavy ? clamp((62 + collision.normalImpulse * 0.32 + collision.sparkIntensity * 7) * tuning.hitStopMultiplier, 24, 210) : 0;
 
     this.lastHitFlash = {
       id: collision.id,
@@ -653,11 +703,11 @@ class ArenaPhaserScene extends Phaser.Scene {
     if (freezeMs > 0) {
       this.hitStopUntil = Math.max(this.hitStopUntil, now + freezeMs);
       this.frozenRuntime = runtime;
-      this.cameras.main.shake(105, clamp(collision.normalImpulse / 1800 + collision.sparkIntensity / 1200, 0.008, 0.034));
+      this.cameras.main.shake(105, clamp((collision.normalImpulse / 1800 + collision.sparkIntensity / 1200) * tuning.hitStopMultiplier, 0.006, 0.046));
       return;
     }
 
-    this.cameras.main.shake(45, clamp(collision.sparkIntensity / 2400, 0.0015, 0.005));
+    this.cameras.main.shake(45, clamp((collision.sparkIntensity / 2400) * tuning.hitStopMultiplier, 0.0015, 0.007));
   }
 
   private renderRuntime(runtime: TopArenaRuntime | null, now: number) {
@@ -668,6 +718,7 @@ class ArenaPhaserScene extends Phaser.Scene {
 
     const width = Math.max(1, this.scale.gameSize.width);
     const height = Math.max(1, this.scale.gameSize.height);
+    const tuning = this.getTuning();
     const flashClock = this.lastHitFlash ? `${this.lastHitFlash.id}:${Math.floor((now - this.lastHitFlash.startedAt) / 16)}` : "";
     const stopClock = this.hitStopUntil > now ? `stop:${Math.floor((this.hitStopUntil - now) / 16)}` : "";
     const signature = [
@@ -685,6 +736,8 @@ class ArenaPhaserScene extends Phaser.Scene {
       runtime.effects.map((effect) => `${effect.kind}:${effect.age.toFixed(2)}`).join(","),
       runtime.drops.map((drop) => `${drop.id}:${drop.age.toFixed(2)}`).join(","),
       runtime.lastCollision?.id ?? "",
+      tuning.basinPullMultiplier.toFixed(2),
+      tuning.hitStopMultiplier.toFixed(2),
       flashClock,
       stopClock,
     ].join("|");
@@ -705,7 +758,7 @@ class ArenaPhaserScene extends Phaser.Scene {
     this.tops.clear();
     this.effectsFront.clear();
 
-    drawArenaFloor(this.floor, width, height, arena, runtime);
+    drawArenaFloor(this.floor, width, height, arena, runtime, tuning);
     drawEnemyTelegraphs(this.effectsBack, runtime, map);
     for (const effect of effects.filter((entry) => entry.kind !== "frictionSpark")) {
       drawEffect(this.effectsBack, effect, map);
@@ -765,6 +818,10 @@ class ArenaPhaserScene extends Phaser.Scene {
   }
 
   private syncLabel(entity: TopRuntimeEntity, map: WorldMapper, palette: Palette, visibleLabels: Set<string>) {
+    if (entity.rank === "pack") {
+      return;
+    }
+
     const point = map.point(entity.x, entity.y);
     const radius = map.radius(entity.radius);
     let label = this.labels.get(entity.id);
@@ -788,16 +845,21 @@ class ArenaPhaserScene extends Phaser.Scene {
   }
 }
 
-export function ArenaPhaserView({ runtime, runtimeRef, onMetrics }: ArenaPhaserViewProps) {
+export function ArenaPhaserView({ runtime, runtimeRef, tuning, onMetrics }: ArenaPhaserViewProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<ArenaPhaserScene | null>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const latestRuntimeRef = useRef(runtime);
+  const tuningRef = useRef(tuning);
   const metricsCallbackRef = useRef(onMetrics);
 
   useEffect(() => {
     latestRuntimeRef.current = runtime;
   }, [runtime]);
+
+  useEffect(() => {
+    tuningRef.current = tuning;
+  }, [tuning]);
 
   useEffect(() => {
     metricsCallbackRef.current = onMetrics;
@@ -811,6 +873,7 @@ export function ArenaPhaserView({ runtime, runtimeRef, onMetrics }: ArenaPhaserV
 
     const scene = new ArenaPhaserScene(
       () => runtimeRef.current ?? latestRuntimeRef.current,
+      () => tuningRef.current,
       () => metricsCallbackRef.current,
     );
     const game = new Phaser.Game({

@@ -14,6 +14,7 @@ import {
   Recycle,
   RotateCcw,
   Shield,
+  SlidersHorizontal,
   Sparkles,
   Swords,
   Zap,
@@ -31,7 +32,7 @@ import {
   partSlotOrder,
 } from "../../data/topParts";
 import { isRuneCompatible, tuningRunes } from "../../data/tuningRunes";
-import { createTopArenaRuntime, stepTopArenaRuntime } from "../../engine/arenaRuntime";
+import { createTopArenaRuntime, defaultArenaTuning, stepTopArenaRuntime } from "../../engine/arenaRuntime";
 import { generateArenaKey, summarizeArenaKeyRiskReward } from "../../engine/arenaKeys";
 import { projectBossGateAttempt } from "../../engine/bossGate";
 import { validateRuneLoadout } from "../../engine/driveRuneValidation";
@@ -50,6 +51,7 @@ import { loadLocalSave, writeLocalSave } from "../../save/localStore";
 import type {
   ArenaEffect,
   ArenaKey,
+  ArenaTuningConfig,
   TalentNodeDef,
   TopArenaRuntime,
   TopEquipment,
@@ -117,6 +119,25 @@ type DecisionCue = {
   value: string;
   tone?: DecisionCueTone;
 };
+
+type ArenaTuningKey = keyof ArenaTuningConfig;
+
+type ArenaTuningControl = {
+  key: ArenaTuningKey;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+};
+
+const arenaTuningControls: ArenaTuningControl[] = [
+  { key: "basinPullMultiplier", label: "Basin pull", min: 0.6, max: 2.4, step: 0.05 },
+  { key: "collisionLaunchMultiplier", label: "Launch", min: 0.6, max: 2.4, step: 0.05 },
+  { key: "sparkMultiplier", label: "Spark", min: 0.5, max: 2.1, step: 0.05 },
+  { key: "activeEnemyPressure", label: "Rivals", min: 0.55, max: 1.65, step: 0.05 },
+  { key: "bossWeightMultiplier", label: "Boss mass", min: 0.75, max: 1.55, step: 0.05 },
+  { key: "hitStopMultiplier", label: "Hit stop", min: 0.35, max: 1.8, step: 0.05 },
+];
 
 type NextActionPrompt = {
   tone: DecisionCueTone;
@@ -584,6 +605,8 @@ export function CombatArena() {
   const [speed, setSpeed] = useState(1);
   const [running, setRunning] = useState(false);
   const [showDebugHud, setShowDebugHud] = useState(false);
+  const [showTuningHud, setShowTuningHud] = useState(false);
+  const [arenaTuning, setArenaTuning] = useState<ArenaTuningConfig>(defaultArenaTuning);
   const [rendererMetrics, setRendererMetrics] = useState<ArenaRendererMetrics>(initialRendererMetrics);
   const [activePanel, setActivePanel] = useState<ActivePanel>("build");
   const [inventoryFilter, setInventoryFilter] = useState<TopPartSlotId | "all">("all");
@@ -627,6 +650,7 @@ export function CombatArena() {
     }),
   );
   const runtimeRef = useRef(runtime);
+  const arenaTuningRef = useRef(arenaTuning);
 
   const publishRuntime = useCallback((nextRuntime: TopArenaRuntime) => {
     runtimeRef.current = nextRuntime;
@@ -927,6 +951,14 @@ export function CombatArena() {
     resetArena(frameId, driveId, arenaId, makeLoadout(equipment, runeIds, nextTalentIds));
   };
 
+  const updateArenaTuning = (key: ArenaTuningKey, value: number) => {
+    setArenaTuning((current) => ({ ...current, [key]: value }));
+  };
+
+  useEffect(() => {
+    arenaTuningRef.current = arenaTuning;
+  }, [arenaTuning]);
+
   useEffect(() => {
     if (!running) {
       runtimeRef.current = runtime;
@@ -945,7 +977,7 @@ export function CombatArena() {
       try {
         const elapsed = Math.min(0.05, (now - lastTime) / 1000);
         lastTime = now;
-        const nextRuntime = stepTopArenaRuntime(runtimeRef.current, elapsed * speed);
+        const nextRuntime = stepTopArenaRuntime(runtimeRef.current, elapsed * speed, arenaTuningRef.current);
         runtimeRef.current = nextRuntime;
         if (now - lastUiPublish >= 100) {
           setRuntime(nextRuntime);
@@ -1708,6 +1740,38 @@ export function CombatArena() {
     </>
   );
 
+  const renderTuningPanel = () => (
+    <div className="arena-tuning-panel" aria-label="Combat tuning">
+      <div className="arena-tuning-head">
+        <div>
+          <small>Dev tuning</small>
+          <strong>Combat feel</strong>
+        </div>
+        <button className="arena-button arena-tuning-reset" onClick={() => setArenaTuning(defaultArenaTuning)} type="button">
+          Reset
+        </button>
+      </div>
+      <div className="arena-tuning-controls">
+        {arenaTuningControls.map((control) => (
+          <label className="arena-tuning-control" key={control.key}>
+            <span>
+              {control.label}
+              <strong>{round(arenaTuning[control.key], 2)}x</strong>
+            </span>
+            <input
+              max={control.max}
+              min={control.min}
+              onChange={(event) => updateArenaTuning(control.key, Number(event.target.value))}
+              step={control.step}
+              type="range"
+              value={arenaTuning[control.key]}
+            />
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+
   const renderNextActionStrip = () => {
     const recentDropCount = lootNotices.filter((notice) => notice.tone === "drop").length;
     const visibleDropCount = Math.max(runtime.drops.length, recentDropCount);
@@ -1952,6 +2016,16 @@ export function CombatArena() {
             <Gauge size={16} aria-hidden />
             Debug
           </button>
+          <button
+            aria-pressed={showTuningHud}
+            className={showTuningHud ? "arena-button arena-button-debug-active" : "arena-button"}
+            onClick={() => setShowTuningHud((value) => !value)}
+            title="Toggle combat tuning"
+            type="button"
+          >
+            <SlidersHorizontal size={16} aria-hidden />
+            Tune
+          </button>
           <div className="speed-tabs" aria-label="Speed">
             {[1, 2, 4].map((value) => (
               <button className={speed === value ? "speed-tab speed-tab-active" : "speed-tab"} key={value} onClick={() => setSpeed(value)} type="button">
@@ -1985,7 +2059,7 @@ export function CombatArena() {
           </div>
 
           <div className="canvas-wrap">
-            <ArenaPhaserView onMetrics={showDebugHud ? setRendererMetrics : undefined} runtime={runtime} runtimeRef={runtimeRef} />
+            <ArenaPhaserView onMetrics={showDebugHud ? setRendererMetrics : undefined} runtime={runtime} runtimeRef={runtimeRef} tuning={arenaTuning} />
             {dangerCue ? (
               <div className={`danger-cue danger-cue-${dangerCue.tone} ${showDebugHud ? "danger-cue-debug-offset" : ""}`} aria-live="polite">
                 <AlertTriangle size={15} aria-hidden />
@@ -2127,13 +2201,14 @@ export function CombatArena() {
           </div>
         </section>
 
-        <aside className="workbench-panel">
+        <aside className={showTuningHud ? "workbench-panel workbench-panel-tuning" : "workbench-panel"}>
           <nav className="panel-tabs" aria-label="Workbench">
             <PanelTab active={activePanel === "build"} icon={<CircleDot size={15} aria-hidden />} label="Build" onClick={() => setActivePanel("build")} />
             <PanelTab active={activePanel === "loot"} icon={<PackageOpen size={15} aria-hidden />} label="Loot" onClick={() => setActivePanel("loot")} />
             <PanelTab active={activePanel === "forge"} icon={<Recycle size={15} aria-hidden />} label="Forge" onClick={() => setActivePanel("forge")} />
             <PanelTab active={activePanel === "route"} icon={<Flame size={15} aria-hidden />} label="Route" onClick={() => setActivePanel("route")} />
           </nav>
+          {showTuningHud ? renderTuningPanel() : null}
           <div className="workbench-content">
             {activePanel === "build" && renderBuildPanel()}
             {activePanel === "loot" && renderInventoryPanel()}

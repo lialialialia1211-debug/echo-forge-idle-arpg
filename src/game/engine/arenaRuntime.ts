@@ -14,6 +14,7 @@ import type {
   ArenaEventState,
   ArenaKey,
   ArenaLogEvent,
+  ArenaTuningConfig,
   ArenaRewardBias,
   EnemyBehaviorId,
   EnemyModifierDef,
@@ -31,7 +32,27 @@ const maxEffects = 80;
 const maxDrops = 12;
 const minMapKillTarget = 150;
 const maxMapKillTarget = 200;
-const maxActiveSmallEnemies = 9;
+const maxActiveSmallEnemies = 20;
+
+export const defaultArenaTuning: ArenaTuningConfig = {
+  basinPullMultiplier: 1.38,
+  collisionLaunchMultiplier: 1.35,
+  sparkMultiplier: 1.16,
+  activeEnemyPressure: 1,
+  bossWeightMultiplier: 1,
+  hitStopMultiplier: 1,
+};
+
+function normalizeArenaTuning(tuning?: Partial<ArenaTuningConfig>): ArenaTuningConfig {
+  return {
+    basinPullMultiplier: clamp(tuning?.basinPullMultiplier ?? defaultArenaTuning.basinPullMultiplier, 0.4, 2.8),
+    collisionLaunchMultiplier: clamp(tuning?.collisionLaunchMultiplier ?? defaultArenaTuning.collisionLaunchMultiplier, 0.45, 3),
+    sparkMultiplier: clamp(tuning?.sparkMultiplier ?? defaultArenaTuning.sparkMultiplier, 0.35, 2.5),
+    activeEnemyPressure: clamp(tuning?.activeEnemyPressure ?? defaultArenaTuning.activeEnemyPressure, 0.4, 1.8),
+    bossWeightMultiplier: clamp(tuning?.bossWeightMultiplier ?? defaultArenaTuning.bossWeightMultiplier, 0.65, 1.8),
+    hitStopMultiplier: clamp(tuning?.hitStopMultiplier ?? defaultArenaTuning.hitStopMultiplier, 0.2, 2.2),
+  };
+}
 
 type DropLabelOption = { label: string; target: TopPartSlotId; weight: number };
 
@@ -205,10 +226,10 @@ function activeSmallEnemyCount(runtime: TopArenaRuntime): number {
   return runtime.enemies.filter((enemy) => enemy.rank !== "boss").length;
 }
 
-function desiredSmallEnemyCount(runtime: TopArenaRuntime): number {
+function desiredSmallEnemyCount(runtime: TopArenaRuntime, tuning: ArenaTuningConfig = defaultArenaTuning): number {
   const arena = getArenaCircuitDef(runtime.arenaId);
-  const density = 4 + arena.tier + Math.floor(mapProgressRatio(runtime) * 2);
-  return Math.min(maxActiveSmallEnemies, density);
+  const density = 9 + arena.tier * 2 + Math.floor(mapProgressRatio(runtime) * 6);
+  return Math.min(maxActiveSmallEnemies, Math.max(4, Math.round(density * tuning.activeEnemyPressure)));
 }
 
 function smallEnemyRankForSpawn(runtime: TopArenaRuntime, rng: ReturnType<typeof createRng>): TopRuntimeEntity["rank"] {
@@ -223,18 +244,27 @@ function difficultyWaveForRuntime(runtime: TopArenaRuntime): number {
   return 1 + runtime.routeClears * 3 + Math.floor(runtime.mapKills / 40);
 }
 
-function spawnEnemy(runtime: TopArenaRuntime, rankOverride?: TopRuntimeEntity["rank"]): TopArenaRuntime {
+function spawnEnemy(runtime: TopArenaRuntime, rankOverride?: TopRuntimeEntity["rank"], tuning: ArenaTuningConfig = defaultArenaTuning): TopArenaRuntime {
   const arena = getArenaCircuitDef(runtime.arenaId);
   const spawnIndex = runtime.spawnIndex + 1;
   const rng = createRng(`${runtime.seed}_${runtime.routeClears}_${runtime.mapKills}_${spawnIndex}`);
   const angle = rng.next() * Math.PI * 2;
   const rank = rankOverride ?? smallEnemyRankForSpawn(runtime, rng);
-  const radius = rank === "boss" ? 34 : rank === "elite" ? 28 : 22;
+  const radius = rank === "boss" ? 38 : rank === "elite" ? 27 : 20;
   const difficultyWave = difficultyWaveForRuntime(runtime);
   const modifier = chooseEnemyModifier(runtime.arenaId, spawnIndex, runtime.seed);
   const behaviorId = behaviorForEnemy(rank, modifier);
-  const stats = createEnemyStats(runtime.arenaId, rank, difficultyWave, runtime.arenaKey, runtime.activeEvent, modifier);
-  const distance = arena.radius * (rank === "boss" ? 0.46 + rng.next() * 0.1 : 0.68 + rng.next() * 0.2);
+  const baseStats = createEnemyStats(runtime.arenaId, rank, difficultyWave, runtime.arenaKey, runtime.activeEvent, modifier);
+  const stats =
+    rank === "boss"
+      ? {
+          ...baseStats,
+          mass: baseStats.mass * tuning.bossWeightMultiplier,
+          guard: baseStats.guard * (1 + (tuning.bossWeightMultiplier - 1) * 0.12),
+          grip: clamp(baseStats.grip + (tuning.bossWeightMultiplier - 1) * 0.08, 0.45, 0.94),
+        }
+      : baseStats;
+  const distance = arena.radius * (rank === "boss" ? 0.5 + rng.next() * 0.08 : 0.72 + rng.next() * 0.19);
   const baseName = rank === "boss" ? "Brass Judicator" : rank === "elite" ? "Scored Iron Rival" : "Cinder Runner";
   const enemy: TopRuntimeEntity = {
     id: `enemy_${spawnIndex}_${rank}`,
@@ -262,14 +292,14 @@ function spawnEnemy(runtime: TopArenaRuntime, rankOverride?: TopRuntimeEntity["r
     },
   };
 
-  return addEffect(
+  let nextRuntime = addEffect(
     pushEvent(
       {
         ...runtime,
         spawnIndex,
         enemies: [...runtime.enemies, enemy],
         bossSpawned: runtime.bossSpawned || rank === "boss",
-        nextEnemyIn: rank === "boss" ? 1.4 : activeSmallEnemyCount(runtime) < desiredSmallEnemyCount(runtime) - 1 ? 0.12 : 0.28,
+        nextEnemyIn: rank === "boss" ? 1.4 : activeSmallEnemyCount(runtime) < desiredSmallEnemyCount(runtime, tuning) - 1 ? 0.09 : 0.22,
       },
       "danger",
       rank === "boss" ? `${enemy.name} drops into the basin` : `${enemy.name} enters the basin`,
@@ -282,6 +312,25 @@ function spawnEnemy(runtime: TopArenaRuntime, rankOverride?: TopRuntimeEntity["r
       intensity: rank === "boss" ? 1.8 : 1,
     },
   );
+
+  if (rank === "boss") {
+    nextRuntime = addEffect(nextRuntime, {
+      kind: "bossSignal",
+      x: 0,
+      y: 0,
+      lifetime: 1.15,
+      intensity: 1.6,
+    });
+    nextRuntime = addEffect(nextRuntime, {
+      kind: "shockwave",
+      x: enemy.x,
+      y: enemy.y,
+      lifetime: 0.82,
+      intensity: 2.2,
+    });
+  }
+
+  return nextRuntime;
 }
 
 function createPlayer(frameId: string, driveId: string, loadout: TopLoadoutConfig = {}, activeEvent?: ArenaEventState): TopRuntimeEntity {
@@ -360,7 +409,7 @@ export function createTopArenaRuntime({
   };
 }
 
-function steerEntity(entity: TopRuntimeEntity, target: TopRuntimeEntity | null, arenaRadius: number, deltaSeconds: number): TopRuntimeEntity {
+function steerEntity(entity: TopRuntimeEntity, target: TopRuntimeEntity | null, arenaRadius: number, deltaSeconds: number, tuning: ArenaTuningConfig = defaultArenaTuning): TopRuntimeEntity {
   let desiredX = -entity.x * 0.25;
   let desiredY = -entity.y * 0.25;
 
@@ -395,8 +444,13 @@ function steerEntity(entity: TopRuntimeEntity, target: TopRuntimeEntity | null, 
   if (distanceBeforeMove > 0.001) {
     const slopeRatio = clamp(distanceBeforeMove / Math.max(1, arenaRadius), 0, 1);
     const centerPull = normalize(-entity.x, -entity.y);
-    const slopeForce = 0.28 + Math.pow(slopeRatio, 0.85) * 1.42;
-    const basinAcceleration = (entity.team === "player" ? 118 : 136) * slopeForce * clamp(1.12 - entity.stats.grip * 0.22, 0.74, 1.16) * (0.72 + controlRatio * 0.42);
+    const slopeForce = 0.34 + Math.pow(slopeRatio, 0.78) * 1.68;
+    const basinAcceleration =
+      (entity.team === "player" ? 132 : 154) *
+      slopeForce *
+      tuning.basinPullMultiplier *
+      clamp(1.16 - entity.stats.grip * 0.24, 0.74, 1.2) *
+      (0.72 + controlRatio * 0.42);
     vx += centerPull.x * basinAcceleration * deltaSeconds;
     vy += centerPull.y * basinAcceleration * deltaSeconds;
   }
@@ -406,7 +460,7 @@ function steerEntity(entity: TopRuntimeEntity, target: TopRuntimeEntity | null, 
     const originalSpeed = speed;
     const excessSpeed = speed - maxSpeed;
     const recoilDecay = clamp(deltaSeconds * (0.82 + entity.stats.grip * 0.5), 0.04, 0.26);
-    const recoilSpeedLimit = maxSpeed * (entity.team === "player" ? 2.85 : 3.15);
+    const recoilSpeedLimit = maxSpeed * (entity.team === "player" ? 3.25 : 3.55) * clamp(0.82 + tuning.collisionLaunchMultiplier * 0.22, 0.9, 1.42);
     speed = Math.min(recoilSpeedLimit, maxSpeed + excessSpeed * (1 - recoilDecay));
     vx = (vx / originalSpeed) * speed;
     vy = (vy / originalSpeed) * speed;
@@ -452,8 +506,9 @@ function createCollisionDamage(attacker: TopRuntimeEntity, defender: TopRuntimeE
   const spinFactor = 0.68 + spinRatio(attacker) * 0.42;
   const kindFactor = collision?.kind === "smash" ? 1.28 : collision?.kind === "scrape" ? 0.88 : collision?.kind === "grind" ? 0.74 : 1;
   const heavyFactor = collision?.heavy ? 1.16 : 1;
+  const playerIncomingScalar = defender.team === "player" ? (attacker.rank === "boss" ? 0.78 : attacker.rank === "elite" ? 0.68 : 0.54) : 1;
   const packet = emptyDamagePacket();
-  packet.impact = (attacker.stats.impact * spinFactor + impulseDamage + relativeSpeed * attacker.stats.mass * 0.08) * heavyFactor * kindFactor;
+  packet.impact = (attacker.stats.impact * spinFactor + impulseDamage + relativeSpeed * attacker.stats.mass * 0.08) * heavyFactor * kindFactor * playerIncomingScalar;
   return packet;
 }
 
@@ -701,6 +756,7 @@ function handleKills(runtime: TopArenaRuntime): TopArenaRuntime {
     const routeCleared = enemy.rank === "boss";
     const nextRouteClears = nextRuntime.routeClears + (routeCleared ? 1 : 0);
     const nextMapKills = routeCleared ? 0 : Math.min(nextRuntime.mapKillTarget, nextRuntime.mapKills + 1);
+    const bossNowReady = !routeCleared && nextRuntime.mapKills < nextRuntime.mapKillTarget && nextMapKills >= nextRuntime.mapKillTarget;
     nextRuntime = pushEvent(nextRuntime, "kill", `${enemy.name} shattered`);
     nextRuntime = handleDrops(nextRuntime, enemy);
     nextRuntime = {
@@ -718,6 +774,15 @@ function handleKills(runtime: TopArenaRuntime): TopArenaRuntime {
       routeClears: nextRouteClears,
       nextEnemyIn: routeCleared ? 1.8 : nextMapKills >= nextRuntime.mapKillTarget ? 0.65 : 0.16,
     };
+    if (bossNowReady) {
+      nextRuntime = addEffect(pushEvent(nextRuntime, "danger", "Basin clear; Brass Judicator is entering"), {
+        kind: "bossSignal",
+        x: 0,
+        y: 0,
+        lifetime: 1.4,
+        intensity: 1.3,
+      });
+    }
   }
 
   return { ...nextRuntime, enemies: survivors };
@@ -756,7 +821,14 @@ function outwardFromBasin(entity: TopRuntimeEntity, fallbackX: number, fallbackY
   return normalize(fallbackX, fallbackY);
 }
 
-function resolveTopCollisionPhysics(player: TopRuntimeEntity, enemy: TopRuntimeEntity, time: number, index: number, contactAge: number): { player: TopRuntimeEntity; enemy: TopRuntimeEntity; collision: TopCollisionEvent } {
+function resolveTopCollisionPhysics(
+  player: TopRuntimeEntity,
+  enemy: TopRuntimeEntity,
+  time: number,
+  index: number,
+  contactAge: number,
+  tuning: ArenaTuningConfig = defaultArenaTuning,
+): { player: TopRuntimeEntity; enemy: TopRuntimeEntity; collision: TopCollisionEvent } {
   const dx = enemy.x - player.x;
   const dy = enemy.y - player.y;
   const distance = length(dx, dy) || 0.001;
@@ -787,8 +859,8 @@ function resolveTopCollisionPhysics(player: TopRuntimeEntity, enemy: TopRuntimeE
   const enemySurfaceSpeed = angularSurfaceSpeed(enemy);
   const spinShearSpeed = Math.abs(playerSurfaceSpeed) + Math.abs(enemySurfaceSpeed);
   const spinShearRatio = clamp(spinShearSpeed / 260, 0, 1.8);
-  const speedRecoilRatio = clamp((closingSpeed - 54) / 220, 0, 1.35);
-  const restitution = clamp(0.54 + (player.stats.edge + enemy.stats.edge) * 2.2 + (spinRatio(player) + spinRatio(enemy)) * 0.09 + speedRecoilRatio * 0.56, 0.54, 1.42);
+  const speedRecoilRatio = clamp((closingSpeed - 42) / 210, 0, 1.65);
+  const restitution = clamp(0.62 + (player.stats.edge + enemy.stats.edge) * 2.4 + (spinRatio(player) + spinRatio(enemy)) * 0.11 + speedRecoilRatio * 0.7, 0.58, 1.72);
   const normalImpulse = ((1 + restitution) * closingSpeed + overlap * 10) / invMassSum;
   const relativeTangentialSpeed = relativeVx * tangent.x + relativeVy * tangent.y - playerSurfaceSpeed - enemySurfaceSpeed;
   const surfaceShear = Math.abs(relativeTangentialSpeed) + spinShearSpeed * 0.42;
@@ -798,15 +870,17 @@ function resolveTopCollisionPhysics(player: TopRuntimeEntity, enemy: TopRuntimeE
   const impulseX = normal.x * normalImpulse + tangent.x * tangentImpulse;
   const impulseY = normal.y * normalImpulse + tangent.y * tangentImpulse;
   const centerDistance = Math.min(length(playerPositioned.x, playerPositioned.y), length(enemyPositioned.x, enemyPositioned.y));
-  const centerPocketBoost = clamp(1.46 - centerDistance / 240, 0.72, 1.46);
-  const recoilEnergy = closingSpeed * 0.92 + normalImpulse * 0.96 + Math.abs(tangentImpulse) * 0.36 + spinShearSpeed * 0.08;
-  const launchPower = clamp(recoilEnergy * (0.18 + speedRecoilRatio * 0.56 + spinShearRatio * 0.14) * centerPocketBoost, 0, 640);
-  const recoilSeparation = clamp(overlap * 0.38 + launchPower * 0.022, 0, 20);
+  const centerPocketBoost = clamp(1.62 - centerDistance / 230, 0.78, 1.62);
+  const recoilEnergy = closingSpeed * 1.08 + normalImpulse * 1.06 + Math.abs(tangentImpulse) * 0.44 + spinShearSpeed * 0.1;
+  const speedBurst = 1 + Math.pow(speedRecoilRatio, 1.34) * 0.46;
+  const launchCap = 580 + tuning.collisionLaunchMultiplier * 780;
+  const launchPower = clamp(recoilEnergy * (0.26 + speedRecoilRatio * 0.82 + spinShearRatio * 0.18) * centerPocketBoost * speedBurst * tuning.collisionLaunchMultiplier, 0, launchCap);
+  const recoilSeparation = clamp(overlap * 0.58 + launchPower * 0.032, 0, 38);
   const tangentSign = Math.sign(tangentImpulse || relativeTangentialSpeed || 1);
   const playerOutward = outwardFromBasin(playerPositioned, -normal.x, -normal.y);
   const enemyOutward = outwardFromBasin(enemyPositioned, normal.x, normal.y);
-  const playerLaunch = normalize(-normal.x * 1.05 + playerOutward.x * 0.48 - tangent.x * tangentSign * 0.18, -normal.y * 1.05 + playerOutward.y * 0.48 - tangent.y * tangentSign * 0.18);
-  const enemyLaunch = normalize(normal.x * 1.05 + enemyOutward.x * 0.48 + tangent.x * tangentSign * 0.18, normal.y * 1.05 + enemyOutward.y * 0.48 + tangent.y * tangentSign * 0.18);
+  const playerLaunch = normalize(-normal.x * 1.1 + playerOutward.x * 0.7 - tangent.x * tangentSign * 0.22, -normal.y * 1.1 + playerOutward.y * 0.7 - tangent.y * tangentSign * 0.22);
+  const enemyLaunch = normalize(normal.x * 1.1 + enemyOutward.x * 0.7 + tangent.x * tangentSign * 0.22, normal.y * 1.1 + enemyOutward.y * 0.7 + tangent.y * tangentSign * 0.22);
   const skid = surfaceShear / 96;
   const playerSpinLoss =
     normalImpulse * (0.018 / Math.max(0.7, player.stats.mass)) + Math.abs(tangentImpulse) * (0.032 + enemy.stats.edge * 0.04) + skid * Math.max(0.1, 1 - player.stats.grip) * 0.48;
@@ -814,7 +888,7 @@ function resolveTopCollisionPhysics(player: TopRuntimeEntity, enemy: TopRuntimeE
     normalImpulse * (0.018 / Math.max(0.7, enemy.stats.mass)) + Math.abs(tangentImpulse) * (0.032 + player.stats.edge * 0.04) + skid * Math.max(0.1, 1 - enemy.stats.grip) * 0.48;
   const playerWobbleGain = clamp((normalImpulse * 0.0034 + Math.abs(tangentImpulse) * 0.006 + spinShearRatio * 0.06) / Math.max(0.8, player.stats.mass + player.stats.grip), 0, 0.65);
   const enemyWobbleGain = clamp((normalImpulse * 0.0034 + Math.abs(tangentImpulse) * 0.006 + spinShearRatio * 0.06) / Math.max(0.8, enemy.stats.mass + enemy.stats.grip), 0, 0.65);
-  const sparkIntensity = clamp(surfaceShear / 92 + normalImpulse / 120 + (spinRatio(player) + spinRatio(enemy)) * 0.35, 0.25, 5.4);
+  const sparkIntensity = clamp((surfaceShear / 84 + normalImpulse / 104 + (spinRatio(player) + spinRatio(enemy)) * 0.42) * tuning.sparkMultiplier, 0.25, 7.2);
   const kind = classifyCollision({ normalImpulse, surfaceShear, contactAge, closingSpeed, combinedMass: player.stats.mass + enemy.stats.mass });
   const heavy = kind === "smash" || normalImpulse > 66 || closingSpeed > 78 || Math.abs(tangentImpulse) > 30 || sparkIntensity > 1.8;
   const contactX = playerPositioned.x + normal.x * player.radius;
@@ -862,7 +936,7 @@ function resolveTopCollisionPhysics(player: TopRuntimeEntity, enemy: TopRuntimeE
   };
 }
 
-function resolveCollisions(runtime: TopArenaRuntime, deltaSeconds: number): TopArenaRuntime {
+function resolveCollisions(runtime: TopArenaRuntime, deltaSeconds: number, tuning: ArenaTuningConfig = defaultArenaTuning): TopArenaRuntime {
   let nextRuntime = runtime;
   let player = runtime.player;
   const enemies: TopRuntimeEntity[] = [];
@@ -878,7 +952,7 @@ function resolveCollisions(runtime: TopArenaRuntime, deltaSeconds: number): TopA
     if (distance < collisionDistance) {
       const contactAge = (runtime.collisionContacts[enemy.id] ?? 0) + deltaSeconds;
       collisionContacts[enemy.id] = contactAge;
-      const resolved = resolveTopCollisionPhysics(player, nextEnemy, runtime.time, index, contactAge);
+      const resolved = resolveTopCollisionPhysics(player, nextEnemy, runtime.time, index, contactAge, tuning);
       player = resolved.player;
       nextEnemy = resolved.enemy;
       nextRuntime = { ...nextRuntime, lastCollision: resolved.collision };
@@ -893,6 +967,16 @@ function resolveCollisions(runtime: TopArenaRuntime, deltaSeconds: number): TopA
           y2: resolved.collision.y + resolved.collision.tangentY * Math.sign(resolved.collision.tangentImpulse || 1) * sparkLength,
           lifetime: 0.34 + Math.min(0.26, resolved.collision.sparkIntensity * 0.05),
           intensity: resolved.collision.sparkIntensity,
+        });
+      }
+
+      if (resolved.collision.heavy) {
+        nextRuntime = addEffect(nextRuntime, {
+          kind: "shockwave",
+          x: resolved.collision.x,
+          y: resolved.collision.y,
+          lifetime: 0.34 + Math.min(0.22, resolved.collision.sparkIntensity * 0.025),
+          intensity: clamp(resolved.collision.sparkIntensity * 0.34 + resolved.collision.normalImpulse / 260, 0.85, 2.9),
         });
       }
 
@@ -913,6 +997,65 @@ function resolveCollisions(runtime: TopArenaRuntime, deltaSeconds: number): TopA
   }
 
   return { ...nextRuntime, player, enemies, collisionContacts };
+}
+
+function resolveEnemyCrowdPhysics(runtime: TopArenaRuntime, tuning: ArenaTuningConfig = defaultArenaTuning): TopArenaRuntime {
+  if (runtime.enemies.length < 2) {
+    return runtime;
+  }
+
+  const enemies = runtime.enemies.map((enemy) => ({ ...enemy }));
+
+  for (let leftIndex = 0; leftIndex < enemies.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < enemies.length; rightIndex += 1) {
+      const left = enemies[leftIndex];
+      const right = enemies[rightIndex];
+      const dx = right.x - left.x;
+      const dy = right.y - left.y;
+      const distance = length(dx, dy);
+      const fallbackAngle = (leftIndex * 1.9 + rightIndex * 2.7 + runtime.time) % (Math.PI * 2);
+      const normal = distance > 0.001 ? { x: dx / distance, y: dy / distance } : { x: Math.cos(fallbackAngle), y: Math.sin(fallbackAngle) };
+      const crowdDistance = (left.radius + right.radius) * 0.86;
+      const overlap = crowdDistance - distance;
+
+      if (overlap <= 0) {
+        continue;
+      }
+
+      const leftInvMass = 1 / Math.max(0.45, left.stats.mass);
+      const rightInvMass = 1 / Math.max(0.45, right.stats.mass);
+      const invMassSum = leftInvMass + rightInvMass;
+      const pressure = clamp(0.45 + tuning.activeEnemyPressure * 0.22, 0.5, 0.9);
+      const leftCorrection = overlap * pressure * (leftInvMass / invMassSum);
+      const rightCorrection = overlap * pressure * (rightInvMass / invMassSum);
+      const relativeVx = right.vx - left.vx;
+      const relativeVy = right.vy - left.vy;
+      const relativeNormalSpeed = relativeVx * normal.x + relativeVy * normal.y;
+      const closingSpeed = Math.max(0, -relativeNormalSpeed);
+      const bounce = (closingSpeed * 0.32 + overlap * 5.2) / invMassSum;
+      const impulseX = normal.x * bounce;
+      const impulseY = normal.y * bounce;
+
+      enemies[leftIndex] = {
+        ...left,
+        x: left.x - normal.x * leftCorrection,
+        y: left.y - normal.y * leftCorrection,
+        vx: left.vx - impulseX * leftInvMass,
+        vy: left.vy - impulseY * leftInvMass,
+        wobble: clamp(left.wobble + overlap * 0.004, 0, 1),
+      };
+      enemies[rightIndex] = {
+        ...right,
+        x: right.x + normal.x * rightCorrection,
+        y: right.y + normal.y * rightCorrection,
+        vx: right.vx + impulseX * rightInvMass,
+        vy: right.vy + impulseY * rightInvMass,
+        wobble: clamp(right.wobble + overlap * 0.004, 0, 1),
+      };
+    }
+  }
+
+  return { ...runtime, enemies };
 }
 
 function resolvePlayerSkill(runtime: TopArenaRuntime): TopArenaRuntime {
@@ -978,8 +1121,9 @@ function recoverPlayer(player: TopRuntimeEntity, deltaSeconds: number): TopRunti
   };
 }
 
-export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: number): TopArenaRuntime {
+export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: number, tuningOverrides?: Partial<ArenaTuningConfig>): TopArenaRuntime {
   const arena = getArenaCircuitDef(runtime.arenaId);
+  const tuning = normalizeArenaTuning(tuningOverrides);
   let nextRuntime: TopArenaRuntime = {
     ...runtime,
     time: runtime.time + deltaSeconds,
@@ -996,19 +1140,20 @@ export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: numb
     const bossReady = nextRuntime.mapKills >= nextRuntime.mapKillTarget;
     const smallEnemies = activeSmallEnemyCount(nextRuntime);
     if (bossReady && !nextRuntime.bossSpawned && nextRuntime.enemies.length === 0) {
-      nextRuntime = spawnEnemy(nextRuntime, "boss");
-    } else if (!bossReady && smallEnemies < desiredSmallEnemyCount(nextRuntime)) {
-      nextRuntime = spawnEnemy(nextRuntime);
+      nextRuntime = spawnEnemy(nextRuntime, "boss", tuning);
+    } else if (!bossReady && smallEnemies < desiredSmallEnemyCount(nextRuntime, tuning)) {
+      nextRuntime = spawnEnemy(nextRuntime, undefined, tuning);
     }
   }
 
   const firstEnemy = nextRuntime.enemies[0] ?? null;
-  const player = steerEntity(nextRuntime.player, firstEnemy, arena.radius, deltaSeconds);
-  const enemies = nextRuntime.enemies.map((enemy) => steerEntity(enemy, player, arena.radius, deltaSeconds));
+  const player = steerEntity(nextRuntime.player, firstEnemy, arena.radius, deltaSeconds, tuning);
+  const enemies = nextRuntime.enemies.map((enemy) => steerEntity(enemy, player, arena.radius, deltaSeconds, tuning));
   nextRuntime = { ...nextRuntime, player, enemies };
+  nextRuntime = resolveEnemyCrowdPhysics(nextRuntime, tuning);
   nextRuntime = resolveEnemySkills(nextRuntime);
   nextRuntime = resolveHazards(nextRuntime, deltaSeconds);
-  nextRuntime = resolveCollisions(nextRuntime, deltaSeconds);
+  nextRuntime = resolveCollisions(nextRuntime, deltaSeconds, tuning);
   nextRuntime = resolvePlayerSkill(nextRuntime);
   nextRuntime = handleKills(nextRuntime);
 
