@@ -346,9 +346,9 @@ function drawHitFlash(graphics: Phaser.GameObjects.Graphics, flash: HitFlash, ma
   const alpha = Math.pow(1 - ratio, 0.72);
   const point = map.point(flash.x, flash.y);
   const color = collisionColor(flash.kind, flash.heavy);
-  const radius = (18 + ratio * (flash.heavy ? 58 : 34)) * flash.intensity;
-  const normalLength = (24 + flash.intensity * 28) * (flash.heavy ? 1.35 : 1);
-  const tangentLength = (22 + flash.intensity * 24) * (flash.kind === "grind" || flash.kind === "scrape" ? 1.3 : 0.86);
+  const radius = (22 + ratio * (flash.heavy ? 78 : 42)) * flash.intensity;
+  const normalLength = (32 + flash.intensity * 42) * (flash.heavy ? 1.65 : 1);
+  const tangentLength = (26 + flash.intensity * 28) * (flash.kind === "grind" || flash.kind === "scrape" ? 1.36 : 0.96);
 
   graphics.fillStyle(color, 0.13 * alpha);
   graphics.fillCircle(point.x, point.y, radius * 0.72);
@@ -357,7 +357,7 @@ function drawHitFlash(graphics: Phaser.GameObjects.Graphics, flash: HitFlash, ma
   graphics.lineStyle(1.5, 0xfff4c7, 0.7 * alpha);
   graphics.strokeCircle(point.x, point.y, radius * 0.52);
 
-  graphics.lineStyle(flash.heavy ? 4.2 : 2.8, 0xfff4c7, alpha);
+  graphics.lineStyle(flash.heavy ? 5.2 : 3, 0xfff4c7, alpha);
   graphics.lineBetween(point.x - flash.normalX * normalLength, point.y - flash.normalY * normalLength, point.x + flash.normalX * normalLength, point.y + flash.normalY * normalLength);
 
   graphics.lineStyle(2.2, color, 0.74 * alpha);
@@ -365,8 +365,8 @@ function drawHitFlash(graphics: Phaser.GameObjects.Graphics, flash: HitFlash, ma
 
   if (flash.heavy) {
     graphics.lineStyle(2, 0xffffff, 0.42 * alpha);
-    for (let i = 0; i < 6; i += 1) {
-      const angle = (Math.PI * 2 * i) / 6 + ratio * 1.2;
+    for (let i = 0; i < 8; i += 1) {
+      const angle = (Math.PI * 2 * i) / 8 + ratio * 1.2;
       graphics.lineBetween(point.x + Math.cos(angle) * radius * 0.22, point.y + Math.sin(angle) * radius * 0.22, point.x + Math.cos(angle) * radius * 0.88, point.y + Math.sin(angle) * radius * 0.88);
     }
   }
@@ -632,8 +632,8 @@ class ArenaPhaserScene extends Phaser.Scene {
 
     this.lastCollisionId = collision.id;
     this.lastHitKind = collision.kind;
-    const intensity = clamp(collision.sparkIntensity * 0.42 + collision.normalImpulse / 130, 0.75, collision.heavy ? 2.45 : 1.75);
-    const freezeMs = collision.heavy ? clamp(55 + collision.normalImpulse * 0.45 + collision.sparkIntensity * 8, 60, 116) : 0;
+    const intensity = clamp(collision.sparkIntensity * 0.5 + collision.normalImpulse / 95, 0.9, collision.heavy ? 3.6 : 2.1);
+    const freezeMs = collision.heavy ? clamp(62 + collision.normalImpulse * 0.32 + collision.sparkIntensity * 7, 72, 150) : 0;
 
     this.lastHitFlash = {
       id: collision.id,
@@ -653,7 +653,7 @@ class ArenaPhaserScene extends Phaser.Scene {
     if (freezeMs > 0) {
       this.hitStopUntil = Math.max(this.hitStopUntil, now + freezeMs);
       this.frozenRuntime = runtime;
-      this.cameras.main.shake(95, clamp(collision.normalImpulse / 2200 + collision.sparkIntensity / 1600, 0.006, 0.022));
+      this.cameras.main.shake(105, clamp(collision.normalImpulse / 1800 + collision.sparkIntensity / 1200, 0.008, 0.034));
       return;
     }
 

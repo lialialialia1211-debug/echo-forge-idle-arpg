@@ -36,6 +36,36 @@ describe("top arena runtime", () => {
     expect(next.mapKills).toBeLessThan(next.mapKillTarget);
   });
 
+  it("slides tops down the basin slope toward the center", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "basin_slope_test",
+    });
+    const onSlope = {
+      ...runtime,
+      nextEnemyIn: 10,
+      enemies: [],
+      player: {
+        ...runtime.player,
+        x: 210,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        spinPower: 100,
+        wobble: 0,
+        cooldownRemaining: 10,
+      },
+    };
+
+    const next = stepTopArenaRuntime(onSlope, 0.35);
+
+    expect(next.player.x).toBeLessThan(185);
+    expect(next.player.vx).toBeLessThan(-70);
+    expect(Math.hypot(next.player.x, next.player.y)).toBeLessThan(Math.hypot(onSlope.player.x, onSlope.player.y));
+  });
+
   it("uses drive visuals for automatic skill effects", () => {
     const stormRuntime = createTopArenaRuntime({
       arenaId: "arena_cinder_crucible",
@@ -227,9 +257,9 @@ describe("top arena runtime", () => {
     });
     const enemyStats = {
       ...baseRuntime.player.stats,
-      maxSpinIntegrity: 620,
-      maxFluxGuard: 80,
-      guard: 110,
+      maxSpinIntegrity: 4200,
+      maxFluxGuard: 500,
+      guard: 480,
       impact: 92,
       rpm: 5.4,
       mass: 1.1,
@@ -339,10 +369,13 @@ describe("top arena runtime", () => {
     const high = stepTopArenaRuntime(makeImpactRuntime(190), 0.05);
     const lowLaunchSpeed = Math.hypot(low.player.vx, low.player.vy);
     const highLaunchSpeed = Math.hypot(high.player.vx, high.player.vy);
+    const lowSeparation = Math.hypot((low.enemies[0]?.x ?? 0) - low.player.x, (low.enemies[0]?.y ?? 0) - low.player.y);
+    const highSeparation = Math.hypot((high.enemies[0]?.x ?? 0) - high.player.x, (high.enemies[0]?.y ?? 0) - high.player.y);
 
     expect(high.lastCollision?.normalImpulse ?? 0).toBeGreaterThan(low.lastCollision?.normalImpulse ?? 0);
-    expect(highLaunchSpeed).toBeGreaterThan(lowLaunchSpeed * 1.45);
-    expect(Math.hypot(high.enemies[0]?.vx ?? 0, high.enemies[0]?.vy ?? 0)).toBeGreaterThan(Math.hypot(low.enemies[0]?.vx ?? 0, low.enemies[0]?.vy ?? 0) * 1.45);
+    expect(highSeparation).toBeGreaterThan(lowSeparation + 5);
+    expect(highLaunchSpeed).toBeGreaterThan(lowLaunchSpeed * 2.15);
+    expect(Math.hypot(high.enemies[0]?.vx ?? 0, high.enemies[0]?.vy ?? 0)).toBeGreaterThan(Math.hypot(low.enemies[0]?.vx ?? 0, low.enemies[0]?.vy ?? 0) * 2.15);
   });
 
   it("scales friction sparks with spin speed", () => {

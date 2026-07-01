@@ -395,17 +395,21 @@ function steerEntity(entity: TopRuntimeEntity, target: TopRuntimeEntity | null, 
   if (distanceBeforeMove > 0.001) {
     const slopeRatio = clamp(distanceBeforeMove / Math.max(1, arenaRadius), 0, 1);
     const centerPull = normalize(-entity.x, -entity.y);
-    const slopeForce = Math.pow(Math.max(0, slopeRatio - 0.12) / 0.88, 1.35);
-    const basinAcceleration = (entity.team === "player" ? 72 : 82) * slopeForce * clamp(1.12 - entity.stats.grip * 0.22, 0.74, 1.16) * controlRatio;
+    const slopeForce = 0.28 + Math.pow(slopeRatio, 0.85) * 1.42;
+    const basinAcceleration = (entity.team === "player" ? 118 : 136) * slopeForce * clamp(1.12 - entity.stats.grip * 0.22, 0.74, 1.16) * (0.72 + controlRatio * 0.42);
     vx += centerPull.x * basinAcceleration * deltaSeconds;
     vy += centerPull.y * basinAcceleration * deltaSeconds;
   }
   let speed = length(vx, vy);
 
   if (speed > maxSpeed) {
-    vx = (vx / speed) * maxSpeed;
-    vy = (vy / speed) * maxSpeed;
-    speed = maxSpeed;
+    const originalSpeed = speed;
+    const excessSpeed = speed - maxSpeed;
+    const recoilDecay = clamp(deltaSeconds * (0.82 + entity.stats.grip * 0.5), 0.04, 0.26);
+    const recoilSpeedLimit = maxSpeed * (entity.team === "player" ? 2.85 : 3.15);
+    speed = Math.min(recoilSpeedLimit, maxSpeed + excessSpeed * (1 - recoilDecay));
+    vx = (vx / originalSpeed) * speed;
+    vy = (vy / originalSpeed) * speed;
   }
 
   let x = entity.x + vx * deltaSeconds;
@@ -783,7 +787,8 @@ function resolveTopCollisionPhysics(player: TopRuntimeEntity, enemy: TopRuntimeE
   const enemySurfaceSpeed = angularSurfaceSpeed(enemy);
   const spinShearSpeed = Math.abs(playerSurfaceSpeed) + Math.abs(enemySurfaceSpeed);
   const spinShearRatio = clamp(spinShearSpeed / 260, 0, 1.8);
-  const restitution = clamp(0.42 + (player.stats.edge + enemy.stats.edge) * 1.8 + (spinRatio(player) + spinRatio(enemy)) * 0.07 + closingSpeed / 460, 0.42, 1.08);
+  const speedRecoilRatio = clamp((closingSpeed - 54) / 220, 0, 1.35);
+  const restitution = clamp(0.54 + (player.stats.edge + enemy.stats.edge) * 2.2 + (spinRatio(player) + spinRatio(enemy)) * 0.09 + speedRecoilRatio * 0.56, 0.54, 1.42);
   const normalImpulse = ((1 + restitution) * closingSpeed + overlap * 10) / invMassSum;
   const relativeTangentialSpeed = relativeVx * tangent.x + relativeVy * tangent.y - playerSurfaceSpeed - enemySurfaceSpeed;
   const surfaceShear = Math.abs(relativeTangentialSpeed) + spinShearSpeed * 0.42;
@@ -793,14 +798,15 @@ function resolveTopCollisionPhysics(player: TopRuntimeEntity, enemy: TopRuntimeE
   const impulseX = normal.x * normalImpulse + tangent.x * tangentImpulse;
   const impulseY = normal.y * normalImpulse + tangent.y * tangentImpulse;
   const centerDistance = Math.min(length(playerPositioned.x, playerPositioned.y), length(enemyPositioned.x, enemyPositioned.y));
-  const centerPocketBoost = clamp(1.28 - centerDistance / 220, 0.58, 1.28);
-  const launchEnergy = closingSpeed * 0.42 + normalImpulse * 0.56 + Math.abs(tangentImpulse) * 0.24 + spinShearSpeed * 0.06;
-  const launchPower = clamp(launchEnergy * (0.18 + spinShearRatio * 0.13) * centerPocketBoost, 0, 285);
+  const centerPocketBoost = clamp(1.46 - centerDistance / 240, 0.72, 1.46);
+  const recoilEnergy = closingSpeed * 0.92 + normalImpulse * 0.96 + Math.abs(tangentImpulse) * 0.36 + spinShearSpeed * 0.08;
+  const launchPower = clamp(recoilEnergy * (0.18 + speedRecoilRatio * 0.56 + spinShearRatio * 0.14) * centerPocketBoost, 0, 640);
+  const recoilSeparation = clamp(overlap * 0.38 + launchPower * 0.022, 0, 20);
   const tangentSign = Math.sign(tangentImpulse || relativeTangentialSpeed || 1);
   const playerOutward = outwardFromBasin(playerPositioned, -normal.x, -normal.y);
   const enemyOutward = outwardFromBasin(enemyPositioned, normal.x, normal.y);
-  const playerLaunch = normalize(playerOutward.x * 0.86 - normal.x * 0.48 - tangent.x * tangentSign * 0.14, playerOutward.y * 0.86 - normal.y * 0.48 - tangent.y * tangentSign * 0.14);
-  const enemyLaunch = normalize(enemyOutward.x * 0.86 + normal.x * 0.48 + tangent.x * tangentSign * 0.14, enemyOutward.y * 0.86 + normal.y * 0.48 + tangent.y * tangentSign * 0.14);
+  const playerLaunch = normalize(-normal.x * 1.05 + playerOutward.x * 0.48 - tangent.x * tangentSign * 0.18, -normal.y * 1.05 + playerOutward.y * 0.48 - tangent.y * tangentSign * 0.18);
+  const enemyLaunch = normalize(normal.x * 1.05 + enemyOutward.x * 0.48 + tangent.x * tangentSign * 0.18, normal.y * 1.05 + enemyOutward.y * 0.48 + tangent.y * tangentSign * 0.18);
   const skid = surfaceShear / 96;
   const playerSpinLoss =
     normalImpulse * (0.018 / Math.max(0.7, player.stats.mass)) + Math.abs(tangentImpulse) * (0.032 + enemy.stats.edge * 0.04) + skid * Math.max(0.1, 1 - player.stats.grip) * 0.48;
@@ -817,6 +823,8 @@ function resolveTopCollisionPhysics(player: TopRuntimeEntity, enemy: TopRuntimeE
   return {
     player: {
       ...playerPositioned,
+      x: playerPositioned.x + playerLaunch.x * recoilSeparation,
+      y: playerPositioned.y + playerLaunch.y * recoilSeparation,
       vx: playerPositioned.vx - impulseX * playerInvMass + playerLaunch.x * launchPower * clamp(playerInvMass, 0.52, 1.7),
       vy: playerPositioned.vy - impulseY * playerInvMass + playerLaunch.y * launchPower * clamp(playerInvMass, 0.52, 1.7),
       spinPower: Math.max(4, playerPositioned.spinPower - playerSpinLoss),
@@ -824,6 +832,8 @@ function resolveTopCollisionPhysics(player: TopRuntimeEntity, enemy: TopRuntimeE
     },
     enemy: {
       ...enemyPositioned,
+      x: enemyPositioned.x + enemyLaunch.x * recoilSeparation,
+      y: enemyPositioned.y + enemyLaunch.y * recoilSeparation,
       vx: enemyPositioned.vx + impulseX * enemyInvMass + enemyLaunch.x * launchPower * clamp(enemyInvMass, 0.52, 1.7),
       vy: enemyPositioned.vy + impulseY * enemyInvMass + enemyLaunch.y * launchPower * clamp(enemyInvMass, 0.52, 1.7),
       spinPower: Math.max(4, enemyPositioned.spinPower - enemySpinLoss),
