@@ -40,6 +40,14 @@ pnpm build
 
 若任一項失敗，不能交付。必須先修復、重跑兩類測試，再回報。
 
+## GitHub Pages 臨時 QA 網頁
+
+- 朋友遠端 QA 使用 GitHub Pages 臨時站：https://lialialialia1211-debug.github.io/echo-forge-idle-arpg/
+- 部署設定在 `.github/workflows/pages.yml`，每次 push 到 `main` 都會自動執行 typecheck、test、`pnpm build:pages`，並發布 `dist`。
+- 不要手動 commit `dist`；臨時網頁只能透過 workflow 產生，確保本機、GitHub、QA 站同步。
+- 在另一台電腦改過並 push 後，這台要先執行 `git pull --ff-only origin main` 同步，再繼續開發。
+- 若只是要重新發布目前版本，可在 GitHub Actions 手動執行 `Deploy QA Site` workflow。
+
 ## 架構邊界
 
 - `src/game/engine` 保持純 TypeScript，不 import React、DOM、localStorage、network。
