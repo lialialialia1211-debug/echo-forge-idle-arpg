@@ -1085,15 +1085,16 @@ export function CombatArena() {
       (best, drop) => (!best || rarityRank[drop.rarity] > rarityRank[best.rarity] ? drop : best),
       null,
     );
-    const routeProgress = runtime.wave > 0 ? ((runtime.wave - 1) % 8) + 1 : 1;
-    const wavesToBoss = Math.max(0, 8 - routeProgress);
-    const objectiveLabel = routeProgress >= 8 ? "Boss wave" : wavesToBoss === 1 ? "Elite gate" : "Build route";
+    const remainingToBoss = Math.max(0, runtime.mapKillTarget - runtime.mapKills);
+    const clearRatio = runtime.mapKills / Math.max(1, runtime.mapKillTarget);
+    const routeProgress = runtime.bossSpawned || remainingToBoss === 0 ? 8 : Math.max(1, Math.ceil(clearRatio * 8));
+    const objectiveLabel = runtime.bossSpawned ? "Boss wave" : remainingToBoss === 0 ? "Boss ready" : remainingToBoss <= 10 ? "Final pack" : "Clear basin";
     const objectiveDetail =
-      routeProgress >= 8
+      runtime.bossSpawned
         ? "Shatter boss to forge route key"
-        : wavesToBoss === 1
-          ? "One wave before boss pressure"
-          : `${wavesToBoss} waves before boss pressure`;
+        : remainingToBoss === 0
+          ? "Field clear; boss drops next"
+          : `${remainingToBoss} rivals before boss`;
     const actionPanel: ActivePanel =
       runtime.drops.length > 0
         ? "loot"
@@ -1116,10 +1117,10 @@ export function CombatArena() {
       objectiveLabel,
       routeProgress,
       status: runtimeError ? "Stopped" : running ? "Live run" : runtime.drops.length > 0 ? "Loot ready" : "Ready",
-      summary: `Wave ${formatNumber(runtime.wave, 0)} / ${formatNumber(runtime.kills, 0)} run kills`,
+      summary: `Clear ${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)} / ${formatNumber(runtime.kills, 0)} total kills`,
       tone,
     };
-  }, [bossProjection.successChance, dangerCue, running, runtime.drops, runtime.kills, runtime.routeClears, runtime.wave, runtimeError, selectedPartVerdict]);
+  }, [bossProjection.successChance, dangerCue, running, runtime.bossSpawned, runtime.drops, runtime.kills, runtime.mapKillTarget, runtime.mapKills, runtime.routeClears, runtimeError, selectedPartVerdict]);
 
   const renderBuildSummaryPanel = () => (
     <section className="workbench-section build-summary-section">
@@ -1711,7 +1712,11 @@ export function CombatArena() {
     const recentDropCount = lootNotices.filter((notice) => notice.tone === "drop").length;
     const visibleDropCount = Math.max(runtime.drops.length, recentDropCount);
     const selectedPartSignal = selectedPartVerdict ? selectedPartVerdict.label : selectedPart ? selectedPart.displayName : "No part selected";
-    const routeSignal = runReview.routeProgress >= 8 ? "Boss route" : `${runReview.routeProgress}/8 route`;
+    const routeSignal = runtime.bossSpawned
+      ? "Boss active"
+      : runtime.mapKills >= runtime.mapKillTarget
+        ? "Boss ready"
+        : `${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)} clear`;
     let action: NextActionPrompt;
 
     if (runtimeError) {
@@ -1756,7 +1761,7 @@ export function CombatArena() {
         ],
         onClick: toggleRunning,
       };
-    } else if (running && runReview.routeProgress >= 8) {
+    } else if (running && runtime.bossSpawned) {
       action = {
         tone: "rare",
         icon: <Flame size={17} aria-hidden />,
@@ -1770,12 +1775,26 @@ export function CombatArena() {
         ],
         onClick: toggleRunning,
       };
+    } else if (running && runtime.mapKills >= runtime.mapKillTarget) {
+      action = {
+        tone: "rare",
+        icon: <Flame size={17} aria-hidden />,
+        label: "Boss is dropping in",
+        detail: "Clear field; final rival is next",
+        button: "Pause",
+        cues: [
+          { label: "Now", value: "Hold center", tone: "rare" },
+          { label: "Signal", value: "150+ cleared", tone: "rare" },
+          { label: "Then", value: "Fight boss" },
+        ],
+        onClick: toggleRunning,
+      };
     } else if (running) {
       action = {
         tone: "good",
         icon: <Pause size={17} aria-hidden />,
-        label: "Hold the run",
-        detail: `Wave ${formatNumber(runtime.wave, 0)} / ${formatNumber(totalKills, 0)} kills`,
+        label: "Clear the basin",
+        detail: `${formatNumber(Math.max(0, runtime.mapKillTarget - runtime.mapKills), 0)} rivals before boss`,
         button: "Pause",
         cues: [
           { label: "Now", value: "Keep farming", tone: "good" },
@@ -2028,7 +2047,7 @@ export function CombatArena() {
               </div>
             ) : null}
             <div className="arena-hud-grid">
-              <StatPill icon={<Activity size={16} />} label="Wave" value={formatNumber(runtime.wave, 0)} tone="rare" />
+              <StatPill icon={<Activity size={16} />} label="Clear" value={`${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)}`} tone="rare" />
               <StatPill icon={<Gauge size={16} />} label="Integrity" value={formatPercent(playerIntegrity, 0)} tone={playerIntegrity > 0.35 ? "good" : "warn"} meter={playerIntegrity} />
               <StatPill icon={<Zap size={16} />} label="Drive" value={formatPercent(cooldownRatio, 0)} tone="good" meter={cooldownRatio} />
               <StatPill icon={<Gem size={16} />} label="Kills" value={formatNumber(totalKills, 0)} tone="rare" />
@@ -2075,7 +2094,7 @@ export function CombatArena() {
                     Best <strong>{runReview.bestDropText}</strong>
                   </span>
                   <span>
-                    Route <strong>{runReview.routeProgress}/8</strong>
+                    Map <strong>{runtime.mapKills}/{runtime.mapKillTarget}</strong>
                   </span>
                 </div>
                 <button className="arena-button" onClick={() => setActivePanel(runReview.actionPanel)} type="button">

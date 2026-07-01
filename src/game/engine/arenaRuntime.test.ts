@@ -13,7 +13,27 @@ describe("top arena runtime", () => {
     const next = stepTopArenaRuntime(runtime, 0.25);
 
     expect(next.enemies).toHaveLength(1);
-    expect(next.events.some((event) => event.text.includes("enters wave 1"))).toBe(true);
+    expect(next.mapKillTarget).toBeGreaterThanOrEqual(150);
+    expect(next.mapKillTarget).toBeLessThanOrEqual(200);
+    expect(next.events.some((event) => event.text.includes("enters the basin"))).toBe(true);
+  });
+
+  it("fills the basin with multiple small enemies before the boss", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "basin_density_test",
+    });
+
+    let next = runtime;
+    for (let index = 0; index < 8; index += 1) {
+      next = stepTopArenaRuntime(next, 0.25);
+    }
+
+    expect(next.enemies.length).toBeGreaterThan(1);
+    expect(next.enemies.every((enemy) => enemy.rank !== "boss")).toBe(true);
+    expect(next.mapKills).toBeLessThan(next.mapKillTarget);
   });
 
   it("uses drive visuals for automatic skill effects", () => {
@@ -123,7 +143,7 @@ describe("top arena runtime", () => {
     expect(next.events.some((event) => event.text.includes("Judicator shockwave"))).toBe(true);
   });
 
-  it("does not fire boss skills on the spawn frame", () => {
+  it("spawns one boss after the map clear target and does not fire boss skills on the spawn frame", () => {
     const runtime = createTopArenaRuntime({
       arenaId: "arena_red_chancel_disk",
       frameId: "frame_swift_razor",
@@ -131,12 +151,36 @@ describe("top arena runtime", () => {
       seed: "boss_spawn_windup_test",
     });
 
-    const next = stepTopArenaRuntime({ ...runtime, wave: 8, nextEnemyIn: 0 }, 0.05);
+    const next = stepTopArenaRuntime({ ...runtime, mapKills: runtime.mapKillTarget, enemies: [], nextEnemyIn: 0 }, 0.05);
 
     expect(next.enemies[0]?.rank).toBe("boss");
+    expect(next.enemies).toHaveLength(1);
+    expect(next.bossSpawned).toBe(true);
     expect(next.enemies[0]?.cooldownRemaining).toBeGreaterThan(0.8);
     expect(next.effects.some((effect) => effect.kind === "shockwave")).toBe(false);
     expect(next.events.some((event) => event.text.includes("Judicator shockwave"))).toBe(false);
+  });
+
+  it("pulls tops toward the low center of the basin", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "basin_pull_test",
+    });
+
+    const next = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...runtime.player, x: 210, y: 0, vx: 0, vy: 0 },
+        enemies: [],
+        nextEnemyIn: 10,
+      },
+      0.25,
+    );
+
+    expect(next.player.x).toBeLessThan(210);
+    expect(next.player.vx).toBeLessThan(0);
   });
 
   it("arms enemy hazards before they can damage the player", () => {

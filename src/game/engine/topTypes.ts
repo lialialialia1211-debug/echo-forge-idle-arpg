@@ -386,6 +386,10 @@ export type TopArenaRuntime = {
   time: number;
   wave: number;
   kills: number;
+  mapKills: number;
+  mapKillTarget: number;
+  bossSpawned: boolean;
+  spawnIndex: number;
   routeClears: number;
   nextEnemyIn: number;
   eventIndex: number;

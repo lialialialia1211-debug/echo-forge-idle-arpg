@@ -29,6 +29,9 @@ import { emptyDamagePacket, zeroResistances } from "./topTypes";
 const maxEvents = 8;
 const maxEffects = 80;
 const maxDrops = 12;
+const minMapKillTarget = 150;
+const maxMapKillTarget = 200;
+const maxActiveSmallEnemies = 9;
 
 type DropLabelOption = { label: string; target: TopPartSlotId; weight: number };
 
@@ -83,6 +86,11 @@ function initialCooldownForBehavior(behaviorId: EnemyBehaviorId, rank: TopRuntim
     return 1.05;
   }
   return 0.35;
+}
+
+function createMapKillTarget(arenaId: string, seed: string, routeClears: number, arenaKey?: ArenaKey): number {
+  const rng = createRng(`${seed}_${arenaId}_${arenaKey?.id ?? "open"}_${routeClears}_map_goal`);
+  return rng.int(minMapKillTarget, maxMapKillTarget);
 }
 
 function pushEvent(runtime: TopArenaRuntime, tone: ArenaLogEvent["tone"], text: string): TopArenaRuntime {
@@ -189,29 +197,47 @@ function createEnemyStats(arenaId: string, rank: TopRuntimeEntity["rank"], wave:
   };
 }
 
-function enemyRankForWave(wave: number): TopRuntimeEntity["rank"] {
-  if (wave % 8 === 0) {
-    return "boss";
-  }
-  if (wave % 4 === 0) {
-    return "elite";
-  }
-  return "pack";
+function mapProgressRatio(runtime: Pick<TopArenaRuntime, "mapKills" | "mapKillTarget">): number {
+  return clamp(runtime.mapKills / Math.max(1, runtime.mapKillTarget), 0, 1);
 }
 
-function spawnEnemy(runtime: TopArenaRuntime): TopArenaRuntime {
+function activeSmallEnemyCount(runtime: TopArenaRuntime): number {
+  return runtime.enemies.filter((enemy) => enemy.rank !== "boss").length;
+}
+
+function desiredSmallEnemyCount(runtime: TopArenaRuntime): number {
   const arena = getArenaCircuitDef(runtime.arenaId);
-  const rng = createRng(`${runtime.seed}_${runtime.wave}_${runtime.kills}`);
+  const density = 4 + arena.tier + Math.floor(mapProgressRatio(runtime) * 2);
+  return Math.min(maxActiveSmallEnemies, density);
+}
+
+function smallEnemyRankForSpawn(runtime: TopArenaRuntime, rng: ReturnType<typeof createRng>): TopRuntimeEntity["rank"] {
+  const arena = getArenaCircuitDef(runtime.arenaId);
+  const nextMapKill = runtime.mapKills + activeSmallEnemyCount(runtime) + 1;
+  const eliteGate = nextMapKill > 0 && nextMapKill % 32 === 0;
+  const eliteChance = 0.08 + arena.tier * 0.015 + mapProgressRatio(runtime) * 0.06;
+  return eliteGate || rng.next() < eliteChance ? "elite" : "pack";
+}
+
+function difficultyWaveForRuntime(runtime: TopArenaRuntime): number {
+  return 1 + runtime.routeClears * 3 + Math.floor(runtime.mapKills / 40);
+}
+
+function spawnEnemy(runtime: TopArenaRuntime, rankOverride?: TopRuntimeEntity["rank"]): TopArenaRuntime {
+  const arena = getArenaCircuitDef(runtime.arenaId);
+  const spawnIndex = runtime.spawnIndex + 1;
+  const rng = createRng(`${runtime.seed}_${runtime.routeClears}_${runtime.mapKills}_${spawnIndex}`);
   const angle = rng.next() * Math.PI * 2;
-  const rank = enemyRankForWave(runtime.wave);
+  const rank = rankOverride ?? smallEnemyRankForSpawn(runtime, rng);
   const radius = rank === "boss" ? 34 : rank === "elite" ? 28 : 22;
-  const modifier = chooseEnemyModifier(runtime.arenaId, runtime.wave, runtime.seed);
+  const difficultyWave = difficultyWaveForRuntime(runtime);
+  const modifier = chooseEnemyModifier(runtime.arenaId, spawnIndex, runtime.seed);
   const behaviorId = behaviorForEnemy(rank, modifier);
-  const stats = createEnemyStats(runtime.arenaId, rank, runtime.wave, runtime.arenaKey, runtime.activeEvent, modifier);
-  const distance = arena.radius * (0.74 + rng.next() * 0.12);
+  const stats = createEnemyStats(runtime.arenaId, rank, difficultyWave, runtime.arenaKey, runtime.activeEvent, modifier);
+  const distance = arena.radius * (rank === "boss" ? 0.46 + rng.next() * 0.1 : 0.68 + rng.next() * 0.2);
   const baseName = rank === "boss" ? "Brass Judicator" : rank === "elite" ? "Scored Iron Rival" : "Cinder Runner";
   const enemy: TopRuntimeEntity = {
-    id: `enemy_${runtime.wave}_${runtime.kills}`,
+    id: `enemy_${spawnIndex}_${rank}`,
     team: "enemy",
     name: `${modifier.displayName} ${baseName}`,
     rank,
@@ -237,7 +263,17 @@ function spawnEnemy(runtime: TopArenaRuntime): TopArenaRuntime {
   };
 
   return addEffect(
-    pushEvent({ ...runtime, enemies: [...runtime.enemies, enemy], nextEnemyIn: rank === "boss" ? 1.4 : 0.45 }, "danger", `${enemy.name} enters wave ${runtime.wave}`),
+    pushEvent(
+      {
+        ...runtime,
+        spawnIndex,
+        enemies: [...runtime.enemies, enemy],
+        bossSpawned: runtime.bossSpawned || rank === "boss",
+        nextEnemyIn: rank === "boss" ? 1.4 : activeSmallEnemyCount(runtime) < desiredSmallEnemyCount(runtime) - 1 ? 0.12 : 0.28,
+      },
+      "danger",
+      rank === "boss" ? `${enemy.name} drops into the basin` : `${enemy.name} enters the basin`,
+    ),
     {
       kind: "spawn",
       x: enemy.x,
@@ -294,6 +330,7 @@ export function createTopArenaRuntime({
     ...(activeEvent ? [{ id: "top_event_event", tone: "danger" as const, text: `${activeEvent.displayName}: ${activeEvent.logText}` }] : []),
     { id: "top_event_0", tone: "reward" as const, text: "Arena coil is armed" },
   ].slice(0, maxEvents);
+  const mapKillTarget = createMapKillTarget(arenaId, seed, 0, arenaKey);
 
   return {
     seed,
@@ -306,6 +343,10 @@ export function createTopArenaRuntime({
     time: 0,
     wave: 1,
     kills: 0,
+    mapKills: 0,
+    mapKillTarget,
+    bossSpawned: false,
+    spawnIndex: 0,
     routeClears: 0,
     nextEnemyIn: 0.2,
     eventIndex: 0,
@@ -350,6 +391,14 @@ function steerEntity(entity: TopRuntimeEntity, target: TopRuntimeEntity | null, 
   const maxSpeed = (88 + entity.stats.rpm * 14) * behaviorSpeed * clamp(0.72 + controlRatio * 0.34, 0.55, 1.08);
   let vx = entity.vx + direction.x * acceleration * deltaSeconds;
   let vy = entity.vy + direction.y * acceleration * deltaSeconds;
+  const distanceBeforeMove = length(entity.x, entity.y);
+  if (distanceBeforeMove > 0.001) {
+    const slopeRatio = clamp(distanceBeforeMove / Math.max(1, arenaRadius), 0, 1);
+    const centerPull = normalize(-entity.x, -entity.y);
+    const basinAcceleration = (entity.team === "player" ? 42 : 50) * (0.34 + slopeRatio * 0.9) * clamp(1.12 - entity.stats.grip * 0.22, 0.74, 1.16) * controlRatio;
+    vx += centerPull.x * basinAcceleration * deltaSeconds;
+    vy += centerPull.y * basinAcceleration * deltaSeconds;
+  }
   let speed = length(vx, vy);
 
   if (speed > maxSpeed) {
@@ -645,6 +694,8 @@ function handleKills(runtime: TopArenaRuntime): TopArenaRuntime {
     }
 
     const routeCleared = enemy.rank === "boss";
+    const nextRouteClears = nextRuntime.routeClears + (routeCleared ? 1 : 0);
+    const nextMapKills = routeCleared ? 0 : Math.min(nextRuntime.mapKillTarget, nextRuntime.mapKills + 1);
     nextRuntime = pushEvent(nextRuntime, "kill", `${enemy.name} shattered`);
     nextRuntime = handleDrops(nextRuntime, enemy);
     nextRuntime = {
@@ -656,8 +707,11 @@ function handleKills(runtime: TopArenaRuntime): TopArenaRuntime {
       },
       kills: nextRuntime.kills + 1,
       wave: nextRuntime.wave + 1,
-      routeClears: nextRuntime.routeClears + (routeCleared ? 1 : 0),
-      nextEnemyIn: routeCleared ? 1.8 : 0.45,
+      mapKills: nextMapKills,
+      mapKillTarget: routeCleared ? createMapKillTarget(nextRuntime.arenaId, nextRuntime.seed, nextRouteClears, nextRuntime.arenaKey) : nextRuntime.mapKillTarget,
+      bossSpawned: routeCleared ? false : nextRuntime.bossSpawned,
+      routeClears: nextRouteClears,
+      nextEnemyIn: routeCleared ? 1.8 : nextMapKills >= nextRuntime.mapKillTarget ? 0.65 : 0.16,
     };
   }
 
@@ -910,8 +964,14 @@ export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: numb
     lastCollision: undefined,
   };
 
-  if (nextRuntime.enemies.length === 0 && nextRuntime.nextEnemyIn <= 0) {
-    nextRuntime = spawnEnemy(nextRuntime);
+  if (nextRuntime.nextEnemyIn <= 0) {
+    const bossReady = nextRuntime.mapKills >= nextRuntime.mapKillTarget;
+    const smallEnemies = activeSmallEnemyCount(nextRuntime);
+    if (bossReady && !nextRuntime.bossSpawned && nextRuntime.enemies.length === 0) {
+      nextRuntime = spawnEnemy(nextRuntime, "boss");
+    } else if (!bossReady && smallEnemies < desiredSmallEnemyCount(nextRuntime)) {
+      nextRuntime = spawnEnemy(nextRuntime);
+    }
   }
 
   const firstEnemy = nextRuntime.enemies[0] ?? null;

@@ -154,17 +154,21 @@ function drawArenaFloor(graphics: Phaser.GameObjects.Graphics, width: number, he
   graphics.fillStyle(0x070809, 1);
   graphics.fillRect(0, 0, width, height);
 
-  graphics.fillStyle(0x1d2222, 0.96);
+  graphics.fillStyle(0x222827, 0.98);
   graphics.fillCircle(map.centerX, map.centerY, radius * 1.08);
-  graphics.fillStyle(0x101414, 0.92);
-  graphics.fillCircle(map.centerX, map.centerY, radius * 0.88);
-  graphics.fillStyle(0x080a0b, 0.72);
-  graphics.fillCircle(map.centerX, map.centerY, radius * 0.58);
+  graphics.fillStyle(0x171b1a, 0.96);
+  graphics.fillCircle(map.centerX, map.centerY, radius * 0.93);
+  graphics.fillStyle(0x0f1212, 0.9);
+  graphics.fillCircle(map.centerX, map.centerY, radius * 0.7);
+  graphics.fillStyle(0x050607, 0.82);
+  graphics.fillCircle(map.centerX, map.centerY, radius * 0.38);
 
   graphics.fillStyle(0xd9a554, 0.045);
   graphics.fillCircle(map.centerX, map.centerY, radius * 1.06);
   graphics.fillStyle(0xdf624c, 0.06);
   graphics.fillCircle(map.centerX, map.centerY, radius * 0.95);
+  graphics.fillStyle(0x000000, 0.34);
+  graphics.fillEllipse(map.centerX, map.centerY + radius * 0.05, radius * 0.72, radius * 0.46, 48);
 
   graphics.lineStyle(1, 0xe6d7b5, 0.045);
   for (let y = map.centerY - radius; y <= map.centerY + radius; y += 28) {
@@ -183,10 +187,26 @@ function drawArenaFloor(graphics: Phaser.GameObjects.Graphics, width: number, he
     graphics.strokeCircle(map.centerX, map.centerY, (radius / 6) * i);
   }
 
+  graphics.lineStyle(2, 0x000000, 0.22);
+  for (let i = 1; i <= 4; i += 1) {
+    graphics.strokeCircle(map.centerX, map.centerY + i * 0.7, radius * (0.16 + i * 0.105));
+  }
+  graphics.lineStyle(2, 0x65c6b0, 0.18);
+  graphics.strokeCircle(map.centerX, map.centerY, radius * 0.34);
+  graphics.lineStyle(1.5, 0xd9a554, 0.24);
+  graphics.strokeCircle(map.centerX, map.centerY, radius * 0.52);
+
   graphics.lineStyle(1, 0x65c6b0, 0.16);
   for (let i = 0; i < 12; i += 1) {
     const angle = (Math.PI * 2 * i) / 12 + sweep * 0.08;
     graphics.lineBetween(map.centerX, map.centerY, map.centerX + Math.cos(angle) * radius, map.centerY + Math.sin(angle) * radius);
+  }
+
+  graphics.lineStyle(2, 0x65c6b0, 0.12);
+  for (let i = 0; i < 8; i += 1) {
+    const start = (Math.PI * 2 * i) / 8 - sweep * 0.1;
+    drawArc(graphics, map.centerX, map.centerY, radius * 0.74, start, start + Math.PI * 0.32);
+    drawArc(graphics, map.centerX, map.centerY, radius * 0.5, start + Math.PI * 0.1, start + Math.PI * 0.34);
   }
 
   graphics.lineStyle(2, 0xdf624c, 0.32);
@@ -797,6 +817,9 @@ export function ArenaPhaserView({ runtime, runtimeRef, onMetrics }: ArenaPhaserV
       type: Phaser.AUTO,
       parent: host,
       backgroundColor: "#070809",
+      audio: {
+        noAudio: true,
+      },
       render: {
         antialias: true,
         pixelArt: false,
