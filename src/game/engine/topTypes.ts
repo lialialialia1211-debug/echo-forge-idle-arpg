@@ -349,6 +349,7 @@ export type TopRuntimeEntity = {
   enemyModifier?: EnemyModifierState;
   behaviorId?: EnemyBehaviorId;
   bossPhase?: 1 | 2 | 3;
+  phaseGateCooldown?: number;
 };
 
 export type TopCollisionKind = "scrape" | "clash" | "smash" | "grind";
@@ -444,6 +445,7 @@ export type TopArenaRuntime = {
   spawnIndex: number;
   routeClears: number;
   nextEnemyIn: number;
+  routeTransitionCooldown: number;
   eventIndex: number;
   player: TopRuntimeEntity;
   enemies: TopRuntimeEntity[];

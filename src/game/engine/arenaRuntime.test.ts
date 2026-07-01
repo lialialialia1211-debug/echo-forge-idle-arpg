@@ -842,6 +842,162 @@ describe("top arena runtime", () => {
     expect(next.player.spinIntegrity).toBeLessThan(runtime.player.stats.maxSpinIntegrity);
   });
 
+  it("gates boss integrity so burst damage cannot skip all three phases", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_red_chancel_disk",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "boss_phase_gate_test",
+    });
+    const bossStats = {
+      ...runtime.player.stats,
+      maxSpinIntegrity: 12000,
+      maxFluxGuard: 800,
+      guard: 50,
+      drift: 10,
+      impact: 120,
+      rpm: 4.4,
+      mass: 1.8,
+      grip: 0.7,
+      edge: 0.08,
+      fracture: 1.4,
+      resonance: 0.8,
+      partQuantity: 0,
+      partRarity: 0,
+      modifiers: [],
+    };
+    const boss = {
+      ...runtime.player,
+      id: "gated_boss",
+      team: "enemy" as const,
+      name: "Gated Judicator",
+      rank: "boss" as const,
+      x: 70,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      radius: 38,
+      spinIntegrity: bossStats.maxSpinIntegrity,
+      fluxGuard: bossStats.maxFluxGuard,
+      cooldownRemaining: 10,
+      stats: bossStats,
+      behaviorId: "bossJudicator" as const,
+      bossPhase: 1 as const,
+      phaseGateCooldown: 0,
+    };
+    const burstRuntime = {
+      ...runtime,
+      player: {
+        ...runtime.player,
+        cooldownRemaining: 0,
+        stats: {
+          ...runtime.player.stats,
+          impact: 250000,
+          tracking: 250000,
+          edge: 0.6,
+          fracture: 2.2,
+        },
+      },
+      enemies: [boss],
+      bossSpawned: true,
+      mapKills: runtime.mapKillTarget,
+      nextEnemyIn: 10,
+    };
+
+    const next = stepTopArenaRuntime(burstRuntime, 0.05);
+    const nextBoss = next.enemies.find((enemy) => enemy.rank === "boss");
+
+    expect(nextBoss?.spinIntegrity).toBeCloseTo(bossStats.maxSpinIntegrity * 0.66, 1);
+    expect(nextBoss?.bossPhase).toBe(2);
+    expect(nextBoss?.phaseGateCooldown ?? 0).toBeGreaterThan(1);
+    expect(next.events.some((event) => event.text.includes("enters phase 2"))).toBe(true);
+  });
+
+  it("does not spawn new map rivals while the boss is still alive", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_red_chancel_disk",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "boss_no_next_map_spawn_test",
+    });
+    const boss = {
+      ...runtime.player,
+      id: "alive_boss",
+      team: "enemy" as const,
+      name: "Alive Judicator",
+      rank: "boss" as const,
+      x: 120,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      radius: 38,
+      spinIntegrity: runtime.player.stats.maxSpinIntegrity * 0.5,
+      cooldownRemaining: 10,
+      behaviorId: "bossJudicator" as const,
+      bossPhase: 2 as const,
+      phaseGateCooldown: 0,
+    };
+
+    const next = stepTopArenaRuntime(
+      {
+        ...runtime,
+        enemies: [boss],
+        bossSpawned: true,
+        mapKills: runtime.mapKillTarget,
+        nextEnemyIn: 0,
+        routeTransitionCooldown: 0,
+      },
+      0.05,
+    );
+
+    expect(next.enemies.filter((enemy) => enemy.rank === "boss")).toHaveLength(1);
+    expect(next.enemies.filter((enemy) => enemy.rank !== "boss")).toHaveLength(0);
+  });
+
+  it("uses a route transition cooldown after the boss dies before spawning the next map", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_red_chancel_disk",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "route_transition_cooldown_test",
+    });
+    const defeatedBoss = {
+      ...runtime.player,
+      id: "defeated_boss",
+      team: "enemy" as const,
+      name: "Defeated Judicator",
+      rank: "boss" as const,
+      x: 90,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      radius: 38,
+      spinIntegrity: 0,
+      cooldownRemaining: 10,
+      behaviorId: "bossJudicator" as const,
+      bossPhase: 3 as const,
+    };
+
+    const cleared = stepTopArenaRuntime(
+      {
+        ...runtime,
+        enemies: [defeatedBoss],
+        bossSpawned: true,
+        mapKills: runtime.mapKillTarget,
+        nextEnemyIn: 10,
+      },
+      0.05,
+    );
+    const waiting = stepTopArenaRuntime({ ...cleared, nextEnemyIn: 0 }, 0.05);
+
+    expect(cleared.routeClears).toBe(1);
+    expect(cleared.routeTransitionCooldown).toBeGreaterThan(4);
+    expect(cleared.events.some((event) => event.text.includes("Next route spooling"))).toBe(true);
+    expect(waiting.enemies).toHaveLength(0);
+    expect(waiting.mapKills).toBe(0);
+    expect(waiting.bossSpawned).toBe(false);
+  });
+
   it("lets Storm Orbit unique parts light up enemy crowd collisions", () => {
     const stormOrbit = generateTopPart({
       id: "test_storm_orbit",

@@ -37,6 +37,10 @@ const maxDrops = 12;
 const minMapKillTarget = 150;
 const maxMapKillTarget = 200;
 const maxActiveSmallEnemies = 20;
+const bossPhaseTwoGateRatio = 0.66;
+const bossPhaseThreeGateRatio = 0.33;
+const bossPhaseGateCooldownSeconds = 1.35;
+const routeTransitionCooldownSeconds = 4.5;
 
 type ActiveRuneBehaviors = Partial<Record<NonNullable<TuningRuneDef["behavior"]>, number>>;
 
@@ -326,6 +330,7 @@ function spawnEnemy(runtime: TopArenaRuntime, rankOverride?: TopRuntimeEntity["r
     stats,
     behaviorId,
     bossPhase: rank === "boss" ? 1 : undefined,
+    phaseGateCooldown: 0,
     enemyModifier: {
       modifierId: modifier.id,
       displayName: modifier.displayName,
@@ -461,6 +466,7 @@ export function createTopArenaRuntime({
     spawnIndex: 0,
     routeClears: 0,
     nextEnemyIn: 0.2,
+    routeTransitionCooldown: 0,
     eventIndex: 0,
     player: createPlayer(frameId, driveId, loadout, activeEvent),
     enemies: [],
@@ -556,6 +562,7 @@ function steerEntity(entity: TopRuntimeEntity, target: TopRuntimeEntity | null, 
     spinPower: Math.max(4, entity.spinPower - frictionDrain),
     wobble: wobbleRecovery,
     cooldownRemaining: Math.max(0, entity.cooldownRemaining - deltaSeconds),
+    phaseGateCooldown: entity.phaseGateCooldown === undefined ? undefined : Math.max(0, entity.phaseGateCooldown - deltaSeconds),
   };
 }
 
@@ -654,6 +661,72 @@ function bossPhaseFor(enemy: TopRuntimeEntity): 1 | 2 | 3 {
   return ratio <= 0.33 ? 3 : ratio <= 0.66 ? 2 : 1;
 }
 
+function applyBossPhaseGate(
+  defender: TopRuntimeEntity,
+  damage: number,
+): {
+  nextSpinIntegrity: number;
+  appliedDamage: number;
+  bossPhase?: 1 | 2 | 3;
+  phaseGateCooldown?: number;
+  phaseChanged: boolean;
+} {
+  if (defender.rank !== "boss") {
+    const nextSpinIntegrity = Math.max(0, defender.spinIntegrity - damage);
+    return {
+      nextSpinIntegrity,
+      appliedDamage: defender.spinIntegrity - nextSpinIntegrity,
+      bossPhase: defender.bossPhase,
+      phaseGateCooldown: defender.phaseGateCooldown,
+      phaseChanged: false,
+    };
+  }
+
+  const currentPhase = defender.bossPhase ?? bossPhaseFor(defender);
+  if ((defender.phaseGateCooldown ?? 0) > 0) {
+    return {
+      nextSpinIntegrity: defender.spinIntegrity,
+      appliedDamage: 0,
+      bossPhase: currentPhase,
+      phaseGateCooldown: defender.phaseGateCooldown,
+      phaseChanged: false,
+    };
+  }
+
+  const maxIntegrity = Math.max(1, defender.stats.maxSpinIntegrity);
+  const rawNextSpinIntegrity = Math.max(0, defender.spinIntegrity - damage);
+  const phaseTwoGate = maxIntegrity * bossPhaseTwoGateRatio;
+  const phaseThreeGate = maxIntegrity * bossPhaseThreeGateRatio;
+
+  if (currentPhase === 1 && rawNextSpinIntegrity <= phaseTwoGate) {
+    return {
+      nextSpinIntegrity: phaseTwoGate,
+      appliedDamage: Math.max(0, defender.spinIntegrity - phaseTwoGate),
+      bossPhase: 2,
+      phaseGateCooldown: bossPhaseGateCooldownSeconds,
+      phaseChanged: true,
+    };
+  }
+
+  if (currentPhase === 2 && rawNextSpinIntegrity <= phaseThreeGate) {
+    return {
+      nextSpinIntegrity: phaseThreeGate,
+      appliedDamage: Math.max(0, defender.spinIntegrity - phaseThreeGate),
+      bossPhase: 3,
+      phaseGateCooldown: bossPhaseGateCooldownSeconds,
+      phaseChanged: true,
+    };
+  }
+
+  return {
+    nextSpinIntegrity: rawNextSpinIntegrity,
+    appliedDamage: defender.spinIntegrity - rawNextSpinIntegrity,
+    bossPhase: currentPhase,
+    phaseGateCooldown: defender.phaseGateCooldown,
+    phaseChanged: false,
+  };
+}
+
 function dealDamage(
   runtime: TopArenaRuntime,
   attacker: TopRuntimeEntity,
@@ -682,16 +755,17 @@ function dealDamage(
   const phaseDamageScalar = defenderPhase === 3 && source === "collision" && !collision?.heavy ? 0.42 : 1;
   const defenseRuneScalar = defender.team === "player" && behaviorCount(activeRuneBehaviors(runtime), "defense") > 0 ? (source === "collision" ? 0.9 : 0.86) : 1;
   const totalDamage = hit.totalDamage * damageScalar * phaseDamageScalar * defenseRuneScalar;
+  const bossGate = applyBossPhaseGate(defender, totalDamage);
   const impulseDirection = normalize(defender.x - attacker.x, defender.y - attacker.y);
-  const skillImpulse = source === "skill" ? Math.min(120, totalDamage / defender.stats.mass) * 0.08 : 0;
-  const nextSpinIntegrity = Math.max(0, defender.spinIntegrity - totalDamage);
+  const skillImpulse = source === "skill" ? Math.min(120, bossGate.appliedDamage / defender.stats.mass) * 0.08 : 0;
   const defenderNext = {
     ...defender,
-    spinIntegrity: nextSpinIntegrity,
+    spinIntegrity: bossGate.nextSpinIntegrity,
     vx: defender.vx + impulseDirection.x * skillImpulse,
     vy: defender.vy + impulseDirection.y * skillImpulse,
-    wobble: source === "collision" ? clamp(defender.wobble + totalDamage / Math.max(1, defender.stats.maxSpinIntegrity) * 0.3, 0, 1) : defender.wobble,
-    bossPhase: defender.rank === "boss" ? bossPhaseFor({ ...defender, spinIntegrity: nextSpinIntegrity }) : defender.bossPhase,
+    wobble: source === "collision" ? clamp(defender.wobble + bossGate.appliedDamage / Math.max(1, defender.stats.maxSpinIntegrity) * 0.3, 0, 1) : defender.wobble,
+    bossPhase: defender.rank === "boss" ? bossGate.bossPhase : defender.bossPhase,
+    phaseGateCooldown: defender.rank === "boss" ? bossGate.phaseGateCooldown : defender.phaseGateCooldown,
   };
   const midpointX = (attacker.x + defender.x) / 2;
   const midpointY = (attacker.y + defender.y) / 2;
@@ -702,10 +776,10 @@ function dealDamage(
     x2: source === "skill" && drive.visual === "stormArc" ? defender.x : undefined,
     y2: source === "skill" && drive.visual === "stormArc" ? defender.y : undefined,
     lifetime: source === "skill" ? 0.55 : 0.24,
-    intensity: clamp(totalDamage / 180, 0.45, 2.2),
+    intensity: clamp(Math.max(bossGate.appliedDamage, totalDamage * 0.18) / 180, 0.45, 2.2),
   });
 
-  if (defender.rank === "boss" && defenderNext.bossPhase && defenderNext.bossPhase > (defender.bossPhase ?? defenderPhase ?? 1)) {
+  if (defender.rank === "boss" && defenderNext.bossPhase && bossGate.phaseChanged) {
     nextRuntime = addEffect(pushEvent(nextRuntime, "danger", `${defender.name} enters phase ${defenderNext.bossPhase}`), {
       kind: defenderNext.bossPhase === 3 ? "shockwave" : "bossSignal",
       x: defender.x,
@@ -716,7 +790,7 @@ function dealDamage(
   }
 
   if (source === "skill") {
-    nextRuntime = pushEvent(nextRuntime, "skill", `${drive.displayName} hits for ${Math.round(totalDamage).toLocaleString()}`);
+    nextRuntime = pushEvent(nextRuntime, "skill", `${drive.displayName} hits for ${Math.round(bossGate.appliedDamage).toLocaleString()}`);
   }
 
   return { runtime: nextRuntime, defender: defenderNext };
@@ -988,8 +1062,12 @@ function handleKills(runtime: TopArenaRuntime): TopArenaRuntime {
       bossSpawned: routeCleared ? false : nextRuntime.bossSpawned,
       routeClears: nextRouteClears,
       routeMechanic: routeCleared ? createRouteMechanicState(nextRuntime.loadout) : nextRuntime.routeMechanic,
-      nextEnemyIn: routeCleared ? 1.8 : nextMapKills >= nextRuntime.mapKillTarget ? 0.65 : 0.16,
+      routeTransitionCooldown: routeCleared ? routeTransitionCooldownSeconds : nextRuntime.routeTransitionCooldown,
+      nextEnemyIn: routeCleared ? routeTransitionCooldownSeconds : nextMapKills >= nextRuntime.mapKillTarget ? 0.65 : 0.16,
     };
+    if (routeCleared) {
+      nextRuntime = pushEvent(nextRuntime, "reward", "Next route spooling");
+    }
     if (bossNowReady) {
       nextRuntime = addEffect(pushEvent(nextRuntime, "danger", "Basin clear; Brass Judicator is entering"), {
         kind: "bossSignal",
@@ -1482,6 +1560,7 @@ export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: numb
     time: runtime.time + deltaSeconds,
     player: recoverPlayer(runtime.player, deltaSeconds),
     nextEnemyIn: Math.max(0, runtime.nextEnemyIn - deltaSeconds),
+    routeTransitionCooldown: Math.max(0, runtime.routeTransitionCooldown - deltaSeconds),
     effects: runtime.effects
       .map((effect) => ({ ...effect, age: effect.age + deltaSeconds }))
       .filter((effect) => effect.age < effect.lifetime),
@@ -1490,16 +1569,13 @@ export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: numb
   };
   nextRuntime = tickRouteMechanic(nextRuntime, deltaSeconds);
 
-  if (nextRuntime.nextEnemyIn <= 0) {
+  if (nextRuntime.nextEnemyIn <= 0 && nextRuntime.routeTransitionCooldown <= 0) {
     const bossReady = nextRuntime.mapKills >= nextRuntime.mapKillTarget;
     const smallEnemies = activeSmallEnemyCount(nextRuntime);
     const bossEnemy = nextRuntime.enemies.find((enemy) => enemy.rank === "boss");
-    const bossAddTarget = bossEnemy && bossPhaseFor(bossEnemy) >= 2 ? Math.min(8, Math.max(2, Math.floor(desiredSmallEnemyCount(nextRuntime, tuning) * 0.36))) : 0;
     if (bossReady && !nextRuntime.bossSpawned && nextRuntime.enemies.length === 0) {
       nextRuntime = spawnEnemy(nextRuntime, "boss", tuning);
-    } else if (bossReady && nextRuntime.bossSpawned && bossEnemy && smallEnemies < bossAddTarget) {
-      nextRuntime = spawnEnemy(nextRuntime, undefined, tuning);
-    } else if (!bossReady && smallEnemies < desiredSmallEnemyCount(nextRuntime, tuning)) {
+    } else if (!bossReady && !bossEnemy && smallEnemies < desiredSmallEnemyCount(nextRuntime, tuning)) {
       nextRuntime = spawnEnemy(nextRuntime, undefined, tuning);
     }
   }
