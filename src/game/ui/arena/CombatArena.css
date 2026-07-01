@@ -660,6 +660,107 @@
   gap: 8px;
 }
 
+.run-review-strip {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(132px, 0.8fr) minmax(200px, 1.2fr) auto;
+  align-items: stretch;
+  gap: 7px;
+  border: 1px solid rgba(230, 215, 181, 0.1);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 7px;
+}
+
+.run-review-main {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+}
+
+.run-review-main small,
+.run-review-main span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-review-main strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--soft);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-review-metrics {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 0.72fr minmax(0, 1.35fr) 0.72fr;
+  gap: 6px;
+}
+
+.run-review-metrics span {
+  min-width: 0;
+  min-height: 34px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--muted);
+  padding: 5px 7px;
+  font-size: 0.66rem;
+}
+
+.run-review-metrics strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--soft);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-review-strip .arena-button {
+  min-width: 74px;
+  min-height: 34px;
+  padding: 0 9px;
+}
+
+.run-review-good {
+  border-color: rgba(101, 198, 176, 0.28);
+}
+
+.run-review-good .run-review-main strong,
+.run-review-good .run-review-metrics strong {
+  color: var(--teal);
+}
+
+.run-review-warn {
+  border-color: rgba(223, 98, 76, 0.32);
+}
+
+.run-review-warn .run-review-main strong,
+.run-review-warn .run-review-metrics strong {
+  color: var(--ember);
+}
+
+.run-review-rare {
+  border-color: rgba(182, 140, 255, 0.34);
+}
+
+.run-review-rare .run-review-main strong,
+.run-review-rare .run-review-metrics strong {
+  color: var(--violet);
+}
+
 .collision-debug {
   min-width: 0;
   display: grid;
@@ -1146,6 +1247,69 @@
   color: var(--violet);
   font-size: 0.74rem;
   text-transform: capitalize;
+}
+
+.part-verdict {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(230, 215, 181, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 8px;
+}
+
+.part-verdict > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.part-verdict strong,
+.part-verdict span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.part-verdict strong {
+  color: var(--soft);
+  font-size: 0.82rem;
+}
+
+.part-verdict span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.part-verdict-good {
+  border-color: rgba(101, 198, 176, 0.36);
+  color: var(--teal);
+}
+
+.part-verdict-good strong {
+  color: var(--teal);
+}
+
+.part-verdict-warn {
+  border-color: rgba(217, 165, 84, 0.4);
+  color: var(--brass);
+}
+
+.part-verdict-warn strong {
+  color: var(--brass);
+}
+
+.part-verdict-rare {
+  border-color: rgba(182, 140, 255, 0.42);
+  color: var(--violet);
+}
+
+.part-verdict-rare strong {
+  color: var(--violet);
 }
 
 .delta-list {
@@ -1732,6 +1896,7 @@
 
   .arena-hud-grid,
   .telemetry-grid,
+  .run-review-strip,
   .collision-debug,
   .combat-bottom,
   .build-summary-grid,
@@ -1744,6 +1909,15 @@
   .route-summary-grid,
   .boss-projection {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .run-review-main,
+  .run-review-strip .arena-button {
+    grid-column: 1 / -1;
+  }
+
+  .run-review-metrics {
+    grid-column: 1 / -1;
   }
 
   .inventory-grid {
@@ -1826,6 +2000,8 @@
 
   .arena-hud-grid,
   .telemetry-grid,
+  .run-review-strip,
+  .run-review-metrics,
   .combat-bottom,
   .build-summary-grid,
   .equipment-slots,

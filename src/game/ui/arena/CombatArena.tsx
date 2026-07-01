@@ -102,6 +102,14 @@ type DangerCue = {
   priority: number;
 };
 
+type PartVerdict = {
+  label: string;
+  detail: string;
+  tone: "neutral" | "good" | "warn" | "rare";
+  action: "equip" | "forge" | "salvage" | "equipped";
+  score: number;
+};
+
 type RuneSlotState = [string | null, string | null, string | null];
 
 const rarityTone: Record<TopPartRarity, "neutral" | "good" | "rare" | "warn"> = {
@@ -155,6 +163,13 @@ const talentNodePositions: Record<string, { x: number; y: number }> = {
   talent_last_rotation: { x: 50, y: 11 },
 };
 
+const rarityRank: Record<TopPartRarity, number> = {
+  common: 0,
+  tuned: 1,
+  engraved: 2,
+  relic: 3,
+};
+
 const enemyDangerWindows = {
   charger: 0.82,
   mineLayer: 0.95,
@@ -186,6 +201,55 @@ function statFromRuntime(stats: TopRuntimeStats, stat: keyof TopStatBlock): numb
     return stats.maxFluxGuard;
   }
   return stats[stat] ?? 0;
+}
+
+function buildPartVerdict(part: TopPartInstance, currentStats: TopRuntimeStats, previewStats: TopRuntimeStats, equipped: boolean): PartVerdict {
+  const impactDelta = statFromRuntime(previewStats, "impact") - statFromRuntime(currentStats, "impact");
+  const ehpDelta =
+    statFromRuntime(previewStats, "spinIntegrity") +
+    statFromRuntime(previewStats, "guard") -
+    (statFromRuntime(currentStats, "spinIntegrity") + statFromRuntime(currentStats, "guard"));
+  const controlDelta = statFromRuntime(previewStats, "tracking") - statFromRuntime(currentStats, "tracking") + (statFromRuntime(previewStats, "rpm") - statFromRuntime(currentStats, "rpm")) * 34;
+  const rewardDelta = statFromRuntime(previewStats, "partQuantity") - statFromRuntime(currentStats, "partQuantity") + statFromRuntime(previewStats, "partRarity") - statFromRuntime(currentStats, "partRarity");
+  const score = impactDelta * 0.8 + ehpDelta * 0.08 + controlDelta * 0.08 + rewardDelta * 260;
+
+  if (equipped) {
+    return {
+      label: "Equipped",
+      detail: "This part is already in the loadout.",
+      tone: "good",
+      action: "equipped",
+      score,
+    };
+  }
+
+  if (score >= 55 || impactDelta > 45 || ehpDelta > 180 || rewardDelta > 0.08) {
+    return {
+      label: "Equip upgrade",
+      detail: `Score ${score >= 0 ? "+" : ""}${round(score, 0)} / Impact ${impactDelta >= 0 ? "+" : ""}${formatNumber(impactDelta, 0)} / EHP ${ehpDelta >= 0 ? "+" : ""}${formatNumber(ehpDelta, 0)}`,
+      tone: "good",
+      action: "equip",
+      score,
+    };
+  }
+
+  if (rarityRank[part.rarity] >= rarityRank.engraved || score >= -20) {
+    return {
+      label: "Forge candidate",
+      detail: `Score ${score >= 0 ? "+" : ""}${round(score, 0)} / rarity leaves room for tuning.`,
+      tone: part.rarity === "relic" ? "rare" : "warn",
+      action: "forge",
+      score,
+    };
+  }
+
+  return {
+    label: "Salvage candidate",
+    detail: `Score ${round(score, 0)} / current slot looks stronger.`,
+    tone: "neutral",
+    action: "salvage",
+    score,
+  };
 }
 
 function formatStatLines(stats: TopStatBlock | undefined): string[] {
@@ -979,6 +1043,40 @@ export function CombatArena() {
 
   const selectedPartInInventory = selectedPart ? inventory.some((part) => part.id === selectedPart.id) : false;
   const selectedPartEquipped = selectedPart ? selectedCurrentPart?.id === selectedPart.id : false;
+  const selectedPartVerdict = useMemo(
+    () => (selectedPart ? buildPartVerdict(selectedPart, currentStats, previewStats, selectedPartEquipped) : null),
+    [currentStats, previewStats, selectedPart, selectedPartEquipped],
+  );
+  const runReview = useMemo(() => {
+    const bestDrop = runtime.drops.reduce<(typeof runtime.drops)[number] | null>(
+      (best, drop) => (!best || rarityRank[drop.rarity] > rarityRank[best.rarity] ? drop : best),
+      null,
+    );
+    const routeProgress = runtime.wave > 0 ? ((runtime.wave - 1) % 8) + 1 : 1;
+    const actionPanel: ActivePanel =
+      runtime.drops.length > 0
+        ? "loot"
+        : selectedPartVerdict?.action === "forge"
+          ? "forge"
+          : selectedPartVerdict?.action === "equip"
+            ? "loot"
+            : bossProjection.successChance >= 0.5
+              ? "route"
+              : "build";
+    const tone: "neutral" | "good" | "warn" | "rare" =
+      runtimeError || dangerCue?.tone === "danger" ? "warn" : bestDrop?.rarity === "relic" || runtime.routeClears > 0 ? "rare" : runtime.drops.length > 0 ? "good" : "neutral";
+
+    return {
+      actionLabel: actionPanel === "loot" ? "Loot" : actionPanel === "forge" ? "Forge" : actionPanel === "route" ? "Route" : "Build",
+      actionPanel,
+      bestDropText: bestDrop ? `${bestDrop.rarity} ${bestDrop.label}` : "No drops yet",
+      detail: dangerCue ? dangerCue.label : selectedPartVerdict ? selectedPartVerdict.label : "Stabilize build",
+      routeProgress,
+      status: runtimeError ? "Stopped" : running ? "Live run" : runtime.drops.length > 0 ? "Loot ready" : "Ready",
+      summary: `Wave ${formatNumber(runtime.wave, 0)} / ${formatNumber(runtime.kills, 0)} run kills`,
+      tone,
+    };
+  }, [bossProjection.successChance, dangerCue, running, runtime.drops, runtime.kills, runtime.routeClears, runtime.wave, runtimeError, selectedPartVerdict]);
 
   const renderBuildSummaryPanel = () => (
     <section className="workbench-section build-summary-section">
@@ -1012,6 +1110,15 @@ export function CombatArena() {
             </div>
             <span>{selectedPart.rarity}</span>
           </div>
+          {selectedPartVerdict ? (
+            <div className={`part-verdict part-verdict-${selectedPartVerdict.tone}`}>
+              <Sparkles size={16} aria-hidden />
+              <div>
+                <strong>{selectedPartVerdict.label}</strong>
+                <span>{selectedPartVerdict.detail}</span>
+              </div>
+            </div>
+          ) : null}
           <div className="delta-list">
             {trackedStats.map((stat) => {
               const delta = statFromRuntime(previewStats, stat) - statFromRuntime(currentStats, stat);
@@ -1775,6 +1882,27 @@ export function CombatArena() {
                 <StatPill icon={<Swords size={15} />} label="Impact" value={formatNumber(runtime.player.stats.impact, 0)} />
                 <StatPill icon={<Radar size={15} />} label="Tracking" value={formatNumber(runtime.player.stats.tracking, 0)} />
                 <StatPill icon={<Shield size={15} />} label="Guard" value={formatNumber(runtime.player.stats.guard, 0)} />
+              </div>
+              <div className={`run-review-strip run-review-${runReview.tone}`}>
+                <div className="run-review-main">
+                  <small>{runReview.status}</small>
+                  <strong>{runReview.summary}</strong>
+                  <span>{runReview.detail}</span>
+                </div>
+                <div className="run-review-metrics">
+                  <span>
+                    Drops <strong>{runtime.drops.length}</strong>
+                  </span>
+                  <span>
+                    Best <strong>{runReview.bestDropText}</strong>
+                  </span>
+                  <span>
+                    Route <strong>{runReview.routeProgress}/8</strong>
+                  </span>
+                </div>
+                <button className="arena-button" onClick={() => setActivePanel(runReview.actionPanel)} type="button">
+                  {runReview.actionLabel}
+                </button>
               </div>
               {showDebugHud ? (
                 <div className={collisionDebugClass}>
