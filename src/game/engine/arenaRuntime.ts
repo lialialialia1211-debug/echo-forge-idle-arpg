@@ -1004,7 +1004,9 @@ function resolveEnemyCrowdPhysics(runtime: TopArenaRuntime, tuning: ArenaTuningC
     return runtime;
   }
 
+  let nextRuntime = runtime;
   const enemies = runtime.enemies.map((enemy) => ({ ...enemy }));
+  let visualEffectBudget = 8;
 
   for (let leftIndex = 0; leftIndex < enemies.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < enemies.length; rightIndex += 1) {
@@ -1015,8 +1017,9 @@ function resolveEnemyCrowdPhysics(runtime: TopArenaRuntime, tuning: ArenaTuningC
       const distance = length(dx, dy);
       const fallbackAngle = (leftIndex * 1.9 + rightIndex * 2.7 + runtime.time) % (Math.PI * 2);
       const normal = distance > 0.001 ? { x: dx / distance, y: dy / distance } : { x: Math.cos(fallbackAngle), y: Math.sin(fallbackAngle) };
-      const crowdDistance = (left.radius + right.radius) * 0.86;
-      const overlap = crowdDistance - distance;
+      const tangent = { x: -normal.y, y: normal.x };
+      const collisionDistance = left.radius + right.radius;
+      const overlap = collisionDistance - distance;
 
       if (overlap <= 0) {
         continue;
@@ -1025,37 +1028,89 @@ function resolveEnemyCrowdPhysics(runtime: TopArenaRuntime, tuning: ArenaTuningC
       const leftInvMass = 1 / Math.max(0.45, left.stats.mass);
       const rightInvMass = 1 / Math.max(0.45, right.stats.mass);
       const invMassSum = leftInvMass + rightInvMass;
-      const pressure = clamp(0.45 + tuning.activeEnemyPressure * 0.22, 0.5, 0.9);
+      const pressure = clamp(0.72 + tuning.activeEnemyPressure * 0.16, 0.72, 1.06);
       const leftCorrection = overlap * pressure * (leftInvMass / invMassSum);
       const rightCorrection = overlap * pressure * (rightInvMass / invMassSum);
       const relativeVx = right.vx - left.vx;
       const relativeVy = right.vy - left.vy;
       const relativeNormalSpeed = relativeVx * normal.x + relativeVy * normal.y;
       const closingSpeed = Math.max(0, -relativeNormalSpeed);
-      const bounce = (closingSpeed * 0.32 + overlap * 5.2) / invMassSum;
-      const impulseX = normal.x * bounce;
-      const impulseY = normal.y * bounce;
+      const leftSurfaceSpeed = angularSurfaceSpeed(left);
+      const rightSurfaceSpeed = angularSurfaceSpeed(right);
+      const spinShearSpeed = Math.abs(leftSurfaceSpeed) + Math.abs(rightSurfaceSpeed);
+      const spinShearRatio = clamp(spinShearSpeed / 280, 0, 1.6);
+      const restitution = clamp(0.42 + (left.stats.edge + right.stats.edge) * 1.8 + (spinRatio(left) + spinRatio(right)) * 0.07 + closingSpeed / 340, 0.42, 1.18);
+      const normalImpulse = ((1 + restitution) * closingSpeed + overlap * 8.2) / invMassSum;
+      const relativeTangentialSpeed = relativeVx * tangent.x + relativeVy * tangent.y - leftSurfaceSpeed - rightSurfaceSpeed;
+      const surfaceShear = Math.abs(relativeTangentialSpeed) + spinShearSpeed * 0.34;
+      const friction = clamp(0.18 + (left.stats.grip + right.stats.grip) * 0.22 + spinShearRatio * 0.1, 0.18, 0.72);
+      const rawTangentImpulse = -relativeTangentialSpeed / invMassSum;
+      const tangentImpulse = clamp(rawTangentImpulse, -normalImpulse * friction, normalImpulse * friction);
+      const impulseX = normal.x * normalImpulse + tangent.x * tangentImpulse;
+      const impulseY = normal.y * normalImpulse + tangent.y * tangentImpulse;
+      const tangentSign = Math.sign(tangentImpulse || relativeTangentialSpeed || 1);
+      const leftOutward = outwardFromBasin(left, -normal.x, -normal.y);
+      const rightOutward = outwardFromBasin(right, normal.x, normal.y);
+      const leftLaunch = normalize(-normal.x * 1.05 + leftOutward.x * 0.32 - tangent.x * tangentSign * 0.14, -normal.y * 1.05 + leftOutward.y * 0.32 - tangent.y * tangentSign * 0.14);
+      const rightLaunch = normalize(normal.x * 1.05 + rightOutward.x * 0.32 + tangent.x * tangentSign * 0.14, normal.y * 1.05 + rightOutward.y * 0.32 + tangent.y * tangentSign * 0.14);
+      const launchPower = clamp((normalImpulse * 0.46 + closingSpeed * 0.82 + Math.abs(tangentImpulse) * 0.26 + spinShearSpeed * 0.035) * tuning.collisionLaunchMultiplier, 0, 420);
+      const recoilSeparation = clamp(overlap * 0.44 + launchPower * 0.012, 0, 16);
+      const skid = surfaceShear / 110;
+      const leftSpinLoss = normalImpulse * (0.007 / Math.max(0.75, left.stats.mass)) + Math.abs(tangentImpulse) * 0.012 + skid * Math.max(0.12, 1 - left.stats.grip) * 0.18;
+      const rightSpinLoss = normalImpulse * (0.007 / Math.max(0.75, right.stats.mass)) + Math.abs(tangentImpulse) * 0.012 + skid * Math.max(0.12, 1 - right.stats.grip) * 0.18;
+      const leftWobbleGain = clamp((normalImpulse * 0.0018 + Math.abs(tangentImpulse) * 0.0034 + overlap * 0.004) / Math.max(0.8, left.stats.mass + left.stats.grip), 0, 0.34);
+      const rightWobbleGain = clamp((normalImpulse * 0.0018 + Math.abs(tangentImpulse) * 0.0034 + overlap * 0.004) / Math.max(0.8, right.stats.mass + right.stats.grip), 0, 0.34);
 
       enemies[leftIndex] = {
         ...left,
-        x: left.x - normal.x * leftCorrection,
-        y: left.y - normal.y * leftCorrection,
-        vx: left.vx - impulseX * leftInvMass,
-        vy: left.vy - impulseY * leftInvMass,
-        wobble: clamp(left.wobble + overlap * 0.004, 0, 1),
+        x: left.x - normal.x * leftCorrection + leftLaunch.x * recoilSeparation,
+        y: left.y - normal.y * leftCorrection + leftLaunch.y * recoilSeparation,
+        vx: left.vx - impulseX * leftInvMass + leftLaunch.x * launchPower * clamp(leftInvMass, 0.42, 1.55),
+        vy: left.vy - impulseY * leftInvMass + leftLaunch.y * launchPower * clamp(leftInvMass, 0.42, 1.55),
+        spinPower: Math.max(4, left.spinPower - leftSpinLoss),
+        wobble: clamp(left.wobble + leftWobbleGain, 0, 1),
       };
       enemies[rightIndex] = {
         ...right,
-        x: right.x + normal.x * rightCorrection,
-        y: right.y + normal.y * rightCorrection,
-        vx: right.vx + impulseX * rightInvMass,
-        vy: right.vy + impulseY * rightInvMass,
-        wobble: clamp(right.wobble + overlap * 0.004, 0, 1),
+        x: right.x + normal.x * rightCorrection + rightLaunch.x * recoilSeparation,
+        y: right.y + normal.y * rightCorrection + rightLaunch.y * recoilSeparation,
+        vx: right.vx + impulseX * rightInvMass + rightLaunch.x * launchPower * clamp(rightInvMass, 0.42, 1.55),
+        vy: right.vy + impulseY * rightInvMass + rightLaunch.y * launchPower * clamp(rightInvMass, 0.42, 1.55),
+        spinPower: Math.max(4, right.spinPower - rightSpinLoss),
+        wobble: clamp(right.wobble + rightWobbleGain, 0, 1),
       };
+
+      const sparkIntensity = clamp((surfaceShear / 150 + normalImpulse / 180 + overlap / 32) * tuning.sparkMultiplier, 0.3, 2.3);
+      if (visualEffectBudget > 0 && (closingSpeed > 26 || surfaceShear > 95 || overlap > 5)) {
+        const contactX = left.x + normal.x * left.radius;
+        const contactY = left.y + normal.y * left.radius;
+        const sparkLength = 14 + surfaceShear * 0.09 + closingSpeed * 0.08;
+        nextRuntime = addEffect(nextRuntime, {
+          kind: "frictionSpark",
+          x: contactX,
+          y: contactY,
+          x2: contactX + tangent.x * Math.sign(tangentImpulse || 1) * sparkLength,
+          y2: contactY + tangent.y * Math.sign(tangentImpulse || 1) * sparkLength,
+          lifetime: 0.18 + Math.min(0.18, sparkIntensity * 0.05),
+          intensity: sparkIntensity,
+        });
+        visualEffectBudget -= 1;
+      }
+
+      if (visualEffectBudget > 0 && (closingSpeed > 92 || normalImpulse > 96)) {
+        nextRuntime = addEffect(nextRuntime, {
+          kind: "shockwave",
+          x: (left.x + right.x) / 2,
+          y: (left.y + right.y) / 2,
+          lifetime: 0.26,
+          intensity: clamp(sparkIntensity * 0.58 + normalImpulse / 320, 0.55, 1.65),
+        });
+        visualEffectBudget -= 1;
+      }
     }
   }
 
-  return { ...runtime, enemies };
+  return { ...nextRuntime, enemies };
 }
 
 function resolvePlayerSkill(runtime: TopArenaRuntime): TopArenaRuntime {

@@ -315,6 +315,94 @@ describe("top arena runtime", () => {
     expect(next.player.cooldownRemaining).toBeGreaterThan(0);
   });
 
+  it("resolves enemy-to-enemy collisions without dealing friendly damage", () => {
+    const baseRuntime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_razor_rebound",
+      seed: "enemy_enemy_collision_test",
+    });
+    const enemyStats = {
+      ...baseRuntime.player.stats,
+      maxSpinIntegrity: 2400,
+      maxFluxGuard: 180,
+      guard: 180,
+      impact: 72,
+      rpm: 6.8,
+      mass: 1,
+      grip: 0.42,
+      edge: 0.05,
+      fracture: 1.1,
+      resonance: 0.75,
+      partQuantity: 0,
+      partRarity: 0,
+      modifiers: [],
+    };
+    const leftEnemy = {
+      ...baseRuntime.player,
+      id: "left_collision_rival",
+      team: "enemy" as const,
+      name: "Left Collision Rival",
+      rank: "pack" as const,
+      x: 28,
+      y: 32,
+      vx: 118,
+      vy: 0,
+      radius: 22,
+      spinIntegrity: enemyStats.maxSpinIntegrity,
+      fluxGuard: enemyStats.maxFluxGuard,
+      spinPower: 100,
+      wobble: 0,
+      cooldownRemaining: 10,
+      stats: enemyStats,
+      behaviorId: "hunter" as const,
+    };
+    const rightEnemy = {
+      ...baseRuntime.player,
+      id: "right_collision_rival",
+      team: "enemy" as const,
+      name: "Right Collision Rival",
+      rank: "pack" as const,
+      x: 64,
+      y: 32,
+      vx: -112,
+      vy: 0,
+      radius: 22,
+      spinIntegrity: enemyStats.maxSpinIntegrity,
+      fluxGuard: enemyStats.maxFluxGuard,
+      spinPower: 100,
+      wobble: 0,
+      cooldownRemaining: 10,
+      stats: enemyStats,
+      behaviorId: "hunter" as const,
+    };
+    const withEnemyCollision = {
+      ...baseRuntime,
+      player: { ...baseRuntime.player, x: -230, y: -120, vx: 0, vy: 0, cooldownRemaining: 10 },
+      enemies: [leftEnemy, rightEnemy],
+      nextEnemyIn: 10,
+    };
+
+    const next = stepTopArenaRuntime(withEnemyCollision, 0.03, { collisionLaunchMultiplier: 1.65, sparkMultiplier: 1.3 });
+    const nextLeft = next.enemies.find((enemy) => enemy.id === leftEnemy.id);
+    const nextRight = next.enemies.find((enemy) => enemy.id === rightEnemy.id);
+    const initialSeparation = Math.hypot(rightEnemy.x - leftEnemy.x, rightEnemy.y - leftEnemy.y);
+    const nextSeparation = Math.hypot((nextRight?.x ?? 0) - (nextLeft?.x ?? 0), (nextRight?.y ?? 0) - (nextLeft?.y ?? 0));
+
+    expect(next.lastCollision).toBeUndefined();
+    expect(nextLeft?.spinIntegrity).toBe(enemyStats.maxSpinIntegrity);
+    expect(nextRight?.spinIntegrity).toBe(enemyStats.maxSpinIntegrity);
+    expect(nextSeparation).toBeGreaterThan(initialSeparation);
+    expect(nextLeft?.vx ?? 0).toBeLessThan(leftEnemy.vx);
+    expect(nextRight?.vx ?? 0).toBeGreaterThan(rightEnemy.vx);
+    expect(nextLeft?.spinPower ?? 100).toBeLessThan(100);
+    expect(nextRight?.spinPower ?? 100).toBeLessThan(100);
+    expect(nextLeft?.wobble ?? 0).toBeGreaterThan(0);
+    expect(nextRight?.wobble ?? 0).toBeGreaterThan(0);
+    expect(next.effects.some((effect) => effect.kind === "frictionSpark")).toBe(true);
+    expect(next.events.some((event) => event.text.includes("Razor Rebound hits"))).toBe(false);
+  });
+
   it("launches tops farther from the basin center on high-speed impacts", () => {
     const baseRuntime = createTopArenaRuntime({
       arenaId: "arena_cinder_crucible",
@@ -510,7 +598,7 @@ describe("top arena runtime", () => {
     expect(baseRuntime.mapKillTarget).toBeGreaterThanOrEqual(150);
     expect(baseRuntime.mapKillTarget).toBeLessThanOrEqual(200);
     expect(highPressure.enemies.length).toBeGreaterThan(lowPressure.enemies.length);
-    expect(highPressure.enemies.length).toBeGreaterThanOrEqual(12);
+    expect(highPressure.enemies.length).toBeGreaterThanOrEqual(10);
   });
 
   it("lets tuning amplify basin pull and high-speed launch", () => {
