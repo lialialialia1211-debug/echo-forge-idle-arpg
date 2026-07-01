@@ -53,6 +53,17 @@ type TelegraphConfig = {
   accent: number;
 };
 
+type TopRenderState = {
+  point: { x: number; y: number };
+  radius: number;
+  integrityRatio: number;
+  spinRatio: number;
+  wobble: number;
+  speed: number;
+  cx: number;
+  cy: number;
+};
+
 const framePalette: Record<string, Palette> = {
   frame_swift_razor: {
     core: 0xcfd7d8,
@@ -529,71 +540,154 @@ function drawDrops(graphics: Phaser.GameObjects.Graphics, drops: ArenaDrop[], ma
   }
 }
 
-function drawTop(graphics: Phaser.GameObjects.Graphics, entity: TopRuntimeEntity, map: WorldMapper, palette: Palette) {
+function resolveTopRenderState(entity: TopRuntimeEntity, map: WorldMapper): TopRenderState {
   const point = map.point(entity.x, entity.y);
   const radius = map.radius(entity.radius);
   const integrityRatio = clamp(entity.spinIntegrity / entity.stats.maxSpinIntegrity, 0, 1);
   const spinRatio = clamp(entity.spinPower / 100, 0.04, 1);
   const wobble = clamp(entity.wobble ?? 0, 0, 1);
   const speed = Math.hypot(entity.vx, entity.vy);
+  const wobbleX = Math.cos(entity.angle * 1.7) * radius * wobble * 0.16;
+  const wobbleY = Math.sin(entity.angle * 1.35) * radius * wobble * 0.12;
+
+  return {
+    point,
+    radius,
+    integrityRatio,
+    spinRatio,
+    wobble,
+    speed,
+    cx: point.x + wobbleX,
+    cy: point.y + wobbleY,
+  };
+}
+
+function drawTopMotionTrail(graphics: Phaser.GameObjects.Graphics, entity: TopRuntimeEntity, map: WorldMapper, palette: Palette, state: TopRenderState) {
+  const { point, radius, speed } = state;
   if (speed > 82) {
     const trailLength = map.radius(clamp(speed * 0.12, 14, entity.rank === "boss" ? 58 : 72));
     const velocity = normalizeVector(entity.vx, entity.vy);
-    const trailAlpha = clamp((speed - 82) / 260, 0.12, entity.rank === "boss" ? 0.34 : 0.52);
+    const trailAlpha = clamp((speed - 82) / 260, entity.team === "player" ? 0.18 : 0.1, entity.team === "player" ? 0.62 : entity.rank === "boss" ? 0.34 : 0.46);
+    if (entity.team === "player") {
+      graphics.lineStyle(Math.max(5, radius * 0.4), 0x65c6b0, trailAlpha * 0.12);
+      graphics.lineBetween(point.x - velocity.x * trailLength * 0.92, point.y - velocity.y * trailLength * 0.92, point.x, point.y);
+    }
     graphics.lineStyle(Math.max(2, radius * 0.18), palette.glow, trailAlpha);
     graphics.lineBetween(point.x - velocity.x * trailLength, point.y - velocity.y * trailLength, point.x, point.y);
     graphics.lineStyle(Math.max(6, radius * 0.46), palette.glow, trailAlpha * 0.08);
     graphics.lineBetween(point.x - velocity.x * trailLength * 0.72, point.y - velocity.y * trailLength * 0.72, point.x, point.y);
   }
-  const wobbleX = Math.cos(entity.angle * 1.7) * radius * wobble * 0.16;
-  const wobbleY = Math.sin(entity.angle * 1.35) * radius * wobble * 0.12;
-  const cx = point.x + wobbleX;
-  const cy = point.y + wobbleY;
+}
 
-  graphics.fillStyle(0x000000, 0.38);
-  graphics.fillEllipse(cx + radius * 0.16, cy + radius * 0.22, radius * 2.2, radius * 1.48, 32);
+function drawPlayerTop(graphics: Phaser.GameObjects.Graphics, entity: TopRuntimeEntity, state: TopRenderState, palette: Palette) {
+  const { point, radius, integrityRatio, spinRatio, wobble, cx, cy } = state;
 
-  graphics.fillStyle(palette.rim, 0.95);
+  graphics.fillStyle(0x000000, 0.34);
+  graphics.fillEllipse(cx + radius * 0.14, cy + radius * 0.22, radius * 2.35, radius * 1.52, 32);
+  graphics.fillStyle(0x65c6b0, 0.12 + spinRatio * 0.09);
+  graphics.fillCircle(point.x, point.y, radius * 1.62);
+  graphics.lineStyle(Math.max(4, radius * 0.15), 0x65c6b0, 0.72);
+  graphics.strokeCircle(point.x, point.y, radius + 13);
+  graphics.lineStyle(2, 0xfff4c7, 0.62);
+  drawArc(graphics, point.x, point.y, radius + 18, entity.angle - Math.PI * 0.42, entity.angle + Math.PI * 0.42);
+  drawArc(graphics, point.x, point.y, radius + 18, entity.angle + Math.PI * 0.58, entity.angle + Math.PI * 1.42);
+
   for (let i = 0; i < 4; i += 1) {
-    const angle = entity.angle + (Math.PI / 2) * i;
+    const angle = entity.angle + (Math.PI / 2) * i + Math.PI / 4;
+    const px = point.x + Math.cos(angle) * (radius + 15);
+    const py = point.y + Math.sin(angle) * (radius + 15);
+    graphics.fillStyle(i % 2 === 0 ? 0x65c6b0 : 0xfff4c7, 0.94);
+    graphics.fillCircle(px, py, Math.max(2.2, radius * 0.12));
+  }
+
+  for (let i = 0; i < 6; i += 1) {
+    const angle = entity.angle + (Math.PI / 3) * i;
+    graphics.fillStyle(i % 2 === 0 ? palette.rim : 0xfff4c7, i % 2 === 0 ? 0.92 : 0.78);
     graphics.fillPoints(
       [
-        rotatedPoint(cx, cy, 0, -radius * 1.18, angle),
-        rotatedPoint(cx, cy, radius * 0.34, -radius * 0.24, angle),
-        rotatedPoint(cx, cy, 0, -radius * 0.03, angle),
-        rotatedPoint(cx, cy, -radius * 0.34, -radius * 0.24, angle),
+        rotatedPoint(cx, cy, 0, -radius * 1.38, angle),
+        rotatedPoint(cx, cy, radius * 0.24, -radius * 0.36, angle),
+        rotatedPoint(cx, cy, radius * 0.08, -radius * 0.08, angle),
+        rotatedPoint(cx, cy, -radius * 0.24, -radius * 0.36, angle),
       ],
       true,
       true,
     );
   }
 
-  graphics.fillStyle(palette.glow, entity.team === "player" ? 0.16 : 0.1);
-  graphics.fillCircle(cx, cy, radius * (1.2 + spinRatio * 0.22));
-  graphics.fillStyle(0xffffff, 0.92);
-  graphics.fillCircle(cx - radius * 0.18, cy - radius * 0.2, radius * 0.58);
-  graphics.fillStyle(palette.core, 0.92);
-  graphics.fillCircle(cx, cy, radius * 0.94);
-  graphics.fillStyle(0x303638, 0.92);
-  graphics.fillCircle(cx + radius * 0.12, cy + radius * 0.1, radius * 0.72);
-  graphics.fillStyle(0x08090a, 0.72);
-  graphics.fillCircle(cx, cy, radius * 0.52);
+  graphics.fillStyle(0xffffff, 0.96);
+  graphics.fillCircle(cx - radius * 0.18, cy - radius * 0.2, radius * 0.68);
+  graphics.fillStyle(palette.core, 0.98);
+  graphics.fillCircle(cx, cy, radius * 0.98);
+  graphics.fillStyle(0x203234, 0.9);
+  graphics.fillCircle(cx + radius * 0.1, cy + radius * 0.08, radius * 0.66);
+  graphics.fillStyle(0x65c6b0, 0.98);
+  graphics.fillCircle(cx, cy, radius * 0.34);
+  graphics.fillStyle(0xfff4c7, 0.98);
+  graphics.fillCircle(cx - radius * 0.06, cy - radius * 0.06, radius * 0.16);
 
-  graphics.lineStyle(Math.max(2, radius * 0.11), 0x000000, 0.58);
-  graphics.strokeCircle(cx, cy, radius * 0.66);
-  graphics.fillStyle(palette.rim, 1);
-  graphics.fillCircle(cx, cy, radius * 0.28);
+  if (wobble > 0.05) {
+    graphics.lineStyle(2, 0xfff4c7, Math.min(0.5, wobble * 0.72));
+    graphics.strokeEllipse(point.x + (cx - point.x) * 1.7, point.y + (cy - point.y) * 1.7, radius * (2.28 + wobble * 0.42), radius * (1.58 - wobble * 0.22), 32);
+  }
+
+  graphics.lineStyle(5, 0x000000, 0.7);
+  graphics.strokeCircle(point.x, point.y, radius + 8);
+  graphics.lineStyle(3.5, integrityRatio > 0.33 ? 0x65c6b0 : 0xdf624c, 1);
+  drawArc(graphics, point.x, point.y, radius + 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * integrityRatio);
+  graphics.lineStyle(2.5, 0xfff4c7, 0.24 + spinRatio * 0.5);
+  drawArc(graphics, point.x, point.y, radius + 14, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * spinRatio);
+}
+
+function drawEnemyTop(graphics: Phaser.GameObjects.Graphics, entity: TopRuntimeEntity, state: TopRenderState, palette: Palette) {
+  const { point, radius, integrityRatio, spinRatio, wobble, cx, cy } = state;
+  const threatColor = entity.rank === "boss" ? 0xb68cff : entity.rank === "elite" ? 0xffa84b : 0xdf624c;
+  const toothCount = entity.rank === "boss" ? 6 : entity.rank === "elite" ? 5 : 3;
+  const outerScale = entity.rank === "pack" ? 1.04 : entity.rank === "elite" ? 1.14 : 1.22;
+
+  graphics.fillStyle(0x000000, 0.38);
+  graphics.fillEllipse(cx + radius * 0.16, cy + radius * 0.22, radius * 2.2, radius * 1.48, 32);
+  graphics.fillStyle(threatColor, entity.rank === "pack" ? 0.08 : 0.14);
+  graphics.fillCircle(cx, cy, radius * (1.15 + spinRatio * 0.16));
+
+  graphics.fillStyle(entity.rank === "pack" ? 0x2b302e : palette.rim, entity.rank === "pack" ? 0.96 : 0.9);
+  for (let i = 0; i < toothCount; i += 1) {
+    const angle = entity.angle + (Math.PI * 2 * i) / toothCount;
+    graphics.fillPoints(
+      [
+        rotatedPoint(cx, cy, 0, -radius * outerScale, angle),
+        rotatedPoint(cx, cy, radius * 0.44, -radius * 0.2, angle),
+        rotatedPoint(cx, cy, 0, radius * 0.08, angle),
+        rotatedPoint(cx, cy, -radius * 0.44, -radius * 0.2, angle),
+      ],
+      true,
+      true,
+    );
+  }
+
+  graphics.fillStyle(0x111414, 0.95);
+  graphics.fillCircle(cx, cy, radius * 0.92);
+  graphics.fillStyle(palette.core, entity.rank === "pack" ? 0.58 : 0.76);
+  graphics.fillCircle(cx - radius * 0.08, cy - radius * 0.1, radius * 0.52);
+  graphics.fillStyle(0x050607, 0.8);
+  graphics.fillCircle(cx, cy, radius * 0.55);
+  graphics.lineStyle(Math.max(2, radius * 0.1), threatColor, entity.rank === "pack" ? 0.72 : 0.94);
+  graphics.strokeCircle(cx, cy, radius * 0.68);
+  graphics.fillStyle(threatColor, 0.96);
+  graphics.fillCircle(cx, cy, radius * (entity.rank === "pack" ? 0.2 : 0.28));
+  graphics.fillStyle(0xfff4c7, entity.rank === "boss" ? 0.86 : 0.38);
+  graphics.fillCircle(cx - radius * 0.08, cy - radius * 0.08, radius * 0.08);
 
   if (wobble > 0.05) {
     graphics.lineStyle(2, 0xdf624c, Math.min(0.42, wobble * 0.65));
-    graphics.strokeEllipse(point.x + wobbleX * 1.8, point.y + wobbleY * 1.8, radius * (2.24 + wobble * 0.44), radius * (1.6 - wobble * 0.24), 32);
+    graphics.strokeEllipse(point.x + (cx - point.x) * 1.8, point.y + (cy - point.y) * 1.8, radius * (2.24 + wobble * 0.44), radius * (1.6 - wobble * 0.24), 32);
   }
 
   graphics.lineStyle(5, 0x000000, 0.72);
   graphics.strokeCircle(point.x, point.y, radius + 7);
-  graphics.lineStyle(3, integrityRatio > 0.33 ? palette.rim : 0xdf624c, 1);
+  graphics.lineStyle(2.6, integrityRatio > 0.33 ? threatColor : 0xdf624c, 0.95);
   drawArc(graphics, point.x, point.y, radius + 7, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * integrityRatio);
-  graphics.lineStyle(2, 0x65c6b0, 0.22 + spinRatio * 0.42);
+  graphics.lineStyle(1.6, palette.glow, 0.16 + spinRatio * 0.32);
   drawArc(graphics, point.x, point.y, radius + 12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * spinRatio);
 
   const barWidth = Math.max(42, radius * 2.2);
@@ -602,6 +696,16 @@ function drawTop(graphics: Phaser.GameObjects.Graphics, entity: TopRuntimeEntity
   graphics.fillRect(point.x - barWidth / 2, barY, barWidth, 4);
   graphics.fillStyle(integrityRatio > 0.45 ? palette.rim : 0xdf624c, 1);
   graphics.fillRect(point.x - barWidth / 2, barY, barWidth * integrityRatio, 4);
+}
+
+function drawTop(graphics: Phaser.GameObjects.Graphics, entity: TopRuntimeEntity, map: WorldMapper, palette: Palette) {
+  const state = resolveTopRenderState(entity, map);
+  drawTopMotionTrail(graphics, entity, map, palette, state);
+  if (entity.team === "player") {
+    drawPlayerTop(graphics, entity, state, palette);
+    return;
+  }
+  drawEnemyTop(graphics, entity, state, palette);
 }
 
 class ArenaPhaserScene extends Phaser.Scene {
@@ -703,11 +807,11 @@ class ArenaPhaserScene extends Phaser.Scene {
     if (freezeMs > 0) {
       this.hitStopUntil = Math.max(this.hitStopUntil, now + freezeMs);
       this.frozenRuntime = runtime;
-      this.cameras.main.shake(105, clamp((collision.normalImpulse / 1800 + collision.sparkIntensity / 1200) * tuning.hitStopMultiplier, 0.006, 0.046));
+      this.cameras.main.shake(64, clamp((collision.normalImpulse / 4200 + collision.sparkIntensity / 2800) * tuning.hitStopMultiplier, 0.0025, 0.018));
       return;
     }
 
-    this.cameras.main.shake(45, clamp((collision.sparkIntensity / 2400) * tuning.hitStopMultiplier, 0.0015, 0.007));
+    this.cameras.main.shake(28, clamp((collision.sparkIntensity / 4800) * tuning.hitStopMultiplier, 0.0008, 0.0035));
   }
 
   private renderRuntime(runtime: TopArenaRuntime | null, now: number) {
