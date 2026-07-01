@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { arenaCircuits, getArenaCircuitDef } from "../../data/arenaCircuits";
+import { circuitAtlasNodes, getCircuitAtlasNodeDef } from "../../data/circuitAtlasNodes";
 import { driveCores, getDriveCoreDef } from "../../data/driveCores";
 import { talentNodes, getTalentNodeDef } from "../../data/talentNodes";
 import { getTopFrameDef, topFrames } from "../../data/topFrames";
@@ -28,6 +29,7 @@ import {
   createPartFromArenaDrop,
   createStarterEquipment,
   createStarterInventory,
+  getTopPartBaseDef,
   partSlotLabels,
   partSlotOrder,
 } from "../../data/topParts";
@@ -52,6 +54,7 @@ import type {
   ArenaEffect,
   ArenaKey,
   ArenaTuningConfig,
+  CircuitAtlasNodeDef,
   TalentNodeDef,
   TopArenaRuntime,
   TopEquipment,
@@ -204,6 +207,21 @@ const talentNodePositions: Record<string, { x: number; y: number }> = {
   talent_last_rotation: { x: 50, y: 11 },
 };
 
+const atlasNodePositions: Record<string, { x: number; y: number }> = {
+  atlas_breach_calibrator: { x: 50, y: 84 },
+  atlas_dense_rail: { x: 32, y: 68 },
+  atlas_mapwright_cache: { x: 68, y: 68 },
+  atlas_redline_artery: { x: 22, y: 49 },
+  atlas_quench_line: { x: 42, y: 49 },
+  atlas_splinter_switch: { x: 68, y: 48 },
+  atlas_glass_lure: { x: 84, y: 49 },
+  atlas_iron_basin: { x: 36, y: 29 },
+  atlas_furnace_toll: { x: 60, y: 28 },
+  atlas_storm_divider: { x: 78, y: 28 },
+  atlas_boss_lantern: { x: 24, y: 24 },
+  atlas_last_gate: { x: 50, y: 10 },
+};
+
 const rarityRank: Record<TopPartRarity, number> = {
   common: 0,
   tuned: 1,
@@ -334,7 +352,8 @@ function formatModifierLine(modifier: TopModifierDef): string {
 }
 
 function formatPartLines(part: TopPartInstance): string[] {
-  return [...formatStatLines(part.statBonuses), ...formatResistanceLines(part.resistanceBonuses), ...part.modifiers.map(formatModifierLine)];
+  const uniqueLine = getTopPartBaseDef(part.baseId).uniqueEffect?.description;
+  return [...(uniqueLine ? [uniqueLine] : []), ...formatStatLines(part.statBonuses), ...formatResistanceLines(part.resistanceBonuses), ...part.modifiers.map(formatModifierLine)];
 }
 
 function formatRuneLines(rune: TuningRuneDef): string[] {
@@ -343,6 +362,23 @@ function formatRuneLines(rune: TuningRuneDef): string[] {
 
 function formatTalentLines(talent: TalentNodeDef): string[] {
   return [...formatStatLines(talent.statBonuses), ...formatResistanceLines(talent.resistanceBonuses), ...(talent.modifiers ?? []).map(formatModifierLine)];
+}
+
+function formatAtlasLines(node: CircuitAtlasNodeDef): string[] {
+  const bonuses = node.bonuses;
+  return [
+    bonuses.enemyIntegrityMultiplier ? `Enemies ${formatPercent(bonuses.enemyIntegrityMultiplier - 1, 0)} integrity` : null,
+    bonuses.enemyImpactMultiplier ? `Enemies ${formatPercent(bonuses.enemyImpactMultiplier - 1, 0)} impact` : null,
+    bonuses.activeEnemyPressure ? `+${formatPercent(bonuses.activeEnemyPressure, 0)} rival pressure` : null,
+    bonuses.rewardQuantity ? `+${formatPercent(bonuses.rewardQuantity, 0)} quantity` : null,
+    bonuses.rewardRarity ? `+${formatPercent(bonuses.rewardRarity, 0)} rarity` : null,
+    bonuses.breachProgressGain ? `+${formatPercent(bonuses.breachProgressGain, 0)} Breach charge` : null,
+    bonuses.breachDuration ? `+${round(bonuses.breachDuration, 0)}s Breach Rail` : null,
+    bonuses.bossPhasePressure ? `+${formatPercent(bonuses.bossPhasePressure, 0)} boss phase pressure` : null,
+    ...formatStatLines(bonuses.statBonuses),
+    ...formatResistanceLines(bonuses.resistanceBonuses),
+    ...(bonuses.modifiers ?? []).map(formatModifierLine),
+  ].filter((line): line is string => Boolean(line));
 }
 
 function salvageValue(part: TopPartInstance): CurrencyWallet {
@@ -595,8 +631,9 @@ export function CombatArena() {
       equipment: initialEquipment,
       runeIds: compactRuneSlots(initialRuneSlots),
       talentIds: initialSave.top.talentIds,
+      circuitAtlasNodeIds: initialSave.top.circuitAtlasNodeIds ?? [],
     }),
-    [initialEquipment, initialRuneSlots, initialSave.top.talentIds],
+    [initialEquipment, initialRuneSlots, initialSave.top.circuitAtlasNodeIds, initialSave.top.talentIds],
   );
   const saveShellRef = useRef(initialSave);
   const [frameId, setFrameId] = useState(initialSave.top.selectedFrameId);
@@ -617,6 +654,8 @@ export function CombatArena() {
   const [selectedRuneSocket, setSelectedRuneSocket] = useState(0);
   const [talentIds, setTalentIds] = useState<string[]>(initialSave.top.talentIds);
   const [selectedTalentId, setSelectedTalentId] = useState(talentNodes[0].id);
+  const [circuitAtlasNodeIds, setCircuitAtlasNodeIds] = useState<string[]>(initialSave.top.circuitAtlasNodeIds ?? []);
+  const [selectedAtlasNodeId, setSelectedAtlasNodeId] = useState(circuitAtlasNodes[0].id);
   const [wallet, setWallet] = useState<CurrencyWallet>(initialSave.top.wallet);
   const [arenaKeys, setArenaKeys] = useState<ArenaKey[]>(initialSave.top.arenaKeys as ArenaKey[]);
   const [selectedArenaKeyId, setSelectedArenaKeyId] = useState<string | null>((initialSave.top.arenaKeys as ArenaKey[])[0]?.id ?? null);
@@ -632,12 +671,13 @@ export function CombatArena() {
   const runeIds = useMemo(() => compactRuneSlots(runeSlots), [runeSlots]);
 
   const makeLoadout = useCallback(
-    (nextEquipment: TopEquipment = equipment, nextRuneIds = runeIds, nextTalentIds = talentIds): TopLoadoutConfig => ({
+    (nextEquipment: TopEquipment = equipment, nextRuneIds = runeIds, nextTalentIds = talentIds, nextCircuitAtlasNodeIds = circuitAtlasNodeIds): TopLoadoutConfig => ({
       equipment: nextEquipment,
       runeIds: nextRuneIds,
       talentIds: nextTalentIds,
+      circuitAtlasNodeIds: nextCircuitAtlasNodeIds,
     }),
-    [equipment, runeIds, talentIds],
+    [circuitAtlasNodeIds, equipment, runeIds, talentIds],
   );
 
   const [runtime, setRuntime] = useState(() =>
@@ -695,6 +735,8 @@ export function CombatArena() {
   }, [currentStats, driveId, equipment, frameId, makeLoadout, selectedPart]);
   const playerIntegrity = clamp(runtime.player.spinIntegrity / runtime.player.stats.maxSpinIntegrity, 0, 1);
   const cooldownRatio = drive.baseCooldown > 0 ? 1 - clamp(runtime.player.cooldownRemaining / drive.baseCooldown, 0, 1) : 1;
+  const routeMechanic = runtime.routeMechanic;
+  const routeMechanicProgress = routeMechanic ? clamp(routeMechanic.progress / routeMechanic.maxProgress, 0, 1) : 0;
   const target = runtime.enemies[0] ?? null;
   const targetIntegrity = target ? clamp(target.spinIntegrity / target.stats.maxSpinIntegrity, 0, 1) : 0;
   const dangerCue = useMemo(() => {
@@ -720,6 +762,10 @@ export function CombatArena() {
   const spentTalentPoints = useMemo(() => talentIds.reduce((total, id) => total + getTalentNodeDef(id).cost, 0), [talentIds]);
   const talentPoints = 3 + Math.floor(totalKills / 5);
   const availableTalentPoints = talentPoints - spentTalentPoints;
+  const totalRouteClears = useMemo(() => Object.values(routeClears).reduce((total, clears) => total + clears, 0), [routeClears]);
+  const spentAtlasPoints = useMemo(() => circuitAtlasNodeIds.reduce((total, id) => total + getCircuitAtlasNodeDef(id).cost, 0), [circuitAtlasNodeIds]);
+  const atlasPoints = 2 + Math.floor(totalKills / 28) + totalRouteClears;
+  const availableAtlasPoints = atlasPoints - spentAtlasPoints;
 
   const resetArena = useCallback(
     (nextFrameId = frameId, nextDriveId = driveId, nextArenaId = arenaId, nextLoadout = makeLoadout(), nextArenaKey: ArenaKey | null = currentArenaKey) => {
@@ -951,6 +997,30 @@ export function CombatArena() {
     resetArena(frameId, driveId, arenaId, makeLoadout(equipment, runeIds, nextTalentIds));
   };
 
+  const canRefundAtlasNode = (nodeId: string): boolean =>
+    !circuitAtlasNodes.some((node) => circuitAtlasNodeIds.includes(node.id) && (node.requiredNodeIds ?? []).includes(nodeId));
+
+  const canAllocateAtlasNode = (nodeId: string): boolean => {
+    const node = getCircuitAtlasNodeDef(nodeId);
+    const requirementsMet = (node.requiredNodeIds ?? []).every((requiredId) => circuitAtlasNodeIds.includes(requiredId));
+    return requirementsMet && availableAtlasPoints >= node.cost;
+  };
+
+  const toggleAtlasNode = (nodeId: string) => {
+    const nextAtlasNodeIds = circuitAtlasNodeIds.includes(nodeId)
+      ? canRefundAtlasNode(nodeId)
+        ? circuitAtlasNodeIds.filter((id) => id !== nodeId)
+        : circuitAtlasNodeIds
+      : canAllocateAtlasNode(nodeId)
+        ? [...circuitAtlasNodeIds, nodeId]
+        : circuitAtlasNodeIds;
+    if (nextAtlasNodeIds === circuitAtlasNodeIds) {
+      return;
+    }
+    setCircuitAtlasNodeIds(nextAtlasNodeIds);
+    resetArena(frameId, driveId, arenaId, makeLoadout(equipment, runeIds, talentIds, nextAtlasNodeIds));
+  };
+
   const updateArenaTuning = (key: ArenaTuningKey, value: number) => {
     setArenaTuning((current) => ({ ...current, [key]: value }));
   };
@@ -1061,6 +1131,7 @@ export function CombatArena() {
         inventory,
         runeIds,
         talentIds,
+        circuitAtlasNodeIds,
         wallet,
         arenaKeys,
         clearedBossGateIds,
@@ -1071,7 +1142,7 @@ export function CombatArena() {
     };
     saveShellRef.current = nextSave;
     writeLocalSave(nextSave);
-  }, [arenaId, arenaKeys, clearedBossGateIds, driveId, equipment, frameId, inventory, routeClears, runeIds, talentIds, wallet]);
+  }, [arenaId, arenaKeys, circuitAtlasNodeIds, clearedBossGateIds, driveId, equipment, frameId, inventory, routeClears, runeIds, talentIds, wallet]);
 
   useEffect(() => {
     const newParts: TopPartInstance[] = [];
@@ -1526,6 +1597,8 @@ export function CombatArena() {
           <StatPill icon={<Gem size={15} />} label="Keys" value={formatNumber(arenaKeys.length, 0)} tone="good" />
           <StatPill icon={<Swords size={15} />} label="Quantity" value={formatPercent(currentArenaKeySummary?.rewardQuantity ?? 0, 0)} />
           <StatPill icon={<Sparkles size={15} />} label="Rarity" value={formatPercent(currentArenaKeySummary?.rewardRarity ?? 0, 0)} />
+          <StatPill icon={<Zap size={15} />} label="Rail" value={routeMechanic ? formatPercent(routeMechanicProgress, 0) : "off"} tone={routeMechanic?.stabilized ? "good" : routeMechanic?.active ? "rare" : "warn"} />
+          <StatPill icon={<Network size={15} />} label="Atlas" value={`${availableAtlasPoints}/${atlasPoints}`} tone="good" />
         </div>
       </section>
 
@@ -1543,6 +1616,104 @@ export function CombatArena() {
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="workbench-section">
+        <div className="section-title">
+          <Zap size={17} aria-hidden />
+          <h2>Breach Rail</h2>
+          <span className="section-counter">{routeMechanic?.stabilized ? "stable" : routeMechanic?.active ? `${round(routeMechanic.timeRemaining, 0)}s` : "collapsed"}</span>
+        </div>
+        <div className="breach-rail-card">
+          <div className="breach-rail-meter" aria-hidden>
+            <i style={{ width: `${routeMechanicProgress * 100}%` }} />
+          </div>
+          <div className="route-clear-line">
+            <span>Progress</span>
+            <strong>{routeMechanic ? `${formatNumber(routeMechanic.progress, 0)}/${formatNumber(routeMechanic.maxProgress, 0)}` : "0/0"}</strong>
+          </div>
+          <div className="route-clear-line">
+            <span>Reward</span>
+            <strong>{routeMechanic ? `${formatPercent(routeMechanic.rewardQuantity, 0)} / ${formatPercent(routeMechanic.rewardRarity, 0)}` : "0% / 0%"}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="workbench-section">
+        <div className="section-title">
+          <Network size={17} aria-hidden />
+          <h2>Circuit Atlas</h2>
+          <span className="section-counter">{availableAtlasPoints}/{atlasPoints}</span>
+        </div>
+        {(() => {
+          const selectedAtlasNode = getCircuitAtlasNodeDef(selectedAtlasNodeId);
+          const selectedAtlasActive = circuitAtlasNodeIds.includes(selectedAtlasNode.id);
+          const selectedAtlasAvailable = selectedAtlasActive ? canRefundAtlasNode(selectedAtlasNode.id) : canAllocateAtlasNode(selectedAtlasNode.id);
+          const selectedAtlasStatus = selectedAtlasActive ? "Active" : selectedAtlasAvailable ? "Available" : "Locked";
+          const requirementText =
+            selectedAtlasNode.requiredNodeIds && selectedAtlasNode.requiredNodeIds.length > 0
+              ? selectedAtlasNode.requiredNodeIds.map((requiredId) => getCircuitAtlasNodeDef(requiredId).displayName).join(" / ")
+              : "Root";
+
+          return (
+            <>
+              <div className="atlas-board" aria-label="Circuit Atlas board">
+                <svg className="talent-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+                  {circuitAtlasNodes.flatMap((node) =>
+                    (node.requiredNodeIds ?? []).map((requiredId) => {
+                      const from = atlasNodePositions[requiredId];
+                      const to = atlasNodePositions[node.id];
+                      const active = circuitAtlasNodeIds.includes(requiredId) && circuitAtlasNodeIds.includes(node.id);
+                      return from && to ? <line className={active ? "talent-link talent-link-active" : "talent-link"} key={`${requiredId}-${node.id}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} /> : null;
+                    }),
+                  )}
+                </svg>
+                {circuitAtlasNodes.map((node) => {
+                  const active = circuitAtlasNodeIds.includes(node.id);
+                  const available = active ? canRefundAtlasNode(node.id) : canAllocateAtlasNode(node.id);
+                  const selected = selectedAtlasNodeId === node.id;
+                  const position = atlasNodePositions[node.id] ?? { x: 50, y: 50 };
+                  const atlasClass = ["atlas-node", active ? "atlas-node-active" : "", selected ? "atlas-node-selected" : "", !active && !available ? "atlas-node-locked" : ""]
+                    .filter(Boolean)
+                    .join(" ");
+                  return (
+                    <button
+                      aria-pressed={selected}
+                      className={atlasClass}
+                      key={node.id}
+                      onClick={() => setSelectedAtlasNodeId(node.id)}
+                      style={{ "--atlas-x": `${position.x}%`, "--atlas-y": `${position.y}%` } as CSSProperties}
+                      title={node.description}
+                      type="button"
+                    >
+                      <small>{node.cost} pt</small>
+                      <strong>{node.displayName}</strong>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="talent-detail-panel atlas-detail-panel">
+                <div className="talent-detail-header">
+                  <div>
+                    <small>{selectedAtlasStatus} / {requirementText}</small>
+                    <strong>{selectedAtlasNode.displayName}</strong>
+                  </div>
+                  <span>{selectedAtlasNode.cost} pt</span>
+                </div>
+                <p>{selectedAtlasNode.description}</p>
+                <div className="talent-detail-lines">
+                  {formatAtlasLines(selectedAtlasNode).map((line) => (
+                    <span key={line}>{line}</span>
+                  ))}
+                </div>
+                <button className="arena-button" disabled={!selectedAtlasAvailable} onClick={() => toggleAtlasNode(selectedAtlasNode.id)} type="button">
+                  <Network size={15} aria-hidden />
+                  {selectedAtlasActive ? "Refund" : "Allocate"}
+                </button>
+              </div>
+            </>
+          );
+        })()}
       </section>
 
       <section className="workbench-section">

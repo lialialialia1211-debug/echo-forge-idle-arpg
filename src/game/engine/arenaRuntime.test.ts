@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createTopArenaRuntime, stepTopArenaRuntime } from "./arenaRuntime";
+import { generateTopPart } from "./topPartGeneration";
 
 describe("top arena runtime", () => {
   it("spawns enemies automatically when the arena starts", () => {
@@ -718,5 +719,212 @@ describe("top arena runtime", () => {
     expect(bossSpawn.enemies).toHaveLength(1);
     expect(bossSpawn.enemies[0]?.rank).toBe("boss");
     expect(bossSpawn.effects.some((effect) => effect.kind === "bossSignal")).toBe(true);
+  });
+
+  it("charges and stabilizes the Breach Rail route mechanic from kills", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      loadout: { circuitAtlasNodeIds: ["atlas_breach_calibrator", "atlas_dense_rail"] },
+      seed: "breach_rail_test",
+    });
+    const defeatedElite = {
+      ...runtime.player,
+      id: "breach_elite",
+      team: "enemy" as const,
+      name: "Breach Elite",
+      rank: "elite" as const,
+      x: 40,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      radius: 24,
+      spinIntegrity: 0,
+      cooldownRemaining: 10,
+      behaviorId: "hunter" as const,
+    };
+
+    const charged = stepTopArenaRuntime({ ...runtime, routeMechanic: { ...runtime.routeMechanic!, progress: 94 }, enemies: [defeatedElite], nextEnemyIn: 10 }, 0.05);
+
+    expect(charged.routeMechanic?.stabilized).toBe(true);
+    expect(charged.routeMechanic?.active).toBe(false);
+    expect(charged.routeMechanic?.rewardQuantity).toBeGreaterThan(runtime.routeMechanic?.rewardQuantity ?? 0);
+    expect(charged.events.some((event) => event.text.includes("Breach Rail stabilized"))).toBe(true);
+  });
+
+  it("turns projectile-count runes into extra skill targets", () => {
+    const makeRuntime = (runeIds: string[]) => {
+      const runtime = createTopArenaRuntime({
+        arenaId: "arena_cinder_crucible",
+        frameId: "frame_swift_razor",
+        driveId: "drive_shard_barrage",
+        loadout: { runeIds },
+        seed: `projectile_rune_${runeIds.join("_") || "none"}`,
+      });
+      const enemyStats = {
+        ...runtime.player.stats,
+        maxSpinIntegrity: 900,
+        maxFluxGuard: 80,
+        guard: 80,
+        impact: 60,
+        rpm: 5,
+        mass: 1,
+        grip: 0.4,
+        edge: 0.04,
+        fracture: 1.1,
+        resonance: 0.8,
+        partQuantity: 0,
+        partRarity: 0,
+        modifiers: [],
+      };
+      return {
+        ...runtime,
+        player: { ...runtime.player, cooldownRemaining: 0 },
+        enemies: [0, 1, 2].map((index) => ({
+          ...runtime.player,
+          id: `projectile_target_${index}`,
+          team: "enemy" as const,
+          name: `Projectile Target ${index}`,
+          rank: "pack" as const,
+          x: 64 + index * 32,
+          y: index * 18,
+          vx: 0,
+          vy: 0,
+          radius: 22,
+          spinIntegrity: enemyStats.maxSpinIntegrity,
+          fluxGuard: enemyStats.maxFluxGuard,
+          spinPower: 100,
+          wobble: 0,
+          cooldownRemaining: 10,
+          stats: enemyStats,
+          behaviorId: "hunter" as const,
+        })),
+        nextEnemyIn: 10,
+      };
+    };
+
+    const withoutRune = stepTopArenaRuntime(makeRuntime([]), 0.05);
+    const withRune = stepTopArenaRuntime(makeRuntime(["rune_splintered_edge"]), 0.05);
+
+    expect(withoutRune.enemies.filter((enemy) => enemy.spinIntegrity < 900)).toHaveLength(1);
+    expect(withRune.enemies.filter((enemy) => enemy.spinIntegrity < 900).length).toBeGreaterThan(1);
+  });
+
+  it("uses boss phase three pressure at low integrity", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_red_chancel_disk",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "boss_phase_three_test",
+    });
+    const boss = {
+      ...runtime.player,
+      id: "phase_three_boss",
+      team: "enemy" as const,
+      name: "Phase Three Judicator",
+      rank: "boss" as const,
+      x: 0,
+      y: 120,
+      vx: 0,
+      vy: 0,
+      radius: 38,
+      spinIntegrity: runtime.player.stats.maxSpinIntegrity * 0.24,
+      cooldownRemaining: 0,
+      behaviorId: "bossJudicator" as const,
+      bossPhase: 3 as const,
+    };
+
+    const next = stepTopArenaRuntime({ ...runtime, player: { ...runtime.player, x: 0, y: 0 }, enemies: [boss], bossSpawned: true, mapKills: runtime.mapKillTarget, nextEnemyIn: 10 }, 0.05);
+
+    expect(next.effects.some((effect) => effect.kind === "chargeLine")).toBe(true);
+    expect(next.events.some((event) => event.text.includes("phase 3"))).toBe(true);
+    expect(next.player.spinIntegrity).toBeLessThan(runtime.player.stats.maxSpinIntegrity);
+  });
+
+  it("lets Storm Orbit unique parts light up enemy crowd collisions", () => {
+    const stormOrbit = generateTopPart({
+      id: "test_storm_orbit",
+      baseId: "part_ring_storm_orbit",
+      rarity: "relic",
+      itemLevel: 12,
+      seed: "test_storm_orbit",
+      arenaId: "test",
+      enemyLevel: 12,
+      source: "debug",
+    });
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      loadout: { equipment: { attackRing: stormOrbit } },
+      seed: "storm_orbit_unique_test",
+    });
+    const enemyStats = {
+      ...runtime.player.stats,
+      maxSpinIntegrity: 1600,
+      maxFluxGuard: 100,
+      guard: 100,
+      impact: 70,
+      rpm: 6.6,
+      mass: 1,
+      grip: 0.4,
+      edge: 0.04,
+      fracture: 1.1,
+      resonance: 0.8,
+      partQuantity: 0,
+      partRarity: 0,
+      modifiers: [],
+    };
+    const next = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...runtime.player, x: -240, y: -120, cooldownRemaining: 10 },
+        enemies: [
+          {
+            ...runtime.player,
+            id: "storm_left",
+            team: "enemy" as const,
+            name: "Storm Left",
+            rank: "pack" as const,
+            x: 24,
+            y: 10,
+            vx: 120,
+            vy: 0,
+            radius: 22,
+            spinIntegrity: enemyStats.maxSpinIntegrity,
+            fluxGuard: enemyStats.maxFluxGuard,
+            spinPower: 100,
+            wobble: 0,
+            cooldownRemaining: 10,
+            stats: enemyStats,
+            behaviorId: "hunter" as const,
+          },
+          {
+            ...runtime.player,
+            id: "storm_right",
+            team: "enemy" as const,
+            name: "Storm Right",
+            rank: "pack" as const,
+            x: 58,
+            y: 10,
+            vx: -120,
+            vy: 0,
+            radius: 22,
+            spinIntegrity: enemyStats.maxSpinIntegrity,
+            fluxGuard: enemyStats.maxFluxGuard,
+            spinPower: 100,
+            wobble: 0,
+            cooldownRemaining: 10,
+            stats: enemyStats,
+            behaviorId: "hunter" as const,
+          },
+        ],
+        nextEnemyIn: 10,
+      },
+      0.03,
+    );
+
+    expect(next.effects.some((effect) => effect.kind === "stormArc")).toBe(true);
   });
 });

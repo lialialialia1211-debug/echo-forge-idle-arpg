@@ -1,4 +1,5 @@
 import { getDriveCoreDef } from "../data/driveCores";
+import { resolveCircuitAtlasBonuses } from "../data/circuitAtlasNodes";
 import { getTalentNodeDef } from "../data/talentNodes";
 import { getTopFrameDef } from "../data/topFrames";
 import { getTuningRuneDef } from "../data/tuningRunes";
@@ -59,6 +60,11 @@ export function resolveTopLoadoutBonuses(loadout: TopLoadoutConfig = {}, driveId
     resistanceBonuses = addResistances(resistanceBonuses, talent.resistanceBonuses);
     modifiers = [...modifiers, ...cloneModifiers(talent.modifiers, talent.id)];
   }
+
+  const atlasBonuses = resolveCircuitAtlasBonuses(loadout.circuitAtlasNodeIds ?? []);
+  statBonuses = addStats(statBonuses, atlasBonuses.statBonuses);
+  resistanceBonuses = addResistances(resistanceBonuses, atlasBonuses.resistanceBonuses);
+  modifiers = [...modifiers, ...cloneModifiers(atlasBonuses.modifiers, "circuit_atlas")];
 
   return { statBonuses, resistanceBonuses, modifiers };
 }

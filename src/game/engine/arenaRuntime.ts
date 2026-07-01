@@ -1,9 +1,12 @@
 import { getArenaCircuitDef } from "../data/arenaCircuits";
 import { arenaEvents } from "../data/arenaEvents";
+import { resolveCircuitAtlasBonuses } from "../data/circuitAtlasNodes";
 import { getDriveCoreDef } from "../data/driveCores";
 import { enemyModifiers } from "../data/enemyModifiers";
 import { getTopFrameDef } from "../data/topFrames";
+import { getTuningRuneDef } from "../data/tuningRunes";
 import { summarizeArenaKeyRiskReward } from "./arenaKeys";
+import { validateRuneLoadout } from "./driveRuneValidation";
 import { clamp } from "./math";
 import { createRng } from "./rng";
 import { resolveTopRuntimeStats } from "./topAssembly";
@@ -24,6 +27,7 @@ import type {
   TopPartSlotId,
   TopRuntimeEntity,
   TopRuntimeStats,
+  TuningRuneDef,
 } from "./topTypes";
 import { emptyDamagePacket, zeroResistances } from "./topTypes";
 
@@ -34,6 +38,8 @@ const minMapKillTarget = 150;
 const maxMapKillTarget = 200;
 const maxActiveSmallEnemies = 20;
 
+type ActiveRuneBehaviors = Partial<Record<NonNullable<TuningRuneDef["behavior"]>, number>>;
+
 export const defaultArenaTuning: ArenaTuningConfig = {
   basinPullMultiplier: 1.38,
   collisionLaunchMultiplier: 1.35,
@@ -42,6 +48,29 @@ export const defaultArenaTuning: ArenaTuningConfig = {
   bossWeightMultiplier: 1,
   hitStopMultiplier: 1,
 };
+
+function activeRuneIds(runtime: Pick<TopArenaRuntime, "driveId" | "loadout">): string[] {
+  return validateRuneLoadout(runtime.driveId, runtime.loadout.runeIds ?? []).validRuneIds;
+}
+
+function activeRuneBehaviors(runtime: Pick<TopArenaRuntime, "driveId" | "loadout">): ActiveRuneBehaviors {
+  return activeRuneIds(runtime).reduce<ActiveRuneBehaviors>((behaviors, runeId) => {
+    const behavior = getTuningRuneDef(runeId).behavior;
+    if (!behavior) {
+      return behaviors;
+    }
+    behaviors[behavior] = (behaviors[behavior] ?? 0) + 1;
+    return behaviors;
+  }, {});
+}
+
+function behaviorCount(behaviors: ActiveRuneBehaviors, behavior: NonNullable<TuningRuneDef["behavior"]>): number {
+  return behaviors[behavior] ?? 0;
+}
+
+function hasEquippedBase(runtime: Pick<TopArenaRuntime, "loadout">, baseId: string): boolean {
+  return Object.values(runtime.loadout.equipment ?? {}).some((part) => part?.baseId === baseId);
+}
 
 function normalizeArenaTuning(tuning?: Partial<ArenaTuningConfig>): ArenaTuningConfig {
   return {
@@ -177,9 +206,10 @@ function behaviorForEnemy(rank: TopRuntimeEntity["rank"], modifier: EnemyModifie
   return "hunter";
 }
 
-function createEnemyStats(arenaId: string, rank: TopRuntimeEntity["rank"], wave: number, arenaKey?: ArenaKey, activeEvent?: ArenaEventState, modifier?: EnemyModifierDef): TopRuntimeStats {
+function createEnemyStats(arenaId: string, rank: TopRuntimeEntity["rank"], wave: number, arenaKey?: ArenaKey, activeEvent?: ArenaEventState, modifier?: EnemyModifierDef, loadout: TopLoadoutConfig = {}): TopRuntimeStats {
   const arena = getArenaCircuitDef(arenaId);
   const keyRisk = arenaKey ? summarizeArenaKeyRiskReward(arenaKey) : null;
+  const atlasBonuses = resolveCircuitAtlasBonuses(loadout.circuitAtlasNodeIds ?? []);
   const earlyWaveEase = wave <= 8 ? 0.86 : 1;
   const rankScalar = rank === "boss" ? 3.2 * earlyWaveEase : rank === "elite" ? 1.45 * earlyWaveEase : 1;
   const waveScalar = 1 + Math.max(0, wave - 1) * 0.045;
@@ -192,12 +222,20 @@ function createEnemyStats(arenaId: string, rank: TopRuntimeEntity["rank"], wave:
       waveScalar *
       (keyRisk?.enemyIntegrityMultiplier ?? 1) *
       (activeEvent?.enemyIntegrityMultiplier ?? 1) *
-      (modifier?.integrityMultiplier ?? 1),
+      (modifier?.integrityMultiplier ?? 1) *
+      atlasBonuses.enemyIntegrityMultiplier,
     maxFluxGuard: arena.enemyIntegrity * 0.12 * rankScalar,
     guard: arena.enemyGuard * rankScalar * (keyRisk?.enemyGuardMultiplier ?? 1) * (activeEvent?.enemyGuardMultiplier ?? 1) * (modifier?.guardMultiplier ?? 1),
     drift: 260 + arena.tier * 60,
     tracking: 500 + arena.tier * 72,
-    impact: arena.enemyImpact * rankScalar * (1 + wave * 0.025) * (keyRisk?.enemyImpactMultiplier ?? 1) * (activeEvent?.enemyImpactMultiplier ?? 1) * (modifier?.impactMultiplier ?? 1),
+    impact:
+      arena.enemyImpact *
+      rankScalar *
+      (1 + wave * 0.025) *
+      (keyRisk?.enemyImpactMultiplier ?? 1) *
+      (activeEvent?.enemyImpactMultiplier ?? 1) *
+      (modifier?.impactMultiplier ?? 1) *
+      atlasBonuses.enemyImpactMultiplier,
     rpm: (rank === "boss" ? 4.2 : rank === "elite" ? 5.2 : 5.8) * (keyRisk?.enemyRpmMultiplier ?? 1) * (activeEvent?.enemyRpmMultiplier ?? 1) * (modifier?.rpmMultiplier ?? 1),
     mass: rank === "boss" ? 1.65 : rank === "elite" ? 1.25 : 1,
     grip: rank === "boss" ? 0.78 : rank === "elite" ? 0.58 : 0.42,
@@ -228,8 +266,11 @@ function activeSmallEnemyCount(runtime: TopArenaRuntime): number {
 
 function desiredSmallEnemyCount(runtime: TopArenaRuntime, tuning: ArenaTuningConfig = defaultArenaTuning): number {
   const arena = getArenaCircuitDef(runtime.arenaId);
+  const atlasBonuses = resolveCircuitAtlasBonuses(runtime.loadout.circuitAtlasNodeIds ?? []);
+  const breachPressure = runtime.routeMechanic?.active ? (runtime.routeMechanic.stabilized ? 0.18 : 0.1) : 0;
+  const uniquePressure = hasEquippedBase(runtime, "part_core_magnet_heart") ? 0.1 : 0;
   const density = 9 + arena.tier * 2 + Math.floor(mapProgressRatio(runtime) * 6);
-  return Math.min(maxActiveSmallEnemies, Math.max(4, Math.round(density * tuning.activeEnemyPressure)));
+  return Math.min(maxActiveSmallEnemies, Math.max(4, Math.round(density * tuning.activeEnemyPressure * (1 + atlasBonuses.activeEnemyPressure + breachPressure + uniquePressure))));
 }
 
 function smallEnemyRankForSpawn(runtime: TopArenaRuntime, rng: ReturnType<typeof createRng>): TopRuntimeEntity["rank"] {
@@ -254,7 +295,7 @@ function spawnEnemy(runtime: TopArenaRuntime, rankOverride?: TopRuntimeEntity["r
   const difficultyWave = difficultyWaveForRuntime(runtime);
   const modifier = chooseEnemyModifier(runtime.arenaId, spawnIndex, runtime.seed);
   const behaviorId = behaviorForEnemy(rank, modifier);
-  const baseStats = createEnemyStats(runtime.arenaId, rank, difficultyWave, runtime.arenaKey, runtime.activeEvent, modifier);
+  const baseStats = createEnemyStats(runtime.arenaId, rank, difficultyWave, runtime.arenaKey, runtime.activeEvent, modifier, runtime.loadout);
   const stats =
     rank === "boss"
       ? {
@@ -284,6 +325,7 @@ function spawnEnemy(runtime: TopArenaRuntime, rankOverride?: TopRuntimeEntity["r
     cooldownRemaining: initialCooldownForBehavior(behaviorId, rank),
     stats,
     behaviorId,
+    bossPhase: rank === "boss" ? 1 : undefined,
     enemyModifier: {
       modifierId: modifier.id,
       displayName: modifier.displayName,
@@ -359,6 +401,24 @@ function createPlayer(frameId: string, driveId: string, loadout: TopLoadoutConfi
   };
 }
 
+function createRouteMechanicState(loadout: TopLoadoutConfig = {}): NonNullable<TopArenaRuntime["routeMechanic"]> {
+  const atlasBonuses = resolveCircuitAtlasBonuses(loadout.circuitAtlasNodeIds ?? []);
+  const maxTime = 28 + atlasBonuses.breachDuration + (hasEquippedBase({ loadout }, "part_core_magnet_heart") ? 3 : 0);
+
+  return {
+    id: "breach_rail",
+    displayName: "Breach Rail",
+    active: true,
+    progress: 0,
+    maxProgress: 100,
+    timeRemaining: maxTime,
+    maxTime,
+    stabilized: false,
+    rewardQuantity: 0.06 + atlasBonuses.rewardQuantity * 0.35,
+    rewardRarity: 0.02 + atlasBonuses.rewardRarity * 0.25,
+  };
+}
+
 export function createTopArenaRuntime({
   arenaId,
   frameId,
@@ -375,8 +435,10 @@ export function createTopArenaRuntime({
   arenaKey?: ArenaKey;
 }): TopArenaRuntime {
   const activeEvent = createArenaEventState(arenaId, seed, arenaKey);
+  const routeMechanic = createRouteMechanicState(loadout);
   const initialEvents: ArenaLogEvent[] = [
     ...(activeEvent ? [{ id: "top_event_event", tone: "danger" as const, text: `${activeEvent.displayName}: ${activeEvent.logText}` }] : []),
+    { id: "top_event_route", tone: "reward" as const, text: `${routeMechanic.displayName} opened; shatter rivals before it collapses` },
     { id: "top_event_0", tone: "reward" as const, text: "Arena coil is armed" },
   ].slice(0, maxEvents);
   const mapKillTarget = createMapKillTarget(arenaId, seed, 0, arenaKey);
@@ -386,6 +448,7 @@ export function createTopArenaRuntime({
     arenaId,
     arenaKey,
     activeEvent,
+    routeMechanic,
     frameId,
     driveId,
     loadout,
@@ -512,7 +575,7 @@ function createCollisionDamage(attacker: TopRuntimeEntity, defender: TopRuntimeE
   return packet;
 }
 
-function createSkillDamage(attacker: TopRuntimeEntity, collision?: CollisionDamageContext): ReturnType<typeof emptyDamagePacket> {
+function createSkillDamage(attacker: TopRuntimeEntity, collision?: CollisionDamageContext, behaviors: ActiveRuneBehaviors = {}): ReturnType<typeof emptyDamagePacket> {
   const drive = getDriveCoreDef(attacker.driveId ?? "drive_shard_barrage");
   const packet = { ...drive.baseDamage };
 
@@ -546,6 +609,26 @@ function createSkillDamage(attacker: TopRuntimeEntity, collision?: CollisionDama
   if (collision && drive.id === "drive_chain_tempest") {
     packet.static += collision.sparkIntensity * 48 + (collision.heavy ? collision.normalImpulse * 0.32 : collision.surfaceShear * 0.12);
   }
+  if (behaviorCount(behaviors, "projectileCount") > 0 && drive.tags.includes("projectile")) {
+    packet.impact += attacker.stats.impact * 0.22 * behaviorCount(behaviors, "projectileCount");
+    packet.glass += attacker.stats.edge * 180 * behaviorCount(behaviors, "projectileCount");
+  }
+  if (behaviorCount(behaviors, "area") > 0 && drive.tags.includes("area")) {
+    packet.impact += attacker.stats.impact * 0.12 * behaviorCount(behaviors, "area");
+    packet.heat += attacker.stats.resonance * 24 * behaviorCount(behaviors, "area");
+  }
+  if (behaviorCount(behaviors, "chain") > 0 && drive.tags.includes("chain")) {
+    packet.static += attacker.stats.tracking * 0.08 * behaviorCount(behaviors, "chain");
+  }
+  if (behaviorCount(behaviors, "repeat") > 0) {
+    packet.impact += attacker.stats.rpm * 4.2 * behaviorCount(behaviors, "repeat");
+  }
+  if (behaviorCount(behaviors, "risk") > 0) {
+    packet.impact *= 1 + 0.08 * behaviorCount(behaviors, "risk");
+    packet.heat *= 1 + 0.08 * behaviorCount(behaviors, "risk");
+    packet.static *= 1 + 0.08 * behaviorCount(behaviors, "risk");
+    packet.void += attacker.stats.resonance * 20 * behaviorCount(behaviors, "risk");
+  }
 
   return packet;
 }
@@ -562,15 +645,32 @@ function damagePlayer(runtime: TopArenaRuntime, amount: number, impulseX = 0, im
   };
 }
 
+function bossPhaseFor(enemy: TopRuntimeEntity): 1 | 2 | 3 {
+  if (enemy.rank !== "boss") {
+    return 1;
+  }
+
+  const ratio = clamp(enemy.spinIntegrity / Math.max(1, enemy.stats.maxSpinIntegrity), 0, 1);
+  return ratio <= 0.33 ? 3 : ratio <= 0.66 ? 2 : 1;
+}
+
 function dealDamage(
   runtime: TopArenaRuntime,
   attacker: TopRuntimeEntity,
   defender: TopRuntimeEntity,
   source: "collision" | "skill",
   collision?: CollisionDamageContext,
+  damageScalar = 1,
 ): { runtime: TopArenaRuntime; defender: TopRuntimeEntity } {
   const drive = getDriveCoreDef(attacker.team === "player" ? attacker.driveId ?? runtime.driveId : "drive_shard_barrage");
-  const baseDamage = source === "collision" ? createCollisionDamage(attacker, defender, collision) : createSkillDamage(attacker, collision);
+  const runeBehaviors = attacker.team === "player" ? activeRuneBehaviors(runtime) : {};
+  let baseDamage = source === "collision" ? createCollisionDamage(attacker, defender, collision) : createSkillDamage(attacker, collision, runeBehaviors);
+  if (source === "collision" && attacker.team === "player" && collision?.heavy && hasEquippedBase(runtime, "part_tip_glass_rebound")) {
+    baseDamage = {
+      ...baseDamage,
+      glass: baseDamage.glass + collision.normalImpulse * 0.2 + Math.abs(collision.tangentImpulse) * 0.12,
+    };
+  }
   const hit = resolveTopHit({
     baseDamage,
     attacker: attacker.stats,
@@ -578,14 +678,20 @@ function dealDamage(
     drive,
     sourceTags: source === "collision" ? ["attack", "melee"] : drive.tags,
   });
+  const defenderPhase = defender.rank === "boss" ? bossPhaseFor(defender) : undefined;
+  const phaseDamageScalar = defenderPhase === 3 && source === "collision" && !collision?.heavy ? 0.42 : 1;
+  const defenseRuneScalar = defender.team === "player" && behaviorCount(activeRuneBehaviors(runtime), "defense") > 0 ? (source === "collision" ? 0.9 : 0.86) : 1;
+  const totalDamage = hit.totalDamage * damageScalar * phaseDamageScalar * defenseRuneScalar;
   const impulseDirection = normalize(defender.x - attacker.x, defender.y - attacker.y);
-  const skillImpulse = source === "skill" ? Math.min(120, hit.totalDamage / defender.stats.mass) * 0.08 : 0;
+  const skillImpulse = source === "skill" ? Math.min(120, totalDamage / defender.stats.mass) * 0.08 : 0;
+  const nextSpinIntegrity = Math.max(0, defender.spinIntegrity - totalDamage);
   const defenderNext = {
     ...defender,
-    spinIntegrity: Math.max(0, defender.spinIntegrity - hit.totalDamage),
+    spinIntegrity: nextSpinIntegrity,
     vx: defender.vx + impulseDirection.x * skillImpulse,
     vy: defender.vy + impulseDirection.y * skillImpulse,
-    wobble: source === "collision" ? clamp(defender.wobble + hit.totalDamage / Math.max(1, defender.stats.maxSpinIntegrity) * 0.3, 0, 1) : defender.wobble,
+    wobble: source === "collision" ? clamp(defender.wobble + totalDamage / Math.max(1, defender.stats.maxSpinIntegrity) * 0.3, 0, 1) : defender.wobble,
+    bossPhase: defender.rank === "boss" ? bossPhaseFor({ ...defender, spinIntegrity: nextSpinIntegrity }) : defender.bossPhase,
   };
   const midpointX = (attacker.x + defender.x) / 2;
   const midpointY = (attacker.y + defender.y) / 2;
@@ -596,11 +702,21 @@ function dealDamage(
     x2: source === "skill" && drive.visual === "stormArc" ? defender.x : undefined,
     y2: source === "skill" && drive.visual === "stormArc" ? defender.y : undefined,
     lifetime: source === "skill" ? 0.55 : 0.24,
-    intensity: clamp(hit.totalDamage / 180, 0.45, 2.2),
+    intensity: clamp(totalDamage / 180, 0.45, 2.2),
   });
 
+  if (defender.rank === "boss" && defenderNext.bossPhase && defenderNext.bossPhase > (defender.bossPhase ?? defenderPhase ?? 1)) {
+    nextRuntime = addEffect(pushEvent(nextRuntime, "danger", `${defender.name} enters phase ${defenderNext.bossPhase}`), {
+      kind: defenderNext.bossPhase === 3 ? "shockwave" : "bossSignal",
+      x: defender.x,
+      y: defender.y,
+      lifetime: defenderNext.bossPhase === 3 ? 0.85 : 0.7,
+      intensity: defenderNext.bossPhase === 3 ? 2.25 : 1.55,
+    });
+  }
+
   if (source === "skill") {
-    nextRuntime = pushEvent(nextRuntime, "skill", `${drive.displayName} hits for ${Math.round(hit.totalDamage).toLocaleString()}`);
+    nextRuntime = pushEvent(nextRuntime, "skill", `${drive.displayName} hits for ${Math.round(totalDamage).toLocaleString()}`);
   }
 
   return { runtime: nextRuntime, defender: defenderNext };
@@ -649,19 +765,40 @@ function resolveEnemySkills(runtime: TopArenaRuntime): TopArenaRuntime {
     }
 
     if (enemy.behaviorId === "bossJudicator" && enemy.cooldownRemaining <= 0) {
+      const phase = bossPhaseFor(enemy);
+      const atlasBonuses = resolveCircuitAtlasBonuses(runtime.loadout.circuitAtlasNodeIds ?? []);
       const direction = normalize(player.x - enemy.x, player.y - enemy.y);
-      const shockDamage = 72 + enemy.stats.impact * 0.24;
-      nextEnemy = { ...nextEnemy, cooldownRemaining: 3.4 };
-      nextRuntime = pushEvent(nextRuntime, "danger", `${enemy.name} releases Judicator shockwave`);
+      const phasePressure = 1 + (phase - 1) * 0.18 + atlasBonuses.bossPhasePressure;
+      const shockDamage = (72 + enemy.stats.impact * 0.24) * phasePressure;
+      nextEnemy = { ...nextEnemy, bossPhase: phase, cooldownRemaining: phase === 1 ? 3.4 : phase === 2 ? 2.65 : 2.15 };
+      nextRuntime = pushEvent(
+        nextRuntime,
+        "danger",
+        phase === 1 ? `${enemy.name} releases Judicator shockwave` : phase === 2 ? `${enemy.name} opens phase 2 rail pressure` : `${enemy.name} enters phase 3 brass lock`,
+      );
       nextRuntime = addEffect(nextRuntime, {
-        kind: "shockwave",
+        kind: phase === 2 ? "bossSignal" : "shockwave",
         x: enemy.x,
         y: enemy.y,
-        lifetime: 0.9,
-        intensity: 2.1,
+        lifetime: phase === 3 ? 1.05 : 0.9,
+        intensity: phase === 3 ? 2.55 : phase === 2 ? 1.8 : 2.1,
       });
+      if (phase >= 2) {
+        nextRuntime = { ...nextRuntime, nextEnemyIn: Math.min(nextRuntime.nextEnemyIn, phase === 3 ? 0.02 : 0.05) };
+      }
+      if (phase === 3) {
+        nextRuntime = addEffect(nextRuntime, {
+          kind: "chargeLine",
+          x: enemy.x,
+          y: enemy.y,
+          x2: player.x,
+          y2: player.y,
+          lifetime: 0.42,
+          intensity: 1.4,
+        });
+      }
       if (distanceToPlayer < 190) {
-        nextRuntime = damagePlayer(nextRuntime, shockDamage, direction.x * 48, direction.y * 48);
+        nextRuntime = damagePlayer(nextRuntime, shockDamage, direction.x * (phase === 3 ? 70 : 48), direction.y * (phase === 3 ? 70 : 48));
         player = nextRuntime.player;
       }
     }
@@ -706,12 +843,89 @@ function chooseDropOption(runtime: TopArenaRuntime, rng: ReturnType<typeof creat
   return rng.weighted(dropLabelOptions, (option) => option.weight * biasWeight(option.target, biases));
 }
 
+function routeRewardBonuses(runtime: TopArenaRuntime): { rewardQuantity: number; rewardRarity: number } {
+  const atlasBonuses = resolveCircuitAtlasBonuses(runtime.loadout.circuitAtlasNodeIds ?? []);
+  const routeMechanic = runtime.routeMechanic;
+  const stabilizedReward = routeMechanic?.stabilized ? 0.12 : 0;
+  const activeReward = routeMechanic?.active || routeMechanic?.stabilized ? routeMechanic.rewardQuantity : 0;
+  const mapwrightReward = routeMechanic?.stabilized && hasEquippedBase(runtime, "part_chip_mapwright_contract") ? 0.14 : 0;
+
+  return {
+    rewardQuantity: atlasBonuses.rewardQuantity + activeReward + stabilizedReward + mapwrightReward,
+    rewardRarity: atlasBonuses.rewardRarity + (routeMechanic?.active || routeMechanic?.stabilized ? routeMechanic.rewardRarity : 0) + (routeMechanic?.stabilized ? 0.08 : 0),
+  };
+}
+
+function advanceRouteMechanic(runtime: TopArenaRuntime, enemy: TopRuntimeEntity): TopArenaRuntime {
+  const routeMechanic = runtime.routeMechanic;
+  if (!routeMechanic?.active || routeMechanic.stabilized) {
+    return runtime;
+  }
+
+  const atlasBonuses = resolveCircuitAtlasBonuses(runtime.loadout.circuitAtlasNodeIds ?? []);
+  const rankGain = enemy.rank === "boss" ? 100 : enemy.rank === "elite" ? 11 : 5.5;
+  const uniqueGain = hasEquippedBase(runtime, "part_core_magnet_heart") ? 0.08 : 0;
+  const progressGain = rankGain * (1 + atlasBonuses.breachProgressGain + uniqueGain);
+  const progress = Math.min(routeMechanic.maxProgress, routeMechanic.progress + progressGain);
+  const timeRemaining = Math.min(routeMechanic.maxTime, routeMechanic.timeRemaining + (enemy.rank === "elite" ? 1.4 : 0.55));
+  const stabilized = progress >= routeMechanic.maxProgress;
+  let nextRuntime: TopArenaRuntime = {
+    ...runtime,
+    routeMechanic: {
+      ...routeMechanic,
+      progress,
+      timeRemaining,
+      stabilized,
+      active: stabilized ? false : routeMechanic.active,
+      rewardQuantity: routeMechanic.rewardQuantity + (stabilized ? 0.08 + atlasBonuses.rewardQuantity * 0.25 : 0),
+      rewardRarity: routeMechanic.rewardRarity + (stabilized ? 0.04 + atlasBonuses.rewardRarity * 0.2 : 0),
+    },
+  };
+
+  if (stabilized) {
+    nextRuntime = addEffect(pushEvent(nextRuntime, "reward", "Breach Rail stabilized; route rewards amplified"), {
+      kind: "bossSignal",
+      x: 0,
+      y: 0,
+      lifetime: 1,
+      intensity: 1.35,
+    });
+    nextRuntime = { ...nextRuntime, nextEnemyIn: Math.min(nextRuntime.nextEnemyIn, 0.06) };
+  }
+
+  return nextRuntime;
+}
+
+function tickRouteMechanic(runtime: TopArenaRuntime, deltaSeconds: number): TopArenaRuntime {
+  const routeMechanic = runtime.routeMechanic;
+  if (!routeMechanic?.active || routeMechanic.stabilized) {
+    return runtime;
+  }
+
+  const timeRemaining = Math.max(0, routeMechanic.timeRemaining - deltaSeconds);
+  const nextRuntime: TopArenaRuntime = {
+    ...runtime,
+    routeMechanic: {
+      ...routeMechanic,
+      timeRemaining,
+      active: timeRemaining > 0,
+    },
+  };
+
+  if (timeRemaining > 0) {
+    return nextRuntime;
+  }
+
+  return pushEvent(nextRuntime, "danger", "Breach Rail collapsed before stabilization");
+}
+
 function handleDrops(runtime: TopArenaRuntime, enemy: TopRuntimeEntity): TopArenaRuntime {
   const arena = getArenaCircuitDef(runtime.arenaId);
   const keyRisk = runtime.arenaKey ? summarizeArenaKeyRiskReward(runtime.arenaKey) : null;
   const rng = createRng(`${runtime.seed}_drop_${runtime.wave}_${runtime.kills}`);
-  const rewardQuantity = (keyRisk?.rewardQuantity ?? 0) + (runtime.activeEvent?.rewardQuantity ?? 0) + (enemy.enemyModifier?.rewardQuantity ?? 0);
-  const rewardRarity = (keyRisk?.rewardRarity ?? 0) + (runtime.activeEvent?.rewardRarity ?? 0) + (enemy.enemyModifier?.rewardRarity ?? 0);
+  const routeRewards = routeRewardBonuses(runtime);
+  const rewardQuantity = (keyRisk?.rewardQuantity ?? 0) + (runtime.activeEvent?.rewardQuantity ?? 0) + (enemy.enemyModifier?.rewardQuantity ?? 0) + routeRewards.rewardQuantity;
+  const rewardRarity = (keyRisk?.rewardRarity ?? 0) + (runtime.activeEvent?.rewardRarity ?? 0) + (enemy.enemyModifier?.rewardRarity ?? 0) + routeRewards.rewardRarity;
   const dropChance = clamp(0.26 * arena.rewardMultiplier * (1 + rewardQuantity) * (1 + runtime.player.stats.partQuantity), 0.08, 0.95);
 
   if (rng.next() > dropChance) {
@@ -758,6 +972,7 @@ function handleKills(runtime: TopArenaRuntime): TopArenaRuntime {
     const nextMapKills = routeCleared ? 0 : Math.min(nextRuntime.mapKillTarget, nextRuntime.mapKills + 1);
     const bossNowReady = !routeCleared && nextRuntime.mapKills < nextRuntime.mapKillTarget && nextMapKills >= nextRuntime.mapKillTarget;
     nextRuntime = pushEvent(nextRuntime, "kill", `${enemy.name} shattered`);
+    nextRuntime = advanceRouteMechanic(nextRuntime, enemy);
     nextRuntime = handleDrops(nextRuntime, enemy);
     nextRuntime = {
       ...nextRuntime,
@@ -772,6 +987,7 @@ function handleKills(runtime: TopArenaRuntime): TopArenaRuntime {
       mapKillTarget: routeCleared ? createMapKillTarget(nextRuntime.arenaId, nextRuntime.seed, nextRouteClears, nextRuntime.arenaKey) : nextRuntime.mapKillTarget,
       bossSpawned: routeCleared ? false : nextRuntime.bossSpawned,
       routeClears: nextRouteClears,
+      routeMechanic: routeCleared ? createRouteMechanicState(nextRuntime.loadout) : nextRuntime.routeMechanic,
       nextEnemyIn: routeCleared ? 1.8 : nextMapKills >= nextRuntime.mapKillTarget ? 0.65 : 0.16,
     };
     if (bossNowReady) {
@@ -1107,6 +1323,19 @@ function resolveEnemyCrowdPhysics(runtime: TopArenaRuntime, tuning: ArenaTuningC
         });
         visualEffectBudget -= 1;
       }
+
+      if (hasEquippedBase(runtime, "part_ring_storm_orbit") && visualEffectBudget > 0 && (closingSpeed > 70 || normalImpulse > 78 || surfaceShear > 130)) {
+        nextRuntime = addEffect(nextRuntime, {
+          kind: "stormArc",
+          x: left.x,
+          y: left.y,
+          x2: right.x,
+          y2: right.y,
+          lifetime: 0.32,
+          intensity: clamp(sparkIntensity * 0.54 + surfaceShear / 260, 0.7, 2),
+        });
+        visualEffectBudget -= 1;
+      }
     }
   }
 
@@ -1115,6 +1344,8 @@ function resolveEnemyCrowdPhysics(runtime: TopArenaRuntime, tuning: ArenaTuningC
 
 function resolvePlayerSkill(runtime: TopArenaRuntime): TopArenaRuntime {
   const drive = getDriveCoreDef(runtime.driveId);
+  const runeBehaviors = activeRuneBehaviors(runtime);
+  const runeValidation = validateRuneLoadout(runtime.driveId, runtime.loadout.runeIds ?? []);
   const collisionTarget = runtime.lastCollision ? runtime.enemies.find((enemy) => enemy.id === runtime.lastCollision?.enemyId) : undefined;
   const collisionReady = Boolean(collisionTarget && runtime.lastCollision);
   const collisionKind = runtime.lastCollision?.kind;
@@ -1146,8 +1377,68 @@ function resolvePlayerSkill(runtime: TopArenaRuntime): TopArenaRuntime {
   }
 
   const collisionDamageContext = drive.trigger === "onCollision" || drive.trigger === "onHeavyCollision" || collisionDriven ? runtime.lastCollision : undefined;
-  const skillHit = dealDamage(runtime, runtime.player, target, "skill", collisionDamageContext);
-  let nextRuntime = skillHit.runtime;
+  let enemies = runtime.enemies;
+  let nextRuntime = runtime;
+  const hitEnemyIds = new Set<string>();
+  const applyPlayerSkillHit = (enemy: TopRuntimeEntity, scalar: number) => {
+    const skillHit = dealDamage(nextRuntime, nextRuntime.player, enemy, "skill", collisionDamageContext, scalar);
+    nextRuntime = skillHit.runtime;
+    enemies = enemies.map((entry) => (entry.id === enemy.id ? skillHit.defender : entry));
+    hitEnemyIds.add(enemy.id);
+    return skillHit.defender;
+  };
+
+  const primaryDefender = applyPlayerSkillHit(target, 1);
+
+  if (behaviorCount(runeBehaviors, "repeat") > 0 && primaryDefender.spinIntegrity > 0) {
+    applyPlayerSkillHit(primaryDefender, 0.44 + behaviorCount(runeBehaviors, "repeat") * 0.08);
+  }
+
+  const extraProjectileCount = drive.tags.includes("projectile") ? behaviorCount(runeBehaviors, "projectileCount") : 0;
+  if (extraProjectileCount > 0) {
+    const projectileTargets = enemies
+      .filter((enemy) => enemy.spinIntegrity > 0 && !hitEnemyIds.has(enemy.id))
+      .sort((left, right) => length(left.x - runtime.player.x, left.y - runtime.player.y) - length(right.x - runtime.player.x, right.y - runtime.player.y))
+      .slice(0, Math.min(2, extraProjectileCount + 1));
+
+    for (const enemy of projectileTargets) {
+      applyPlayerSkillHit(enemy, 0.52);
+    }
+  }
+
+  const chainCount = drive.tags.includes("chain") ? behaviorCount(runeBehaviors, "chain") : 0;
+  if (chainCount > 0) {
+    const chainTargets = enemies
+      .filter((enemy) => enemy.spinIntegrity > 0 && !hitEnemyIds.has(enemy.id))
+      .sort((left, right) => length(left.x - target.x, left.y - target.y) - length(right.x - target.x, right.y - target.y))
+      .slice(0, Math.min(2, chainCount + 1));
+
+    for (const enemy of chainTargets) {
+      applyPlayerSkillHit(enemy, 0.48);
+    }
+  }
+
+  if (behaviorCount(runeBehaviors, "area") > 0) {
+    const areaRadius = 112 + behaviorCount(runeBehaviors, "area") * 24;
+    const splashTargets = enemies.filter((enemy) => enemy.spinIntegrity > 0 && !hitEnemyIds.has(enemy.id) && length(enemy.x - target.x, enemy.y - target.y) <= areaRadius).slice(0, 4);
+    for (const enemy of splashTargets) {
+      applyPlayerSkillHit(enemy, 0.36);
+    }
+    if (splashTargets.length > 0) {
+      nextRuntime = addEffect(nextRuntime, {
+        kind: drive.visual === "emberTrail" ? "emberTrail" : "shockwave",
+        x: target.x,
+        y: target.y,
+        lifetime: 0.48,
+        intensity: clamp(splashTargets.length * 0.42, 0.65, 1.8),
+      });
+    }
+  }
+
+  if (behaviorCount(runeBehaviors, "risk") > 0) {
+    nextRuntime = damagePlayer(nextRuntime, nextRuntime.player.stats.maxSpinIntegrity * 0.004 * behaviorCount(runeBehaviors, "risk"));
+  }
+
   if (runtime.lastCollision && (drive.id === "drive_molten_groove" || (drive.id === "drive_ember_scour" && runtime.lastCollision.kind === "grind"))) {
     nextRuntime = addEffect(nextRuntime, {
       kind: "hazard",
@@ -1158,10 +1449,17 @@ function resolvePlayerSkill(runtime: TopArenaRuntime): TopArenaRuntime {
     });
   }
 
+  const cooldownPressure =
+    runeValidation.costMultiplier +
+    behaviorCount(runeBehaviors, "repeat") * 0.08 +
+    behaviorCount(runeBehaviors, "projectileCount") * 0.06 +
+    behaviorCount(runeBehaviors, "chain") * 0.05 -
+    behaviorCount(runeBehaviors, "trigger") * 0.08;
+
   return {
     ...nextRuntime,
-    player: { ...nextRuntime.player, cooldownRemaining: drive.baseCooldown / Math.max(0.35, runtime.player.stats.resonance) },
-    enemies: runtime.enemies.map((enemy) => (enemy.id === target.id ? skillHit.defender : enemy)),
+    player: { ...nextRuntime.player, cooldownRemaining: (drive.baseCooldown * Math.max(0.65, cooldownPressure)) / Math.max(0.35, runtime.player.stats.resonance) },
+    enemies,
   };
 }
 
@@ -1190,12 +1488,17 @@ export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: numb
     drops: runtime.drops.map((drop) => ({ ...drop, age: drop.age + deltaSeconds })).slice(0, maxDrops),
     lastCollision: undefined,
   };
+  nextRuntime = tickRouteMechanic(nextRuntime, deltaSeconds);
 
   if (nextRuntime.nextEnemyIn <= 0) {
     const bossReady = nextRuntime.mapKills >= nextRuntime.mapKillTarget;
     const smallEnemies = activeSmallEnemyCount(nextRuntime);
+    const bossEnemy = nextRuntime.enemies.find((enemy) => enemy.rank === "boss");
+    const bossAddTarget = bossEnemy && bossPhaseFor(bossEnemy) >= 2 ? Math.min(8, Math.max(2, Math.floor(desiredSmallEnemyCount(nextRuntime, tuning) * 0.36))) : 0;
     if (bossReady && !nextRuntime.bossSpawned && nextRuntime.enemies.length === 0) {
       nextRuntime = spawnEnemy(nextRuntime, "boss", tuning);
+    } else if (bossReady && nextRuntime.bossSpawned && bossEnemy && smallEnemies < bossAddTarget) {
+      nextRuntime = spawnEnemy(nextRuntime, undefined, tuning);
     } else if (!bossReady && smallEnemies < desiredSmallEnemyCount(nextRuntime, tuning)) {
       nextRuntime = spawnEnemy(nextRuntime, undefined, tuning);
     }

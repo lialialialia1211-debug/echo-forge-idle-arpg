@@ -3,6 +3,7 @@ import { arenaKeyAffixes } from "./arenaKeyAffixes";
 import { arenaCircuits } from "./arenaCircuits";
 import { arenaEvents } from "./arenaEvents";
 import { bossGates } from "./bossGates";
+import { circuitAtlasNodes } from "./circuitAtlasNodes";
 import { driveCores } from "./driveCores";
 import { enemyModifiers } from "./enemyModifiers";
 import { topEngravings } from "./engravings";
@@ -54,6 +55,7 @@ describe("top ARPG data integrity", () => {
     expectUnique(enemyModifiers.map((entry) => entry.id));
     expectUnique(bossGates.map((entry) => entry.id));
     expectUnique(talentNodes.map((entry) => entry.id));
+    expectUnique(circuitAtlasNodes.map((entry) => entry.id));
   });
 
   it("has enough content for the first vertical slice", () => {
@@ -63,6 +65,7 @@ describe("top ARPG data integrity", () => {
     expect(topEngravings.length).toBeGreaterThanOrEqual(40);
     expect(enemyModifiers.length).toBeGreaterThanOrEqual(5);
     expect(arenaEvents.length).toBeGreaterThanOrEqual(3);
+    expect(circuitAtlasNodes.length).toBeGreaterThanOrEqual(12);
   });
 
   it("keeps frame, drive, rune, and tag references valid", () => {
@@ -162,6 +165,22 @@ describe("top ARPG data integrity", () => {
       for (const requiredId of talent.requiredNodeIds ?? []) {
         expect(talentIds.has(requiredId)).toBe(true);
       }
+    }
+  });
+
+  it("keeps circuit atlas prerequisites and bonuses legal", () => {
+    const nodeIds = new Set(circuitAtlasNodes.map((entry) => entry.id));
+
+    for (const node of circuitAtlasNodes) {
+      expect(node.cost).toBeGreaterThan(0);
+      for (const requiredId of node.requiredNodeIds ?? []) {
+        expect(nodeIds.has(requiredId)).toBe(true);
+      }
+      expect(node.bonuses.enemyIntegrityMultiplier ?? 1).toBeGreaterThan(0);
+      expect(node.bonuses.enemyImpactMultiplier ?? 1).toBeGreaterThan(0);
+      expect(node.bonuses.rewardQuantity ?? 0).toBeGreaterThanOrEqual(0);
+      expect(node.bonuses.rewardRarity ?? 0).toBeGreaterThanOrEqual(0);
+      expect((node.bonuses.modifiers ?? []).every((modifier) => !modifier.tags || modifier.tags.every((tag) => validDriveTags.includes(tag)))).toBe(true);
     }
   });
 });

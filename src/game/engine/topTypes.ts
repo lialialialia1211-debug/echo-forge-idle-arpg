@@ -219,6 +219,10 @@ export type TopPartBaseDef = {
   itemClass?: string;
   requiredLevel?: number;
   baseWeight?: number;
+  uniqueEffect?: {
+    id: "glass_rebound" | "storm_orbit" | "magnet_heart" | "mapwright_contract";
+    description: string;
+  };
   implicitStats?: TopStatBlock;
   implicitResistances?: TopResistanceBlock;
   implicitModifiers?: TopModifierDef[];
@@ -268,10 +272,34 @@ export type TalentNodeDef = {
   modifiers?: TopModifierDef[];
 };
 
+export type CircuitAtlasBonus = {
+  enemyIntegrityMultiplier?: number;
+  enemyImpactMultiplier?: number;
+  activeEnemyPressure?: number;
+  rewardQuantity?: number;
+  rewardRarity?: number;
+  breachProgressGain?: number;
+  breachDuration?: number;
+  bossPhasePressure?: number;
+  statBonuses?: TopStatBlock;
+  resistanceBonuses?: TopResistanceBlock;
+  modifiers?: TopModifierDef[];
+};
+
+export type CircuitAtlasNodeDef = {
+  id: string;
+  displayName: string;
+  description: string;
+  cost: number;
+  requiredNodeIds?: string[];
+  bonuses: CircuitAtlasBonus;
+};
+
 export type TopLoadoutConfig = {
   equipment?: TopEquipment;
   runeIds?: string[];
   talentIds?: string[];
+  circuitAtlasNodeIds?: string[];
 };
 
 export type TopRuntimeStats = {
@@ -320,6 +348,7 @@ export type TopRuntimeEntity = {
   driveId?: string;
   enemyModifier?: EnemyModifierState;
   behaviorId?: EnemyBehaviorId;
+  bossPhase?: 1 | 2 | 3;
 };
 
 export type TopCollisionKind = "scrape" | "clash" | "smash" | "grind";
@@ -384,11 +413,25 @@ export type ArenaLogEvent = {
   text: string;
 };
 
+export type ArenaRouteMechanicState = {
+  id: "breach_rail";
+  displayName: string;
+  active: boolean;
+  progress: number;
+  maxProgress: number;
+  timeRemaining: number;
+  maxTime: number;
+  stabilized: boolean;
+  rewardQuantity: number;
+  rewardRarity: number;
+};
+
 export type TopArenaRuntime = {
   seed: string;
   arenaId: string;
   arenaKey?: ArenaKey;
   activeEvent?: ArenaEventState;
+  routeMechanic?: ArenaRouteMechanicState;
   frameId: string;
   driveId: string;
   loadout: TopLoadoutConfig;

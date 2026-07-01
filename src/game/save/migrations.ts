@@ -2,6 +2,7 @@ import { accountSaveSchema, type AccountSave } from "./schema";
 import { arenaKeyAffixes } from "../data/arenaKeyAffixes";
 import { arenaCircuits } from "../data/arenaCircuits";
 import { bossGates } from "../data/bossGates";
+import { circuitAtlasNodes } from "../data/circuitAtlasNodes";
 import { driveCores } from "../data/driveCores";
 import { talentNodes } from "../data/talentNodes";
 import { createStarterEquipment, createStarterInventory, partSlotOrder } from "../data/topParts";
@@ -44,6 +45,7 @@ function starterTopStateForLegacy(save: LegacyV1Save): AccountSave["top"] {
     inventory: createStarterInventory(),
     runeIds: [],
     talentIds: [],
+    circuitAtlasNodeIds: [],
     wallet: {
       ash: save.currencies.ash ?? 0,
       glass: save.currencies.glass ?? 0,
@@ -67,6 +69,7 @@ const driveIds = new Set(driveCores.map((entry) => entry.id));
 const arenaIds = new Set(arenaCircuits.map((entry) => entry.id));
 const partBaseIds = new Set(topPartBases.map((entry) => entry.id));
 const talentIds = new Set(talentNodes.map((entry) => entry.id));
+const circuitAtlasNodeIds = new Set(circuitAtlasNodes.map((entry) => entry.id));
 const arenaKeyAffixIds = new Set(arenaKeyAffixes.map((entry) => entry.id));
 const bossGateIds = new Set(bossGates.map((entry) => entry.id));
 
@@ -166,6 +169,7 @@ export function sanitizeAccountSave(save: AccountSave): AccountSave {
       inventory: sanitizeInventory(save.top.inventory),
       runeIds,
       talentIds: save.top.talentIds.filter((talentId) => talentIds.has(talentId)),
+      circuitAtlasNodeIds: save.top.circuitAtlasNodeIds.filter((nodeId) => circuitAtlasNodeIds.has(nodeId)),
       wallet: {
         ash: clampCurrency(save.top.wallet.ash),
         glass: clampCurrency(save.top.wallet.glass),

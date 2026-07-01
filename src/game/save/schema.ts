@@ -121,6 +121,7 @@ export const topAccountStateSchema = z.object({
   inventory: z.array(topPartSaveSchema),
   runeIds: z.array(z.string()).max(5),
   talentIds: z.array(z.string()),
+  circuitAtlasNodeIds: z.array(z.string()).default([]),
   wallet: z.object({
     ash: z.number(),
     glass: z.number(),
@@ -216,6 +217,7 @@ export function createNewAccountSave(classId = "veilrunner"): AccountSave {
       inventory: createStarterInventory(),
       runeIds: [],
       talentIds: [],
+      circuitAtlasNodeIds: [],
       wallet: {
         ash: 0,
         glass: 0,

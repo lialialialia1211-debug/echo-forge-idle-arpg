@@ -151,13 +151,13 @@ export function getEligibleTopEngravings(base: TopPartBaseDef, itemLevel: number
   );
 }
 
-function chooseBase(rng: Rng, options: Pick<GenerateTopPartOptions, "baseId" | "slot" | "itemLevel">): TopPartBaseDef {
+function chooseBase(rng: Rng, options: Pick<GenerateTopPartOptions, "baseId" | "slot" | "itemLevel" | "rarity">): TopPartBaseDef {
   if (options.baseId) {
     return getTopPartBaseDef(options.baseId);
   }
 
   const candidates = topPartBases.filter((base) => (!options.slot || base.slot === options.slot) && (base.requiredLevel ?? 1) <= options.itemLevel);
-  return rng.weighted(candidates, (base) => base.baseWeight ?? 100);
+  return rng.weighted(candidates, (base) => (base.uniqueEffect && options.rarity !== "relic" ? 0 : (base.baseWeight ?? 100)));
 }
 
 function rollEngravings({
@@ -256,7 +256,7 @@ export function assembleTopPartFromAffixes({
   locked?: boolean;
   sourceDropId?: string;
 }): TopPartInstance {
-  const prefix = rarityNames[rarity];
+  const prefix = base.uniqueEffect ? "Unique" : rarityNames[rarity];
   const affixName = affixes[0]?.displayName;
   const displayName = [prefix, affixName, base.displayName].filter(Boolean).join(" ");
   let statBonuses = base.implicitStats ?? {};
@@ -289,8 +289,8 @@ export function assembleTopPartFromAffixes({
 
 export function generateTopPart(options: GenerateTopPartOptions): TopPartInstance {
   const rng = createRng(options.seed);
-  const base = chooseBase(rng, options);
   const rarity = options.rarity ?? chooseTopPartRarity(rng);
+  const base = chooseBase(rng, { ...options, rarity });
   const id = options.id ?? `part_${options.arenaId}_${options.seed}`;
   const generatedBy: TopPartGeneratedBy = {
     arenaId: options.arenaId,

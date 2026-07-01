@@ -14,6 +14,7 @@ describe("save schema", () => {
     expect(parsed.roster[0].build.supportIds.length).toBeGreaterThan(0);
     expect(parsed.top.equipment.core?.slot).toBe("core");
     expect(parsed.top.inventory.length).toBeGreaterThan(0);
+    expect(parsed.top.circuitAtlasNodeIds).toEqual([]);
   });
 
   it("migrates legacy v1 saves into top arena state", () => {
@@ -55,6 +56,7 @@ describe("save schema", () => {
     expect(migrated.schemaVersion).toBe(2);
     expect(migrated.top.selectedFrameId).toBe("frame_swift_razor");
     expect(migrated.top.wallet.ash).toBe(3);
+    expect(migrated.top.circuitAtlasNodeIds).toEqual([]);
   });
 
   it("sanitizes structurally valid v2 saves with stale top data IDs", () => {
@@ -78,6 +80,7 @@ describe("save schema", () => {
         selectedArenaId: "missing_arena",
         runeIds: ["missing_rune"],
         talentIds: ["missing_talent"],
+        circuitAtlasNodeIds: ["missing_atlas", "atlas_breach_calibrator"],
         wallet: {
           ash: -3,
           glass: 1.8,
@@ -115,6 +118,7 @@ describe("save schema", () => {
     expect(migrated.top.selectedArenaId).toBe("arena_cinder_crucible");
     expect(migrated.top.runeIds).toEqual([]);
     expect(migrated.top.talentIds).toEqual([]);
+    expect(migrated.top.circuitAtlasNodeIds).toEqual(["atlas_breach_calibrator"]);
     expect(migrated.top.equipment.core?.baseId).toBe("part_core_black_iron_wound");
     expect(migrated.top.inventory.length).toBeGreaterThan(0);
     expect(migrated.top.arenaKeys).toEqual([]);
