@@ -91,7 +91,7 @@ const initialRendererMetrics: ArenaRendererMetrics = {
   effects: 0,
   drops: 0,
   skippedFrames: 0,
-  hitStop: false,
+  impactFlash: false,
   budget: "stable",
 };
 
@@ -136,7 +136,7 @@ const arenaTuningControls: ArenaTuningControl[] = [
   { key: "sparkMultiplier", label: "Spark", min: 0.5, max: 2.1, step: 0.05 },
   { key: "activeEnemyPressure", label: "Rivals", min: 0.55, max: 1.65, step: 0.05 },
   { key: "bossWeightMultiplier", label: "Boss mass", min: 0.75, max: 1.55, step: 0.05 },
-  { key: "hitStopMultiplier", label: "Hit stop", min: 0.35, max: 1.8, step: 0.05 },
+  { key: "hitStopMultiplier", label: "Impact FX", min: 0.35, max: 1.8, step: 0.05 },
 ];
 
 type NextActionPrompt = {
@@ -2094,7 +2094,7 @@ export function CombatArena() {
                   Hit <strong>{rendererMetrics.lastHitKind ? rendererMetrics.lastHitKind.toUpperCase() : "IDLE"}</strong>
                 </span>
                 <span>
-                  Stop <strong>{rendererMetrics.hitStop ? "ON" : "OFF"}</strong>
+                  Flash <strong>{rendererMetrics.impactFlash ? "ON" : "OFF"}</strong>
                 </span>
                 <span className={`renderer-budget renderer-budget-${rendererMetrics.budget}`}>
                   Budget <strong>{rendererMetrics.budget.toUpperCase()}</strong>

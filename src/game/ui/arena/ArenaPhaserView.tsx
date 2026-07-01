@@ -21,7 +21,7 @@ export type ArenaRendererMetrics = {
   drops: number;
   skippedFrames: number;
   lastHitKind?: TopCollisionKind;
-  hitStop: boolean;
+  impactFlash: boolean;
   budget: "stable" | "busy" | "over";
 };
 
@@ -722,8 +722,6 @@ class ArenaPhaserScene extends Phaser.Scene {
   private lastCollisionId: string | null = null;
   private lastHitKind: TopCollisionKind | undefined;
   private lastHitFlash: HitFlash | null = null;
-  private hitStopUntil = 0;
-  private frozenRuntime: TopArenaRuntime | null = null;
   private lastRenderSignature = "";
   private frameCount = 0;
   private fpsWindowStarted = 0;
@@ -752,7 +750,7 @@ class ArenaPhaserScene extends Phaser.Scene {
     this.runtime = runtime;
     if (this.floor) {
       const now = performance.now();
-      this.registerCollision(runtime, now);
+      this.registerCollision(now);
       this.renderRuntime(this.resolveVisualRuntime(runtime, now), now);
     }
   }
@@ -761,7 +759,7 @@ class ArenaPhaserScene extends Phaser.Scene {
     const now = performance.now();
     const runtime = this.getRuntime() ?? this.runtime;
     if (runtime) {
-      this.registerCollision(runtime, now);
+      this.registerCollision(now);
     }
     this.renderRuntime(this.resolveVisualRuntime(runtime, now), now);
   }
@@ -770,14 +768,14 @@ class ArenaPhaserScene extends Phaser.Scene {
     if (this.lastHitFlash && now > this.lastHitFlash.until) {
       this.lastHitFlash = null;
     }
-    if (this.hitStopUntil > now && this.frozenRuntime) {
-      return this.frozenRuntime;
-    }
-    this.frozenRuntime = null;
     return runtime;
   }
 
-  private registerCollision(runtime: TopArenaRuntime, now: number) {
+  private registerCollision(now: number) {
+    const runtime = this.getRuntime() ?? this.runtime;
+    if (!runtime) {
+      return;
+    }
     const collision = runtime.lastCollision;
     if (!collision || collision.id === this.lastCollisionId) {
       return;
@@ -785,9 +783,10 @@ class ArenaPhaserScene extends Phaser.Scene {
 
     this.lastCollisionId = collision.id;
     this.lastHitKind = collision.kind;
-    const intensity = clamp(collision.sparkIntensity * 0.5 + collision.normalImpulse / 95, 0.9, collision.heavy ? 3.6 : 2.1);
     const tuning = this.getTuning();
-    const freezeMs = collision.heavy ? clamp((62 + collision.normalImpulse * 0.32 + collision.sparkIntensity * 7) * tuning.hitStopMultiplier, 24, 210) : 0;
+    const impactFxScale = clamp(tuning.hitStopMultiplier, 0.35, 1.8);
+    const intensity = clamp((collision.sparkIntensity * 0.42 + collision.normalImpulse / 140) * (0.82 + impactFxScale * 0.18), 0.75, collision.heavy ? 2.65 : 1.7);
+    const flashMs = collision.heavy ? clamp(170 + collision.normalImpulse * 0.12 + collision.sparkIntensity * 2.4, 170, 250) : 145;
 
     this.lastHitFlash = {
       id: collision.id,
@@ -801,17 +800,16 @@ class ArenaPhaserScene extends Phaser.Scene {
       intensity,
       heavy: collision.heavy,
       startedAt: now,
-      until: now + (collision.heavy ? 280 : 180),
+      until: now + flashMs,
     };
 
-    if (freezeMs > 0) {
-      this.hitStopUntil = Math.max(this.hitStopUntil, now + freezeMs);
-      this.frozenRuntime = runtime;
-      this.cameras.main.shake(64, clamp((collision.normalImpulse / 4200 + collision.sparkIntensity / 2800) * tuning.hitStopMultiplier, 0.0025, 0.018));
+    // Heavy hits read through flash and restrained shake instead of frozen frames; long holds felt like performance stutter.
+    if (collision.heavy) {
+      this.cameras.main.shake(42, clamp((collision.normalImpulse / 6200 + collision.sparkIntensity / 4200) * impactFxScale, 0.0018, 0.011));
       return;
     }
 
-    this.cameras.main.shake(28, clamp((collision.sparkIntensity / 4800) * tuning.hitStopMultiplier, 0.0008, 0.0035));
+    this.cameras.main.shake(22, clamp((collision.sparkIntensity / 6400) * impactFxScale, 0.0006, 0.0024));
   }
 
   private renderRuntime(runtime: TopArenaRuntime | null, now: number) {
@@ -824,7 +822,6 @@ class ArenaPhaserScene extends Phaser.Scene {
     const height = Math.max(1, this.scale.gameSize.height);
     const tuning = this.getTuning();
     const flashClock = this.lastHitFlash ? `${this.lastHitFlash.id}:${Math.floor((now - this.lastHitFlash.startedAt) / 16)}` : "";
-    const stopClock = this.hitStopUntil > now ? `stop:${Math.floor((this.hitStopUntil - now) / 16)}` : "";
     const signature = [
       runtime.seed,
       width,
@@ -843,7 +840,6 @@ class ArenaPhaserScene extends Phaser.Scene {
       tuning.basinPullMultiplier.toFixed(2),
       tuning.hitStopMultiplier.toFixed(2),
       flashClock,
-      stopClock,
     ].join("|");
     if (signature === this.lastRenderSignature) {
       this.skippedFrames += 1;
@@ -916,7 +912,7 @@ class ArenaPhaserScene extends Phaser.Scene {
       drops: runtime.drops.length,
       skippedFrames: this.skippedFrames,
       lastHitKind: this.lastHitKind,
-      hitStop: this.hitStopUntil > now,
+      impactFlash: Boolean(this.lastHitFlash && now <= this.lastHitFlash.until),
       budget: this.currentFps > 0 && this.currentFps < 45 ? "over" : this.lastRenderMs > 5 ? "busy" : "stable",
     });
   }
