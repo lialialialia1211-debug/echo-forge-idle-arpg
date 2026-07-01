@@ -1,5 +1,6 @@
 import {
   Activity,
+  AlertTriangle,
   Boxes,
   CircleDot,
   Flame,
@@ -47,6 +48,7 @@ import {
 } from "../../engine/topCrafting";
 import { loadLocalSave, writeLocalSave } from "../../save/localStore";
 import type {
+  ArenaEffect,
   ArenaKey,
   TalentNodeDef,
   TopArenaRuntime,
@@ -57,6 +59,7 @@ import type {
   TopPartRarity,
   TopPartSlotId,
   TopResistanceBlock,
+  TopRuntimeEntity,
   TopRuntimeStats,
   TopStatBlock,
   TuningRuneDef,
@@ -76,6 +79,7 @@ type LootNotice = {
   id: string;
   tone: "drop" | "salvage" | "reward";
   text: string;
+  rarity?: TopPartRarity;
 };
 
 const initialRendererMetrics: ArenaRendererMetrics = {
@@ -86,6 +90,16 @@ const initialRendererMetrics: ArenaRendererMetrics = {
   drops: 0,
   skippedFrames: 0,
   hitStop: false,
+  budget: "stable",
+};
+
+type DangerCue = {
+  id: string;
+  label: string;
+  detail: string;
+  progress: number;
+  tone: "warn" | "danger" | "rare";
+  priority: number;
 };
 
 type RuneSlotState = [string | null, string | null, string | null];
@@ -140,6 +154,12 @@ const talentNodePositions: Record<string, { x: number; y: number }> = {
   talent_salvage_rites: { x: 18, y: 59 },
   talent_last_rotation: { x: 50, y: 11 },
 };
+
+const enemyDangerWindows = {
+  charger: 0.82,
+  mineLayer: 0.95,
+  bossJudicator: 1.18,
+} as const;
 
 function isPart(part: TopPartInstance | null | undefined): part is TopPartInstance {
   return Boolean(part);
@@ -239,6 +259,76 @@ function addWallet(left: CurrencyWallet, right: CurrencyWallet): CurrencyWallet 
     glass: left.glass + right.glass,
     echo: left.echo + right.echo,
   };
+}
+
+function distanceBetween(left: Pick<TopRuntimeEntity, "x" | "y">, right: Pick<TopRuntimeEntity, "x" | "y">): number {
+  const dx = left.x - right.x;
+  const dy = left.y - right.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function buildEnemyDangerCue(enemy: TopRuntimeEntity, player: TopRuntimeEntity): DangerCue | null {
+  const behaviorId = enemy.behaviorId;
+  if (!behaviorId || !(behaviorId in enemyDangerWindows)) {
+    return null;
+  }
+
+  const window = enemyDangerWindows[behaviorId as keyof typeof enemyDangerWindows];
+  if (enemy.cooldownRemaining > window) {
+    return null;
+  }
+
+  const progress = 1 - clamp(enemy.cooldownRemaining / window, 0, 1);
+  const seconds = Math.max(0, enemy.cooldownRemaining);
+  const distance = distanceBetween(enemy, player);
+  const label = behaviorId === "bossJudicator" ? "Judicator wave" : behaviorId === "mineLayer" ? "Furnace groove" : "Redline charge";
+  const tone = behaviorId === "bossJudicator" ? "rare" : progress > 0.72 || distance < enemy.radius + player.radius + 54 ? "danger" : "warn";
+
+  return {
+    id: `enemy_${enemy.id}_${behaviorId}`,
+    label,
+    detail: `${enemy.name} / ${seconds.toFixed(1)}s`,
+    progress,
+    tone,
+    priority: (behaviorId === "bossJudicator" ? 4 : behaviorId === "charger" ? 3 : 2) + progress,
+  };
+}
+
+function buildHazardDangerCue(effect: ArenaEffect, player: TopRuntimeEntity): DangerCue | null {
+  if (effect.kind !== "hazard") {
+    return null;
+  }
+
+  const armSeconds = 0.45;
+  const dx = player.x - effect.x;
+  const dy = player.y - effect.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  const radius = 58 * effect.intensity;
+  const armProgress = clamp(effect.age / armSeconds, 0, 1);
+
+  if (effect.age < armSeconds && distance <= radius + 150) {
+    return {
+      id: `hazard_arm_${effect.id}`,
+      label: "Groove arming",
+      detail: `${(armSeconds - effect.age).toFixed(1)}s to heat field`,
+      progress: armProgress,
+      tone: "warn",
+      priority: 2.5 + armProgress,
+    };
+  }
+
+  if (distance <= radius * 1.12) {
+    return {
+      id: `hazard_live_${effect.id}`,
+      label: "Heat field",
+      detail: "Move out of the groove",
+      progress: 1,
+      tone: "danger",
+      priority: 4.8,
+    };
+  }
+
+  return null;
 }
 
 function salvageParts(parts: TopPartInstance[]): CurrencyWallet {
@@ -486,6 +576,24 @@ export function CombatArena() {
   const cooldownRatio = drive.baseCooldown > 0 ? 1 - clamp(runtime.player.cooldownRemaining / drive.baseCooldown, 0, 1) : 1;
   const target = runtime.enemies[0] ?? null;
   const targetIntegrity = target ? clamp(target.spinIntegrity / target.stats.maxSpinIntegrity, 0, 1) : 0;
+  const dangerCue = useMemo(() => {
+    const cues = [
+      ...runtime.enemies.map((enemy) => buildEnemyDangerCue(enemy, runtime.player)),
+      ...runtime.effects.map((effect) => buildHazardDangerCue(effect, runtime.player)),
+      playerIntegrity < 0.24
+        ? {
+            id: "player_integrity_low",
+            label: "Integrity critical",
+            detail: `${formatPercent(playerIntegrity, 0)} remaining`,
+            progress: 1 - playerIntegrity,
+            tone: "danger" as const,
+            priority: 5.2,
+          }
+        : null,
+    ].filter((cue): cue is DangerCue => Boolean(cue));
+
+    return cues.sort((left, right) => right.priority - left.priority)[0] ?? null;
+  }, [playerIntegrity, runtime.effects, runtime.enemies, runtime.player]);
   const lastCollision = runtime.lastCollision;
   const collisionDebugClass = lastCollision ? `collision-debug collision-debug-${lastCollision.kind}` : "collision-debug collision-debug-idle";
   const spentTalentPoints = useMemo(() => talentIds.reduce((total, id) => total + getTalentNodeDef(id).cost, 0), [talentIds]);
@@ -851,7 +959,7 @@ export function CombatArena() {
       const merged = mergeInventoryParts(newParts, inventory, inventoryCapacity);
       const keptDrop = newParts.find((part) => merged.items.some((item) => item.id === part.id));
       const notices: LootNotice[] = [
-        ...newParts.map((part) => ({ id: `loot_${part.id}`, tone: "drop" as const, text: `Picked ${part.rarity} ${part.displayName}` })),
+        ...newParts.map((part) => ({ id: `loot_${part.id}`, tone: "drop" as const, rarity: part.rarity, text: `Picked ${part.rarity} ${part.displayName}` })),
         ...merged.overflow.map((part) => ({ id: `salvage_${part.id}`, tone: "salvage" as const, text: `Auto-salvaged ${part.displayName}` })),
       ];
       const overflowValue = salvageParts(merged.overflow);
@@ -1037,7 +1145,7 @@ export function CombatArena() {
           </div>
           <div className="loot-history-list">
             {lootNotices.slice(0, 5).map((notice) => (
-              <div className={`loot-history-line loot-history-${notice.tone}`} key={notice.id}>
+              <div className={["loot-history-line", `loot-history-${notice.tone}`, notice.rarity ? `loot-history-rarity-${notice.rarity}` : ""].filter(Boolean).join(" ")} key={notice.id}>
                 {notice.text}
               </div>
             ))}
@@ -1592,6 +1700,16 @@ export function CombatArena() {
 
           <div className="canvas-wrap">
             <ArenaPhaserView onMetrics={showDebugHud ? setRendererMetrics : undefined} runtime={runtime} runtimeRef={runtimeRef} />
+            {dangerCue ? (
+              <div className={`danger-cue danger-cue-${dangerCue.tone} ${showDebugHud ? "danger-cue-debug-offset" : ""}`} aria-live="polite">
+                <AlertTriangle size={15} aria-hidden />
+                <div>
+                  <strong>{dangerCue.label}</strong>
+                  <span>{dangerCue.detail}</span>
+                  <i style={{ width: `${clamp(dangerCue.progress, 0, 1) * 100}%` }} />
+                </div>
+              </div>
+            ) : null}
             {showDebugHud ? (
               <div className="arena-renderer-debug" aria-label="Renderer telemetry">
                 <span>
@@ -1618,6 +1736,9 @@ export function CombatArena() {
                 <span>
                   Stop <strong>{rendererMetrics.hitStop ? "ON" : "OFF"}</strong>
                 </span>
+                <span className={`renderer-budget renderer-budget-${rendererMetrics.budget}`}>
+                  Budget <strong>{rendererMetrics.budget.toUpperCase()}</strong>
+                </span>
               </div>
             ) : null}
             {runtimeError ? (
@@ -1633,7 +1754,7 @@ export function CombatArena() {
             {lootNotices.length > 0 ? (
               <div className="loot-toast-stack" aria-live="polite">
                 {lootNotices.slice(0, 4).map((notice) => (
-                  <div className={`loot-toast loot-toast-${notice.tone}`} key={notice.id}>
+                  <div className={["loot-toast", `loot-toast-${notice.tone}`, notice.rarity ? `loot-toast-rarity-${notice.rarity}` : ""].filter(Boolean).join(" ")} key={notice.id}>
                     {notice.text}
                   </div>
                 ))}

@@ -434,6 +434,91 @@
   white-space: nowrap;
 }
 
+.arena-renderer-debug .renderer-budget-busy strong {
+  color: var(--brass);
+}
+
+.arena-renderer-debug .renderer-budget-over {
+  border-color: rgba(223, 98, 76, 0.46);
+}
+
+.arena-renderer-debug .renderer-budget-over strong {
+  color: var(--ember);
+}
+
+.danger-cue {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 3;
+  width: min(310px, calc(100% - 28px));
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(217, 165, 84, 0.38);
+  border-radius: 6px;
+  background: rgba(8, 10, 11, 0.84);
+  color: var(--brass);
+  padding: 8px 10px;
+  pointer-events: none;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+}
+
+.danger-cue-debug-offset {
+  top: 112px;
+}
+
+.danger-cue > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.danger-cue strong,
+.danger-cue span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.danger-cue strong {
+  font-size: 0.78rem;
+}
+
+.danger-cue span {
+  color: var(--soft);
+  font-size: 0.68rem;
+}
+
+.danger-cue i {
+  display: block;
+  height: 3px;
+  max-width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--brass), var(--ember));
+}
+
+.danger-cue-danger {
+  border-color: rgba(223, 98, 76, 0.55);
+  color: var(--ember);
+}
+
+.danger-cue-danger i {
+  background: linear-gradient(90deg, var(--ember), #fff0ca);
+}
+
+.danger-cue-rare {
+  border-color: rgba(182, 140, 255, 0.52);
+  color: var(--violet);
+}
+
+.danger-cue-rare i {
+  background: linear-gradient(90deg, var(--violet), var(--brass));
+}
+
 .arena-hud-grid {
   position: absolute;
   left: 12px;
@@ -506,6 +591,27 @@
 .loot-history-salvage {
   border-color: rgba(101, 198, 176, 0.3);
   color: var(--teal);
+}
+
+.loot-toast-rarity-tuned,
+.loot-history-rarity-tuned {
+  border-color: rgba(101, 198, 176, 0.46);
+  color: var(--teal);
+}
+
+.loot-toast-rarity-engraved,
+.loot-history-rarity-engraved {
+  border-color: rgba(217, 165, 84, 0.58);
+  color: var(--brass);
+}
+
+.loot-toast-rarity-relic,
+.loot-history-rarity-relic {
+  border-color: rgba(182, 140, 255, 0.62);
+  color: var(--violet);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.24),
+    0 0 22px rgba(182, 140, 255, 0.12);
 }
 
 .target-meter,
@@ -1696,6 +1802,22 @@
     min-height: 24px;
     padding: 4px 6px;
     font-size: 0.64rem;
+  }
+
+  .danger-cue {
+    left: 8px;
+    top: 8px;
+    width: min(285px, calc(100% - 16px));
+    min-height: 38px;
+    padding: 7px 8px;
+  }
+
+  .danger-cue-debug-offset {
+    top: 188px;
+  }
+
+  .loot-toast-stack {
+    top: 58px;
   }
 
   .canvas-wrap {

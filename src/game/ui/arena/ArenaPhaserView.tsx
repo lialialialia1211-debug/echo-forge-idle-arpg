@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { useEffect, useRef, type RefObject } from "react";
 import { getArenaCircuitDef } from "../../data/arenaCircuits";
 import { clamp } from "../../engine/math";
-import type { ArenaCircuitDef, ArenaDrop, ArenaEffect, TopArenaRuntime, TopCollisionKind, TopRuntimeEntity } from "../../engine/topTypes";
+import type { ArenaCircuitDef, ArenaDrop, ArenaEffect, EnemyBehaviorId, TopArenaRuntime, TopCollisionKind, TopRuntimeEntity } from "../../engine/topTypes";
 
 type Palette = {
   core: number;
@@ -22,6 +22,7 @@ export type ArenaRendererMetrics = {
   skippedFrames: number;
   lastHitKind?: TopCollisionKind;
   hitStop: boolean;
+  budget: "stable" | "busy" | "over";
 };
 
 type ArenaPhaserViewProps = {
@@ -43,6 +44,12 @@ type HitFlash = {
   heavy: boolean;
   startedAt: number;
   until: number;
+};
+
+type TelegraphConfig = {
+  window: number;
+  color: number;
+  accent: number;
 };
 
 const framePalette: Record<string, Palette> = {
@@ -85,6 +92,24 @@ const enemyPalette: Record<TopRuntimeEntity["rank"], Palette> = {
     rim: 0xb68cff,
     glow: 0xb68cff,
     text: "#eadfff",
+  },
+};
+
+const telegraphConfig: Partial<Record<EnemyBehaviorId, TelegraphConfig>> = {
+  charger: {
+    window: 0.82,
+    color: 0xdf624c,
+    accent: 0xfff4c7,
+  },
+  mineLayer: {
+    window: 0.95,
+    color: 0xffa84b,
+    accent: 0xd9a554,
+  },
+  bossJudicator: {
+    window: 1.18,
+    color: 0xb68cff,
+    accent: 0xfff4c7,
   },
 };
 
@@ -259,11 +284,20 @@ function drawEffect(graphics: Phaser.GameObjects.Graphics, effect: ArenaEffect, 
   }
 
   if (effect.kind === "hazard") {
+    const armRatio = clamp(effect.age / 0.45, 0, 1);
     const radius = (52 + ratio * 16) * effect.intensity;
-    graphics.fillStyle(0xdf624c, 0.12 * alpha);
+    const color = armRatio < 1 ? 0xffa84b : 0xdf624c;
+    graphics.fillStyle(color, (armRatio < 1 ? 0.065 : 0.12) * alpha);
     graphics.fillCircle(point.x, point.y, radius);
-    graphics.lineStyle(2, 0xdf624c, 0.58 * alpha);
-    graphics.strokeCircle(point.x, point.y, radius * 0.82);
+    graphics.lineStyle(2.4, color, (0.38 + armRatio * 0.24) * alpha);
+    graphics.strokeCircle(point.x, point.y, radius * (0.66 + armRatio * 0.18));
+    graphics.lineStyle(1.5, 0xfff4c7, (0.22 + armRatio * 0.2) * alpha);
+    drawArc(graphics, point.x, point.y, radius * 0.42, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * armRatio);
+    for (let i = 0; i < 4; i += 1) {
+      const start = effect.age * 1.8 + (Math.PI * 2 * i) / 4;
+      graphics.lineStyle(1.4, color, (0.26 + armRatio * 0.18) * alpha);
+      drawArc(graphics, point.x, point.y, radius * 0.9, start, start + Math.PI * 0.24);
+    }
     return;
   }
 
@@ -319,6 +353,76 @@ function drawHitFlash(graphics: Phaser.GameObjects.Graphics, flash: HitFlash, ma
 
   graphics.fillStyle(0xfff4c7, alpha);
   graphics.fillCircle(point.x, point.y, 3 + flash.intensity * 2.2);
+}
+
+function drawDangerArc(graphics: Phaser.GameObjects.Graphics, x: number, y: number, radius: number, progress: number, color: number, alpha: number) {
+  graphics.lineStyle(3, color, alpha);
+  drawArc(graphics, x, y, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * clamp(progress, 0, 1));
+}
+
+function drawEnemyTelegraphs(graphics: Phaser.GameObjects.Graphics, runtime: TopArenaRuntime, map: WorldMapper) {
+  const player = runtime.player;
+  const playerPoint = map.point(player.x, player.y);
+
+  for (const enemy of runtime.enemies) {
+    if (!enemy.behaviorId) {
+      continue;
+    }
+
+    const config = telegraphConfig[enemy.behaviorId];
+    if (!config || enemy.cooldownRemaining > config.window) {
+      continue;
+    }
+
+    const progress = 1 - clamp(enemy.cooldownRemaining / config.window, 0, 1);
+    const pulse = (Math.sin(runtime.time * 18) + 1) / 2;
+    const alpha = 0.2 + progress * 0.45 + pulse * 0.12;
+    const enemyPoint = map.point(enemy.x, enemy.y);
+    const enemyRadius = map.radius(enemy.radius);
+    const dx = player.x - enemy.x;
+    const dy = player.y - enemy.y;
+    const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+    const nx = dx / distance;
+    const ny = dy / distance;
+
+    graphics.lineStyle(1.8 + progress * 2.2, config.color, alpha);
+    graphics.strokeCircle(enemyPoint.x, enemyPoint.y, enemyRadius * (1.65 + progress * 0.48));
+    drawDangerArc(graphics, enemyPoint.x, enemyPoint.y, enemyRadius * (2.05 + progress * 0.32), progress, config.accent, 0.42 + progress * 0.42);
+
+    if (enemy.behaviorId === "charger") {
+      graphics.lineStyle(2.4 + progress * 2.6, config.color, 0.16 + progress * 0.48);
+      graphics.lineBetween(enemyPoint.x, enemyPoint.y, playerPoint.x, playerPoint.y);
+      graphics.lineStyle(1.4, config.accent, 0.32 + progress * 0.4);
+      graphics.strokeCircle(playerPoint.x, playerPoint.y, map.radius(player.radius) + 15 + progress * 10);
+      graphics.lineBetween(playerPoint.x - ny * 12 - nx * 8, playerPoint.y + nx * 12 - ny * 8, playerPoint.x + nx * 18, playerPoint.y + ny * 18);
+      graphics.lineBetween(playerPoint.x + ny * 12 - nx * 8, playerPoint.y - nx * 12 - ny * 8, playerPoint.x + nx * 18, playerPoint.y + ny * 18);
+      continue;
+    }
+
+    if (enemy.behaviorId === "mineLayer") {
+      const target = map.point(player.x - nx * 18, player.y - ny * 18);
+      const radius = map.radius(58);
+      graphics.fillStyle(config.color, 0.05 + progress * 0.08);
+      graphics.fillCircle(target.x, target.y, radius);
+      graphics.lineStyle(2.2, config.color, 0.28 + progress * 0.42);
+      graphics.strokeCircle(target.x, target.y, radius * (0.72 + progress * 0.18));
+      drawDangerArc(graphics, target.x, target.y, radius * 0.48, progress, config.accent, 0.48 + progress * 0.36);
+      continue;
+    }
+
+    if (enemy.behaviorId === "bossJudicator") {
+      const radius = map.radius(190);
+      graphics.fillStyle(config.color, 0.025 + progress * 0.045);
+      graphics.fillCircle(enemyPoint.x, enemyPoint.y, radius);
+      graphics.lineStyle(3.2, config.color, 0.24 + progress * 0.36);
+      graphics.strokeCircle(enemyPoint.x, enemyPoint.y, radius * (0.68 + progress * 0.16));
+      graphics.lineStyle(1.6, config.accent, 0.28 + progress * 0.34);
+      for (let i = 0; i < 5; i += 1) {
+        const start = runtime.time * 0.8 + (Math.PI * 2 * i) / 5;
+        drawArc(graphics, enemyPoint.x, enemyPoint.y, radius * 0.9, start, start + Math.PI * 0.24);
+      }
+    }
+  }
 }
 
 function drawDrops(graphics: Phaser.GameObjects.Graphics, drops: ArenaDrop[], map: WorldMapper) {
@@ -557,7 +661,7 @@ class ArenaPhaserScene extends Phaser.Scene {
       runtime.player.y.toFixed(2),
       runtime.player.spinIntegrity.toFixed(2),
       runtime.player.spinPower.toFixed(2),
-      runtime.enemies.map((enemy) => `${enemy.id}:${enemy.x.toFixed(1)}:${enemy.y.toFixed(1)}:${enemy.spinIntegrity.toFixed(1)}`).join(","),
+      runtime.enemies.map((enemy) => `${enemy.id}:${enemy.behaviorId ?? ""}:${enemy.x.toFixed(1)}:${enemy.y.toFixed(1)}:${enemy.spinIntegrity.toFixed(1)}:${enemy.cooldownRemaining.toFixed(2)}`).join(","),
       runtime.effects.map((effect) => `${effect.kind}:${effect.age.toFixed(2)}`).join(","),
       runtime.drops.map((drop) => `${drop.id}:${drop.age.toFixed(2)}`).join(","),
       runtime.lastCollision?.id ?? "",
@@ -582,6 +686,7 @@ class ArenaPhaserScene extends Phaser.Scene {
     this.effectsFront.clear();
 
     drawArenaFloor(this.floor, width, height, arena, runtime);
+    drawEnemyTelegraphs(this.effectsBack, runtime, map);
     for (const effect of effects.filter((entry) => entry.kind !== "frictionSpark")) {
       drawEffect(this.effectsBack, effect, map);
     }
@@ -635,6 +740,7 @@ class ArenaPhaserScene extends Phaser.Scene {
       skippedFrames: this.skippedFrames,
       lastHitKind: this.lastHitKind,
       hitStop: this.hitStopUntil > now,
+      budget: this.currentFps > 0 && this.currentFps < 45 ? "over" : this.lastRenderMs > 5 ? "busy" : "stable",
     });
   }
 
