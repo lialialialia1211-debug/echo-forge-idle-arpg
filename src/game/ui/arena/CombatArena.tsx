@@ -110,6 +110,8 @@ type PartVerdict = {
   score: number;
 };
 
+type ObjectiveSegmentState = "cleared" | "active" | "pending" | "boss";
+
 type RuneSlotState = [string | null, string | null, string | null];
 
 const rarityTone: Record<TopPartRarity, "neutral" | "good" | "rare" | "warn"> = {
@@ -393,6 +395,19 @@ function buildHazardDangerCue(effect: ArenaEffect, player: TopRuntimeEntity): Da
   }
 
   return null;
+}
+
+function objectiveSegmentState(index: number, routeProgress: number): ObjectiveSegmentState {
+  if (index === 8 && routeProgress >= 8) {
+    return "boss";
+  }
+  if (index < routeProgress) {
+    return "cleared";
+  }
+  if (index === routeProgress) {
+    return "active";
+  }
+  return "pending";
 }
 
 function salvageParts(parts: TopPartInstance[]): CurrencyWallet {
@@ -1053,6 +1068,14 @@ export function CombatArena() {
       null,
     );
     const routeProgress = runtime.wave > 0 ? ((runtime.wave - 1) % 8) + 1 : 1;
+    const wavesToBoss = Math.max(0, 8 - routeProgress);
+    const objectiveLabel = routeProgress >= 8 ? "Boss wave" : wavesToBoss === 1 ? "Elite gate" : "Build route";
+    const objectiveDetail =
+      routeProgress >= 8
+        ? "Shatter boss to forge route key"
+        : wavesToBoss === 1
+          ? "One wave before boss pressure"
+          : `${wavesToBoss} waves before boss pressure`;
     const actionPanel: ActivePanel =
       runtime.drops.length > 0
         ? "loot"
@@ -1071,6 +1094,8 @@ export function CombatArena() {
       actionPanel,
       bestDropText: bestDrop ? `${bestDrop.rarity} ${bestDrop.label}` : "No drops yet",
       detail: dangerCue ? dangerCue.label : selectedPartVerdict ? selectedPartVerdict.label : "Stabilize build",
+      objectiveDetail,
+      objectiveLabel,
       routeProgress,
       status: runtimeError ? "Stopped" : running ? "Live run" : runtime.drops.length > 0 ? "Loot ready" : "Ready",
       summary: `Wave ${formatNumber(runtime.wave, 0)} / ${formatNumber(runtime.kills, 0)} run kills`,
@@ -1888,6 +1913,24 @@ export function CombatArena() {
                   <small>{runReview.status}</small>
                   <strong>{runReview.summary}</strong>
                   <span>{runReview.detail}</span>
+                </div>
+                <div className="run-objective-rail" aria-label="Route objective">
+                  <div className="run-objective-copy">
+                    <small>Objective</small>
+                    <strong>{runReview.objectiveLabel}</strong>
+                    <span>{runReview.objectiveDetail}</span>
+                  </div>
+                  <div className="run-objective-track" aria-hidden>
+                    {Array.from({ length: 8 }, (_, index) => {
+                      const step = index + 1;
+                      const state = objectiveSegmentState(step, runReview.routeProgress);
+                      return (
+                        <i className={`run-objective-step run-objective-${state}`} key={step}>
+                          {step === 8 ? "B" : ""}
+                        </i>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div className="run-review-metrics">
                   <span>

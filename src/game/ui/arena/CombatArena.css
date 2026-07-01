@@ -663,7 +663,7 @@
 .run-review-strip {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(132px, 0.8fr) minmax(200px, 1.2fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
   gap: 7px;
   border: 1px solid rgba(230, 215, 181, 0.1);
@@ -698,10 +698,101 @@
   white-space: nowrap;
 }
 
-.run-review-metrics {
+.run-objective-rail {
+  min-width: 0;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(100px, 0.62fr) minmax(0, 1fr);
+  align-items: center;
+  align-content: center;
+  gap: 8px;
+  border: 1px solid rgba(217, 165, 84, 0.13);
+  border-radius: 5px;
+  background: rgba(217, 165, 84, 0.055);
+  padding: 6px 7px;
+}
+
+.run-objective-copy {
   min-width: 0;
   display: grid;
-  grid-template-columns: 0.72fr minmax(0, 1.35fr) 0.72fr;
+  gap: 1px;
+}
+
+.run-objective-copy small,
+.run-objective-copy span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.64rem;
+}
+
+.run-objective-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-objective-copy span {
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.run-objective-copy strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--brass);
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-objective-track {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.run-objective-step {
+  height: 8px;
+  min-width: 0;
+  border: 1px solid rgba(230, 215, 181, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
+  color: transparent;
+  font-size: 0;
+}
+
+.run-objective-cleared {
+  border-color: rgba(101, 198, 176, 0.36);
+  background: rgba(101, 198, 176, 0.34);
+}
+
+.run-objective-active {
+  border-color: rgba(217, 165, 84, 0.62);
+  background: linear-gradient(90deg, rgba(217, 165, 84, 0.78), rgba(223, 98, 76, 0.46));
+}
+
+.run-objective-boss {
+  min-height: 18px;
+  display: grid;
+  place-items: center;
+  border-color: rgba(182, 140, 255, 0.72);
+  background: rgba(182, 140, 255, 0.28);
+  color: var(--violet);
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.run-objective-pending:last-child {
+  border-color: rgba(182, 140, 255, 0.3);
+}
+
+.run-review-metrics {
+  min-width: 0;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 0.62fr minmax(0, 1.18fr) 0.62fr;
   gap: 6px;
 }
 
@@ -729,6 +820,8 @@
 }
 
 .run-review-strip .arena-button {
+  grid-column: 2;
+  grid-row: 1;
   min-width: 74px;
   min-height: 34px;
   padding: 0 9px;
@@ -757,7 +850,8 @@
 }
 
 .run-review-rare .run-review-main strong,
-.run-review-rare .run-review-metrics strong {
+.run-review-rare .run-review-metrics strong,
+.run-review-rare .run-objective-copy strong {
   color: var(--violet);
 }
 
@@ -1914,9 +2008,14 @@
   .run-review-main,
   .run-review-strip .arena-button {
     grid-column: 1 / -1;
+    grid-row: auto;
   }
 
   .run-review-metrics {
+    grid-column: 1 / -1;
+  }
+
+  .run-objective-rail {
     grid-column: 1 / -1;
   }
 
@@ -2002,6 +2101,7 @@
   .telemetry-grid,
   .run-review-strip,
   .run-review-metrics,
+  .run-objective-rail,
   .combat-bottom,
   .build-summary-grid,
   .equipment-slots,
