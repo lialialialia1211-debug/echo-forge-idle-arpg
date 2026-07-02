@@ -137,13 +137,14 @@ export const topAccountStateSchema = z.object({
   }),
   arenaKeys: z.array(arenaKeySaveSchema),
   clearedBossGateIds: z.array(z.string()),
+  clearedRivalIds: z.array(z.string()).default([]),
   routeClears: z.record(z.string(), z.number()),
   totalKills: nonNegativeIntegerSchema,
   lastSettledAt: z.string(),
 });
 
 export const accountSaveSchema = z.object({
-  schemaVersion: z.literal(4),
+  schemaVersion: z.literal(5),
   accountId: z.string().nullable(),
   settings: z.object({
     reduceMotion: z.boolean(),
@@ -189,7 +190,7 @@ export function createNewAccountSave(classId = "veilrunner"): AccountSave {
   const selectedDriveId = starterDriveForFrame(selectedFrameId);
 
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     accountId: null,
     settings: {
       reduceMotion: false,
@@ -235,6 +236,7 @@ export function createNewAccountSave(classId = "veilrunner"): AccountSave {
       },
       arenaKeys: [],
       clearedBossGateIds: [],
+      clearedRivalIds: [],
       routeClears: {},
       totalKills: 0,
       lastSettledAt: now,

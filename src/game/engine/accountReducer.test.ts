@@ -20,6 +20,7 @@ function createState(overrides: Partial<AccountRuntimeState> = {}): AccountRunti
     wallet: { ash: 100, glass: 100, echo: 10 },
     arenaKeys: [],
     clearedBossGateIds: [],
+    clearedRivalIds: [],
     routeClears: {},
     totalKills: 0,
     ...overrides,
@@ -77,6 +78,15 @@ describe("accountReducer", () => {
     expect(arenaSelected.arenaId).toBe("arena_red_chancel_disk");
     expect(cleared.clearedBossGateIds).toEqual(["boss_gate_brass_judicator"]);
     expect(repeated.clearedBossGateIds).toEqual(["boss_gate_brass_judicator"]);
+  });
+
+  it("clears named rivals idempotently", () => {
+    const state = createState();
+    const cleared = accountReducer(state, { type: "clearRival", rivalId: "rival_sable_reflector" });
+    const repeated = accountReducer(cleared, { type: "clearRival", rivalId: "rival_sable_reflector" });
+
+    expect(cleared.clearedRivalIds).toEqual(["rival_sable_reflector"]);
+    expect(repeated.clearedRivalIds).toEqual(["rival_sable_reflector"]);
   });
 
   it("equips a part and returns the replaced part to inventory", () => {

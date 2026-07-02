@@ -21,6 +21,7 @@ export type AccountRuntimeState = {
   wallet: AccountWallet;
   arenaKeys: ArenaKey[];
   clearedBossGateIds: string[];
+  clearedRivalIds: string[];
   routeClears: Record<string, number>;
   totalKills: number;
 };
@@ -38,6 +39,7 @@ export type SaveTopLike = {
   wallet: AccountWallet;
   arenaKeys: ArenaKey[];
   clearedBossGateIds: string[];
+  clearedRivalIds: string[];
   routeClears: Record<string, number>;
   totalKills: number;
   lastSettledAt: string;
@@ -65,6 +67,7 @@ export function saveTopToAccountState(top: SaveTopLike, equipment: Record<TopPar
     wallet: top.wallet,
     arenaKeys: top.arenaKeys,
     clearedBossGateIds: top.clearedBossGateIds,
+    clearedRivalIds: top.clearedRivalIds,
     routeClears: top.routeClears,
     totalKills: top.totalKills ?? 0,
   };
@@ -84,6 +87,7 @@ export function accountStateToSaveTop(state: AccountRuntimeState, lastSettledAt:
     wallet: state.wallet,
     arenaKeys: state.arenaKeys,
     clearedBossGateIds: state.clearedBossGateIds,
+    clearedRivalIds: state.clearedRivalIds,
     routeClears: state.routeClears,
     totalKills: state.totalKills,
     lastSettledAt,

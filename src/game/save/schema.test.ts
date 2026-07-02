@@ -8,7 +8,7 @@ describe("save schema", () => {
     const save = createNewAccountSave("ironbound");
     const parsed = accountSaveSchema.parse(save);
 
-    expect(parsed.schemaVersion).toBe(4);
+    expect(parsed.schemaVersion).toBe(5);
     expect(parsed.accountId).toBeNull();
     expect(parsed.roster[0].classId).toBe("ironbound");
     expect(parsed.roster[0].build.supportIds.length).toBeGreaterThan(0);
@@ -16,6 +16,7 @@ describe("save schema", () => {
     expect(parsed.top.inventory.length).toBeGreaterThan(0);
     expect(parsed.top.circuitAtlasNodeIds).toEqual([]);
     expect(parsed.top.doctrineId).toBeNull();
+    expect(parsed.top.clearedRivalIds).toEqual([]);
     expect(parsed.top.totalKills).toBe(0);
     expect(parsed.top.wallet.ash).toBeGreaterThanOrEqual(12);
     expect(parsed.top.wallet.glass).toBeGreaterThanOrEqual(2);
@@ -57,7 +58,7 @@ describe("save schema", () => {
       lastSavedAt: now,
     });
 
-    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.schemaVersion).toBe(5);
     expect(migrated.top.selectedFrameId).toBe("frame_swift_razor");
     expect(migrated.top.wallet.ash).toBe(3);
     expect(migrated.top.circuitAtlasNodeIds).toEqual([]);
@@ -79,13 +80,13 @@ describe("save schema", () => {
       },
     });
 
-    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.schemaVersion).toBe(5);
     expect(migrated.top.totalKills).toBe(0);
     expect(migrated.top.talentIds).toEqual(["talent_iron_rotation"]);
     expect(migrated.top.doctrineId).toBeNull();
   });
 
-  it("migrates v3 saves to v4 with doctrine defaults", () => {
+  it("migrates v3 saves to v5 with doctrine and rival defaults", () => {
     const save = createNewAccountSave("veilrunner");
     const migrated = migrateUnknownSave({
       ...save,
@@ -97,12 +98,34 @@ describe("save schema", () => {
       },
     });
 
-    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.schemaVersion).toBe(5);
     expect(migrated.top.totalKills).toBe(44);
     expect(migrated.top.doctrineId).toBeNull();
+    expect(migrated.top.clearedRivalIds).toEqual([]);
   });
 
-  it("keeps totalKills and legal doctrine during v4 round trips", () => {
+  it("migrates v4 saves to v5 with cleared rival defaults", () => {
+    const save = createNewAccountSave("veilrunner");
+    const topWithoutClearedRivals: Partial<typeof save.top> = { ...save.top };
+    delete topWithoutClearedRivals.clearedRivalIds;
+
+    const migrated = migrateUnknownSave({
+      ...save,
+      schemaVersion: 4,
+      top: {
+        ...topWithoutClearedRivals,
+        totalKills: 137,
+        doctrineId: "doctrine_swift_razor_edge",
+      },
+    });
+
+    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.top.totalKills).toBe(137);
+    expect(migrated.top.doctrineId).toBe("doctrine_swift_razor_edge");
+    expect(migrated.top.clearedRivalIds).toEqual([]);
+  });
+
+  it("keeps totalKills, legal doctrine, and legal rivals during v5 round trips", () => {
     const save = createNewAccountSave("veilrunner");
     const migrated = migrateUnknownSave({
       ...save,
@@ -110,12 +133,14 @@ describe("save schema", () => {
         ...save.top,
         totalKills: 137,
         doctrineId: "doctrine_swift_razor_edge",
+        clearedRivalIds: ["rival_sable_reflector"],
       },
     });
 
-    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.schemaVersion).toBe(5);
     expect(migrated.top.totalKills).toBe(137);
     expect(migrated.top.doctrineId).toBe("doctrine_swift_razor_edge");
+    expect(migrated.top.clearedRivalIds).toEqual(["rival_sable_reflector"]);
   });
 
   it("sanitizes structurally valid v3 saves with stale top data IDs", () => {
@@ -166,6 +191,7 @@ describe("save schema", () => {
           },
         ],
         clearedBossGateIds: ["missing_boss_gate"],
+        clearedRivalIds: ["missing_rival", "rival_sable_reflector"],
         routeClears: {
           missing_arena: 5,
           arena_cinder_crucible: -1,
@@ -185,6 +211,7 @@ describe("save schema", () => {
     expect(migrated.top.inventory.length).toBeGreaterThan(0);
     expect(migrated.top.arenaKeys).toEqual([]);
     expect(migrated.top.clearedBossGateIds).toEqual([]);
+    expect(migrated.top.clearedRivalIds).toEqual(["rival_sable_reflector"]);
     expect(migrated.top.routeClears).toEqual({ arena_cinder_crucible: 0 });
     expect(migrated.top.totalKills).toBe(0);
     expect(migrated.top.wallet.ash).toBe(0);

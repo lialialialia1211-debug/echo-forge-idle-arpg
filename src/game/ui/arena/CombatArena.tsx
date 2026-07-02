@@ -1231,7 +1231,7 @@ export function CombatArena() {
     const now = new Date().toISOString();
     const nextSave = {
       ...saveShellRef.current,
-      schemaVersion: 4 as const,
+      schemaVersion: 5 as const,
       currencies: {
         ...saveShellRef.current.currencies,
         ash: account.wallet.ash,

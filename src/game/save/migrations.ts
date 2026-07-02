@@ -5,6 +5,7 @@ import { bossGates } from "../data/bossGates";
 import { circuitAtlasNodes } from "../data/circuitAtlasNodes";
 import { doctrines } from "../data/doctrines";
 import { driveCores } from "../data/driveCores";
+import { namedRivals } from "../data/namedRivals";
 import { talentNodes } from "../data/talentNodes";
 import { createStarterEquipment, createStarterInventory, partSlotOrder } from "../data/topParts";
 import { topPartBases } from "../data/topPartBases";
@@ -32,12 +33,17 @@ type LegacyV1Save = {
 
 type LegacyV2Save = Omit<AccountSave, "schemaVersion" | "top"> & {
   schemaVersion: 2;
-  top: Omit<AccountSave["top"], "totalKills" | "doctrineId"> & Partial<Pick<AccountSave["top"], "totalKills" | "doctrineId">>;
+  top: Omit<AccountSave["top"], "totalKills" | "doctrineId" | "clearedRivalIds"> & Partial<Pick<AccountSave["top"], "totalKills" | "doctrineId" | "clearedRivalIds">>;
 };
 
 type LegacyV3Save = Omit<AccountSave, "schemaVersion" | "top"> & {
   schemaVersion: 3;
-  top: Omit<AccountSave["top"], "doctrineId"> & Partial<Pick<AccountSave["top"], "doctrineId">>;
+  top: Omit<AccountSave["top"], "doctrineId" | "clearedRivalIds"> & Partial<Pick<AccountSave["top"], "doctrineId" | "clearedRivalIds">>;
+};
+
+type LegacyV4Save = Omit<AccountSave, "schemaVersion" | "top"> & {
+  schemaVersion: 4;
+  top: Omit<AccountSave["top"], "clearedRivalIds"> & Partial<Pick<AccountSave["top"], "clearedRivalIds">>;
 };
 
 type SavedTopPart = AccountSave["top"]["inventory"][number];
@@ -65,6 +71,7 @@ function starterTopStateForLegacy(save: LegacyV1Save): AccountSave["top"] {
     },
     arenaKeys: [],
     clearedBossGateIds: [],
+    clearedRivalIds: [],
     routeClears: {},
     totalKills: 0,
     lastSettledAt: save.lastSavedAt,
@@ -83,6 +90,10 @@ function isLegacyV3Save(input: unknown): input is LegacyV3Save {
   return Boolean(input && typeof input === "object" && "schemaVersion" in input && (input as { schemaVersion?: unknown }).schemaVersion === 3);
 }
 
+function isLegacyV4Save(input: unknown): input is LegacyV4Save {
+  return Boolean(input && typeof input === "object" && "schemaVersion" in input && (input as { schemaVersion?: unknown }).schemaVersion === 4);
+}
+
 const defaultFrameId = "frame_swift_razor";
 const defaultArenaId = "arena_cinder_crucible";
 const frameIds = new Set(topFrames.map((entry) => entry.id));
@@ -94,6 +105,7 @@ const circuitAtlasNodeIds = new Set(circuitAtlasNodes.map((entry) => entry.id));
 const doctrineIds = new Set(doctrines.map((entry) => entry.id));
 const arenaKeyAffixIds = new Set(arenaKeyAffixes.map((entry) => entry.id));
 const bossGateIds = new Set(bossGates.map((entry) => entry.id));
+const rivalIds = new Set(namedRivals.map((entry) => entry.id));
 
 function clampCurrency(value: number): number {
   return Math.max(0, Math.floor(value));
@@ -207,6 +219,7 @@ export function sanitizeAccountSave(save: AccountSave): AccountSave {
       },
       arenaKeys: sanitizeArenaKeys(save.top.arenaKeys),
       clearedBossGateIds: save.top.clearedBossGateIds.filter((gateId) => bossGateIds.has(gateId)),
+      clearedRivalIds: save.top.clearedRivalIds.filter((rivalId) => rivalIds.has(rivalId)),
       routeClears: sanitizeRouteClears(save.top.routeClears),
       totalKills: Math.max(0, Math.floor(save.top.totalKills ?? 0)),
     },
@@ -217,7 +230,7 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV1Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 4,
+      schemaVersion: 5,
       top: starterTopStateForLegacy(input),
     }));
   }
@@ -225,11 +238,12 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV2Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 4,
+      schemaVersion: 5,
       top: {
         ...input.top,
         totalKills: input.top.totalKills ?? 0,
         doctrineId: input.top.doctrineId ?? null,
+        clearedRivalIds: input.top.clearedRivalIds ?? [],
       },
     }));
   }
@@ -237,10 +251,22 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV3Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 4,
+      schemaVersion: 5,
       top: {
         ...input.top,
         doctrineId: input.top.doctrineId ?? null,
+        clearedRivalIds: input.top.clearedRivalIds ?? [],
+      },
+    }));
+  }
+
+  if (isLegacyV4Save(input)) {
+    return sanitizeAccountSave(accountSaveSchema.parse({
+      ...input,
+      schemaVersion: 5,
+      top: {
+        ...input.top,
+        clearedRivalIds: input.top.clearedRivalIds ?? [],
       },
     }));
   }

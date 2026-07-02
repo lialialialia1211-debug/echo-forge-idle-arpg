@@ -18,6 +18,7 @@ function createState(): AccountRuntimeState {
     wallet: { ash: 0, glass: 0, echo: 0 },
     arenaKeys: [],
     clearedBossGateIds: [],
+    clearedRivalIds: [],
     routeClears: {},
     totalKills: 0,
   };

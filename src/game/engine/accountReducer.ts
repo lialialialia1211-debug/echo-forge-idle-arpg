@@ -3,6 +3,7 @@ import { getDoctrineDef } from "../data/doctrines";
 import { getDriveCoreDef } from "../data/driveCores";
 import { getArenaCircuitDef } from "../data/arenaCircuits";
 import { getBossGateDef } from "../data/bossGates";
+import { getNamedRivalDef } from "../data/namedRivals";
 import { getTalentNodeDef, talentNodes } from "../data/talentNodes";
 import { getTopFrameDef } from "../data/topFrames";
 import { isRuneCompatible, tuningRunes } from "../data/tuningRunes";
@@ -20,6 +21,7 @@ export type AccountAction =
   | { type: "selectDrive"; driveId: string }
   | { type: "selectArena"; arenaId: string }
   | { type: "markBossGateCleared"; gateId: string }
+  | { type: "clearRival"; rivalId: string }
   | { type: "equipPart"; part: TopPartInstance }
   | { type: "toggleLock"; partId: string }
   | { type: "salvagePart"; partId: string }
@@ -221,6 +223,12 @@ export function accountReducer(state: AccountRuntimeState, action: AccountAction
       return state.clearedBossGateIds.includes(action.gateId)
         ? state
         : { ...state, clearedBossGateIds: [...state.clearedBossGateIds, action.gateId] };
+
+    case "clearRival":
+      getNamedRivalDef(action.rivalId);
+      return state.clearedRivalIds.includes(action.rivalId)
+        ? state
+        : { ...state, clearedRivalIds: [...state.clearedRivalIds, action.rivalId] };
 
     case "equipPart": {
       const replaced = state.equipment[action.part.slot];
