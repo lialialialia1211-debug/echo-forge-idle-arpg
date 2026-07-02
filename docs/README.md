@@ -1,6 +1,6 @@
 # 專案文件索引
 
-日期：2026-06-30
+日期：2026-07-02
 
 ## 文件
 
@@ -14,6 +14,7 @@
 - [08 戰鬥陀螺 ARPG 系統契約](./08_top_arpg_system_contract_zh.md)
 - [09 目前程式碼映射與落地切點](./09_current_code_mapping_zh.md)
 - [10 UI 操作設計評估與下一輪優化方向](./10_ui_operation_design_audit_zh.md)
+- [11 基礎數值](./11_基礎數值_zh.md)
 
 ## 目前重點
 

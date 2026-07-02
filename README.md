@@ -40,6 +40,7 @@ pnpm dev
 - [Dark Metal Top Arena Design](docs/05_dark_metal_top_arena_design_zh.md)
 - [Current Implementation Status](docs/06_current_implementation_status_zh.md)
 - [UI Operation Design Audit](docs/10_ui_operation_design_audit_zh.md)
+- [基礎數值](docs/11_基礎數值_zh.md)
 - [Docs Index](docs/README.md)
 
 ## Architecture Rules
