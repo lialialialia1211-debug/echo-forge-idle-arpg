@@ -41,8 +41,6 @@ import {
 import { isRuneCompatible, tuningRunes } from "../../data/tuningRunes";
 import {
   accountReducer,
-  type AccountAction,
-  addWallet,
   atlasPointTotal,
   availableAtlasPoints as resolveAvailableAtlasPoints,
   availableTalentPoints as resolveAvailableTalentPoints,
@@ -534,12 +532,6 @@ function loadoutFromAccountState(state: AccountRuntimeState): TopLoadoutConfig {
   };
 }
 
-type AccountUiAction = AccountAction | { type: "replaceAccountState"; state: AccountRuntimeState };
-
-function accountUiReducer(state: AccountRuntimeState, action: AccountUiAction): AccountRuntimeState {
-  return action.type === "replaceAccountState" ? action.state : accountReducer(state, action);
-}
-
 function formatCost(cost: AccountWallet): string {
   return [`Ash ${cost.ash}`, `Glass ${cost.glass}`, `Echo ${cost.echo}`].join(" / ");
 }
@@ -661,7 +653,7 @@ export function CombatArena() {
     [initialEquipment, initialInventory, initialRuneSlots, initialSave.top],
   );
   const saveShellRef = useRef(initialSave);
-  const [account, dispatchAccount] = useReducer(accountUiReducer, initialAccountState);
+  const [account, dispatchAccount] = useReducer(accountReducer, initialAccountState);
   const { frameId, driveId, arenaId, equipment, inventory, runeSlots, talentIds, circuitAtlasNodeIds, doctrineId, wallet, arenaKeys, clearedBossGateIds, routeClears, totalKills } = account;
   const [speed, setSpeed] = useState(1);
   const [running, setRunning] = useState(false);
@@ -717,12 +709,6 @@ export function CombatArena() {
     }),
     [activeAnomalyId, circuitAtlasNodeIds, doctrineId, equipment, runeIds, talentIds],
   );
-
-  const makeAccountState = useCallback((): AccountRuntimeState => account, [account]);
-
-  const applyAccountState = useCallback((nextState: AccountRuntimeState) => {
-    dispatchAccount({ type: "replaceAccountState", state: nextState });
-  }, []);
 
   const [runtime, setRuntime] = useState(() =>
     createTopArenaRuntime({
@@ -848,58 +834,59 @@ export function CombatArena() {
   );
 
   const selectFrame = (nextFrameId: string) => {
-    const currentState = makeAccountState();
-    const nextState = accountReducer(currentState, { type: "selectFrame", frameId: nextFrameId });
-    applyAccountState(nextState);
+    const action = { type: "selectFrame", frameId: nextFrameId } as const;
+    const nextState = accountReducer(account, action);
+    dispatchAccount(action);
     resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
   };
 
   const selectDrive = (nextDriveId: string) => {
-    const currentState = makeAccountState();
-    const nextState = accountReducer(currentState, { type: "selectDrive", driveId: nextDriveId });
-    applyAccountState(nextState);
+    const action = { type: "selectDrive", driveId: nextDriveId } as const;
+    const nextState = accountReducer(account, action);
+    dispatchAccount(action);
     resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
   };
 
   const selectArena = (nextArenaId: string) => {
-    const currentState = makeAccountState();
-    const nextState = accountReducer(currentState, { type: "selectArena", arenaId: nextArenaId });
-    applyAccountState(nextState);
+    const action = { type: "selectArena", arenaId: nextArenaId } as const;
+    const nextState = accountReducer(account, action);
+    dispatchAccount(action);
     resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState), null);
   };
 
   const equipPart = (part: TopPartInstance) => {
-    const nextState = accountReducer(makeAccountState(), { type: "equipPart", part });
-    applyAccountState(nextState);
+    const action = { type: "equipPart", part } as const;
+    const nextState = accountReducer(account, action);
+    dispatchAccount(action);
     setSelectedPartId(part.id);
     resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
   };
 
   const toggleLock = (partId: string) => {
-    applyAccountState(accountReducer(makeAccountState(), { type: "toggleLock", partId }));
+    dispatchAccount({ type: "toggleLock", partId });
   };
 
   const salvagePart = (part: TopPartInstance) => {
-    const currentState = makeAccountState();
-    const nextState = accountReducer(currentState, { type: "salvagePart", partId: part.id });
-    if (nextState === currentState) {
+    const action = { type: "salvagePart", partId: part.id } as const;
+    const nextState = accountReducer(account, action);
+    if (nextState === account) {
       return;
     }
-    applyAccountState(nextState);
+    dispatchAccount(action);
     if (selectedPartId === part.id) {
       setSelectedPartId(nextState.inventory[0]?.id ?? nextState.equipment.core.id);
     }
   };
 
   const applyCraftResult = (sourcePart: TopPartInstance, result: TopCraftResult) => {
-    const currentState = makeAccountState();
-    const nextState = accountReducer(currentState, { type: "applyCraft", sourcePartId: sourcePart.id, result });
-    if (nextState === currentState) {
+    const action = { type: "applyCraft", sourcePartId: sourcePart.id, result } as const;
+    const nextState = accountReducer(account, action);
+    if (nextState === account) {
       return;
     }
-    applyAccountState(nextState);
+    dispatchAccount(action);
     setSelectedPartId(result.part.id);
-    if (currentState.equipment[sourcePart.slot]?.id === sourcePart.id) {
+    if (account.equipment[sourcePart.slot]?.id === sourcePart.id) {
       resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState), currentArenaKey);
     }
     setLootNotices((current) => [
@@ -940,12 +927,12 @@ export function CombatArena() {
       seed: `manual_key_${arenaId}_${Date.now()}`,
       bossGateId: arena.tier >= 3 ? "boss_gate_brass_judicator" : undefined,
     });
-    const currentState = makeAccountState();
-    const nextState = accountReducer(currentState, { type: "forgeArenaKey", key, cost: keyForgeCost });
-    if (nextState === currentState) {
+    const action = { type: "forgeArenaKey", key, cost: keyForgeCost } as const;
+    const nextState = accountReducer(account, action);
+    if (nextState === account) {
       return;
     }
-    applyAccountState(nextState);
+    dispatchAccount(action);
     setSelectedArenaKeyId(key.id);
     setLootNotices((current) => [{ id: `manual_key_${key.id}`, tone: "reward" as const, text: `Forged route key: ${formatKeyTitle(key)}` }, ...current].slice(0, 8));
   };
@@ -954,8 +941,9 @@ export function CombatArena() {
     if (!selectedArenaKey) {
       return;
     }
-    const nextState = accountReducer(makeAccountState(), { type: "runArenaKey", keyId: selectedArenaKey.id });
-    applyAccountState(nextState);
+    const action = { type: "runArenaKey", keyId: selectedArenaKey.id } as const;
+    const nextState = accountReducer(account, action);
+    dispatchAccount(action);
     setSelectedArenaKeyId(nextState.arenaKeys[0]?.id ?? null);
     resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState), selectedArenaKey, "route");
   };
@@ -994,64 +982,64 @@ export function CombatArena() {
 
   const assignRuneToSocket = (runeId: string, socketIndex = selectedRuneSocket) => {
     const nextSocketIndex = Math.max(0, Math.min(2, socketIndex));
-    const currentState = makeAccountState();
-    const nextState = accountReducer(currentState, { type: "assignRune", runeId, socketIndex: nextSocketIndex });
-    if (nextState === currentState) {
+    const action = { type: "assignRune", runeId, socketIndex: nextSocketIndex } as const;
+    const nextState = accountReducer(account, action);
+    if (nextState === account) {
       return;
     }
     setSelectedRuneSocket(nextSocketIndex);
-    applyAccountState(nextState);
+    dispatchAccount(action);
     resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
   };
 
   const clearRuneSocket = (socketIndex = selectedRuneSocket) => {
     const nextSocketIndex = Math.max(0, Math.min(2, socketIndex));
-    const currentState = makeAccountState();
-    const nextState = accountReducer(currentState, { type: "clearRuneSocket", socketIndex: nextSocketIndex });
-    if (nextState === currentState) {
+    const action = { type: "clearRuneSocket", socketIndex: nextSocketIndex } as const;
+    const nextState = accountReducer(account, action);
+    if (nextState === account) {
       setSelectedRuneSocket(nextSocketIndex);
       return;
     }
     setSelectedRuneSocket(nextSocketIndex);
-    applyAccountState(nextState);
+    dispatchAccount(action);
     resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
   };
 
-  const canRefundTalent = (talentId: string): boolean => accountReducer(makeAccountState(), { type: "refundTalent", talentId }).talentIds !== talentIds;
+  const canRefundTalent = (talentId: string): boolean => accountReducer(account, { type: "refundTalent", talentId }).talentIds !== talentIds;
 
-  const canAllocateTalent = (talentId: string): boolean => accountReducer(makeAccountState(), { type: "allocateTalent", talentId }).talentIds !== talentIds;
+  const canAllocateTalent = (talentId: string): boolean => accountReducer(account, { type: "allocateTalent", talentId }).talentIds !== talentIds;
 
   const toggleTalent = (talentId: string) => {
-    const currentState = makeAccountState();
-    const nextState = accountReducer(currentState, talentIds.includes(talentId) ? { type: "refundTalent", talentId } : { type: "allocateTalent", talentId });
-    if (nextState === currentState) {
+    const action = talentIds.includes(talentId) ? ({ type: "refundTalent", talentId } as const) : ({ type: "allocateTalent", talentId } as const);
+    const nextState = accountReducer(account, action);
+    if (nextState === account) {
       return;
     }
-    applyAccountState(nextState);
+    dispatchAccount(action);
     resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
   };
 
-  const canRefundAtlasNode = (nodeId: string): boolean => accountReducer(makeAccountState(), { type: "refundAtlasNode", nodeId }).circuitAtlasNodeIds !== circuitAtlasNodeIds;
+  const canRefundAtlasNode = (nodeId: string): boolean => accountReducer(account, { type: "refundAtlasNode", nodeId }).circuitAtlasNodeIds !== circuitAtlasNodeIds;
 
-  const canAllocateAtlasNode = (nodeId: string): boolean => accountReducer(makeAccountState(), { type: "allocateAtlasNode", nodeId }).circuitAtlasNodeIds !== circuitAtlasNodeIds;
+  const canAllocateAtlasNode = (nodeId: string): boolean => accountReducer(account, { type: "allocateAtlasNode", nodeId }).circuitAtlasNodeIds !== circuitAtlasNodeIds;
 
   const toggleAtlasNode = (nodeId: string) => {
-    const currentState = makeAccountState();
-    const nextState = accountReducer(currentState, circuitAtlasNodeIds.includes(nodeId) ? { type: "refundAtlasNode", nodeId } : { type: "allocateAtlasNode", nodeId });
-    if (nextState === currentState) {
+    const action = circuitAtlasNodeIds.includes(nodeId) ? ({ type: "refundAtlasNode", nodeId } as const) : ({ type: "allocateAtlasNode", nodeId } as const);
+    const nextState = accountReducer(account, action);
+    if (nextState === account) {
       return;
     }
-    applyAccountState(nextState);
+    dispatchAccount(action);
     resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
   };
 
   const selectDoctrine = (nextDoctrineId: string | null) => {
-    const currentState = makeAccountState();
-    const nextState = accountReducer(currentState, { type: "selectDoctrine", doctrineId: nextDoctrineId });
-    if (nextState === currentState) {
+    const action = { type: "selectDoctrine", doctrineId: nextDoctrineId } as const;
+    const nextState = accountReducer(account, action);
+    if (nextState === account) {
       return;
     }
-    applyAccountState(nextState);
+    dispatchAccount(action);
     resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
   };
 
@@ -1116,10 +1104,10 @@ export function CombatArena() {
       return;
     }
     if (runtime.kills > last.kills) {
-      applyAccountState(accountReducer(makeAccountState(), { type: "addKills", amount: runtime.kills - last.kills }));
+      dispatchAccount({ type: "addKills", amount: runtime.kills - last.kills });
       lastKillRef.current = { seed: runtime.seed, kills: runtime.kills };
     }
-  }, [applyAccountState, makeAccountState, runtime.kills, runtime.seed]);
+  }, [runtime.kills, runtime.seed]);
 
   useEffect(() => {
     const last = lastRouteClearRef.current;
@@ -1140,8 +1128,8 @@ export function CombatArena() {
           bossGateId: arena.tier >= 3 ? "boss_gate_brass_judicator" : undefined,
         }),
       );
-      const nextState = accountReducer(makeAccountState(), { type: "addRouteClear", arenaId, keys: newKeys });
-      applyAccountState(nextState);
+      const action = { type: "addRouteClear", arenaId, keys: newKeys } as const;
+      dispatchAccount(action);
       setSelectedArenaKeyId(newKeys[0]?.id ?? selectedArenaKeyId);
       setLootNotices((current) => [
         ...newKeys.map((key) => ({ id: `key_${key.id}`, tone: "reward" as const, text: `Forged route key: ${formatKeyTitle(key)}` })),
@@ -1149,14 +1137,14 @@ export function CombatArena() {
       ].slice(0, 8));
       lastRouteClearRef.current = { seed: runtime.seed, routeClears: runtime.routeClears };
     }
-  }, [applyAccountState, arena.tier, arenaId, makeAccountState, runtime.routeClears, runtime.seed, selectedArenaKeyId]);
+  }, [account, arena.tier, arenaId, runtime.routeClears, runtime.seed, selectedArenaKeyId]);
 
   useEffect(() => {
     if (runtime.mode !== "duel" || runtime.outcome !== "victory" || lastDuelVictoryRef.current === runtime.seed) {
       return;
     }
     lastDuelVictoryRef.current = runtime.seed;
-    applyAccountState(accountReducer(makeAccountState(), { type: "markBossGateCleared", gateId: bossProjection.gateId }));
+    dispatchAccount({ type: "markBossGateCleared", gateId: bossProjection.gateId });
     setLootNotices((current) =>
       [
         {
@@ -1167,7 +1155,7 @@ export function CombatArena() {
         ...current,
       ].slice(0, 8),
     );
-  }, [applyAccountState, bossProjection.gateId, makeAccountState, runtime.mode, runtime.outcome, runtime.seed]);
+  }, [bossProjection.gateId, runtime.mode, runtime.outcome, runtime.seed]);
 
   useEffect(() => {
     if (offlineSettlementAppliedRef.current) {
@@ -1197,11 +1185,13 @@ export function CombatArena() {
       return;
     }
 
-    let nextState = accountReducer(makeAccountState(), { type: "addKills", amount: settlement.kills });
+    let nextState = accountReducer(account, { type: "addKills", amount: settlement.kills });
     nextState = accountReducer(nextState, { type: "ingestDrops", parts: settlement.parts, capacity: inventoryCapacity });
-    nextState = { ...nextState, wallet: addWallet(nextState.wallet, settlement.wallet) };
+    nextState = accountReducer(nextState, { type: "addWallet", wallet: settlement.wallet });
     const firstKeptPart = nextState.inventory.find((part) => settlement.parts.some((drop) => drop.id === part.id));
-    applyAccountState(nextState);
+    dispatchAccount({ type: "addKills", amount: settlement.kills });
+    dispatchAccount({ type: "ingestDrops", parts: settlement.parts, capacity: inventoryCapacity });
+    dispatchAccount({ type: "addWallet", wallet: settlement.wallet });
     if (firstKeptPart) {
       setSelectedPartId(firstKeptPart.id);
     }
@@ -1223,7 +1213,7 @@ export function CombatArena() {
       ].slice(0, 8),
     );
   }, [
-    applyAccountState,
+    account,
     arena.tier,
     arenaId,
     currentStats.partQuantity,
@@ -1233,7 +1223,6 @@ export function CombatArena() {
     initialSave.lastSavedAt,
     initialSave.top.lastSettledAt,
     loadout,
-    makeAccountState,
   ]);
 
   useEffect(() => {
@@ -1266,15 +1255,14 @@ export function CombatArena() {
     }
 
     if (newParts.length > 0) {
-      const currentState = makeAccountState();
-      const nextState = accountReducer(currentState, { type: "ingestDrops", parts: newParts, capacity: inventoryCapacity });
+      const action = { type: "ingestDrops", parts: newParts, capacity: inventoryCapacity } as const;
       const merged = mergeInventoryParts(newParts, inventory, inventoryCapacity);
       const keptDrop = newParts.find((part) => merged.items.some((item) => item.id === part.id));
       const notices: LootNotice[] = [
         ...newParts.map((part) => ({ id: `loot_${part.id}`, tone: "drop" as const, rarity: part.rarity, text: `Picked ${part.rarity} ${part.displayName}` })),
         ...merged.overflow.map((part) => ({ id: `salvage_${part.id}`, tone: "salvage" as const, text: `Auto-salvaged ${part.displayName}` })),
       ];
-      applyAccountState(nextState);
+      dispatchAccount(action);
       if (keptDrop) {
         setSelectedPartId(keptDrop.id);
       }
@@ -1283,7 +1271,7 @@ export function CombatArena() {
         openPanel("inventory");
       }
     }
-  }, [applyAccountState, arena.tier, inventory, makeAccountState, openPanel, running, runtime.drops, runtime.seed, runtime.wave]);
+  }, [account, arena.tier, inventory, openPanel, running, runtime.drops, runtime.seed, runtime.wave]);
 
   const selectedPartInInventory = selectedPart ? inventory.some((part) => part.id === selectedPart.id) : false;
   const selectedPartEquipped = selectedPart ? selectedCurrentPart?.id === selectedPart.id : false;

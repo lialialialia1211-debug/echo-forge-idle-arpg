@@ -34,6 +34,7 @@ export type AccountAction =
   | { type: "forgeArenaKey"; key: ArenaKey; cost?: AccountWallet }
   | { type: "runArenaKey"; keyId: string }
   | { type: "ingestDrops"; parts: TopPartInstance[]; capacity?: number }
+  | { type: "addWallet"; wallet: AccountWallet }
   | { type: "addKills"; amount: number }
   | { type: "addRouteClear"; arenaId: string; keys: ArenaKey[] };
 
@@ -315,6 +316,12 @@ export function accountReducer(state: AccountRuntimeState, action: AccountAction
         wallet: merged.overflow.length > 0 ? addWallet(state.wallet, salvageParts(merged.overflow)) : state.wallet,
       };
     }
+
+    case "addWallet":
+      return {
+        ...state,
+        wallet: addWallet(state.wallet, action.wallet),
+      };
 
     case "addKills":
       return {

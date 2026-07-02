@@ -167,11 +167,12 @@ describe("accountReducer", () => {
     const keyed = accountReducer(craftedState, { type: "forgeArenaKey", key, cost: { ash: 6, glass: 1, echo: 0 } });
     const cleared = accountReducer(keyed, { type: "addRouteClear", arenaId: "arena_cinder_crucible", keys: [key] });
     const killed = accountReducer(cleared, { type: "addKills", amount: 12 });
+    const paid = accountReducer(killed, { type: "addWallet", wallet: { ash: 3, glass: 0, echo: 1 } });
 
-    expect(killed.inventory[0].id).toBe("crafted_source");
-    expect(killed.wallet).toEqual({ ash: 1, glass: 7, echo: 1 });
-    expect(killed.arenaKeys).toHaveLength(2);
-    expect(killed.routeClears.arena_cinder_crucible).toBe(1);
-    expect(killed.totalKills).toBe(12);
+    expect(paid.inventory[0].id).toBe("crafted_source");
+    expect(paid.wallet).toEqual({ ash: 4, glass: 7, echo: 2 });
+    expect(paid.arenaKeys).toHaveLength(2);
+    expect(paid.routeClears.arena_cinder_crucible).toBe(1);
+    expect(paid.totalKills).toBe(12);
   });
 });
