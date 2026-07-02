@@ -6,6 +6,7 @@ import { resolveCircuitAtlasBonuses } from "../data/circuitAtlasNodes";
 import { resolveDoctrineBonuses } from "../data/doctrines";
 import { getDriveCoreDef } from "../data/driveCores";
 import { enemyModifiers } from "../data/enemyModifiers";
+import { getNamedRivalDef } from "../data/namedRivals";
 import { getTopFrameDef } from "../data/topFrames";
 import { getTopPartBaseDef } from "../data/topParts";
 import { getTuningRuneDef } from "../data/tuningRunes";
@@ -29,6 +30,7 @@ import type {
   CombatEvent,
   EnemyBehaviorId,
   EnemyModifierDef,
+  NamedRivalDef,
   TopArenaDefeatCause,
   TopArenaRuntime,
   TopCollisionEvent,
@@ -51,6 +53,7 @@ const bossPhaseTwoGateRatio = 0.66;
 const bossPhaseThreeGateRatio = 0.33;
 const bossPhaseGateCooldownSeconds = 1.35;
 const routeTransitionCooldownSeconds = 4.5;
+const rivalBossDurabilityScalar = 2.2;
 
 type ActiveRuneBehaviors = Partial<Record<NonNullable<TuningRuneDef["behavior"]>, number>>;
 
@@ -405,6 +408,20 @@ function createEnemyStats(arenaId: string, rank: TopRuntimeEntity["rank"], wave:
   };
 }
 
+function createRivalBossStats(rival: NamedRivalDef): TopRuntimeStats {
+  const resolvedStats = resolveTopRuntimeStats(rival.frameId, rival.driveId, rival.loadout);
+  const durabilityScalar = rivalBossDurabilityScalar * (rival.integrityScalar ?? 1);
+
+  return {
+    ...resolvedStats,
+    maxSpinIntegrity: resolvedStats.maxSpinIntegrity * durabilityScalar,
+    maxFluxGuard: resolvedStats.maxFluxGuard * Math.sqrt(durabilityScalar),
+    guard: resolvedStats.guard * 1.15,
+    partQuantity: 0,
+    partRarity: 0,
+  };
+}
+
 function mapProgressRatio(runtime: Pick<TopArenaRuntime, "mapKills" | "mapKillTarget">): number {
   return clamp(runtime.mapKills / Math.max(1, runtime.mapKillTarget), 0, 1);
 }
@@ -450,9 +467,10 @@ function spawnEnemy(runtime: TopArenaRuntime, rankOverride?: TopRuntimeEntity["r
   const rank = rankOverride ?? smallEnemyRankForSpawn(runtime, rng);
   const radius = rank === "boss" ? 38 : rank === "elite" ? 27 : 20;
   const difficultyWave = difficultyWaveForRuntime(runtime);
-  const modifier = chooseEnemyModifier(runtime.arenaId, spawnIndex, runtime.seed);
-  const behaviorId = behaviorForEnemy(rank, modifier);
-  const baseStats = createEnemyStats(runtime.arenaId, rank, difficultyWave, runtime.arenaKey, runtime.activeEvent, modifier, runtime.loadout);
+  const rival = rank === "boss" && runtime.mode === "duel" && runtime.rivalId ? getNamedRivalDef(runtime.rivalId) : undefined;
+  const modifier = rival ? undefined : chooseEnemyModifier(runtime.arenaId, spawnIndex, runtime.seed);
+  const behaviorId = rank === "boss" ? "bossJudicator" : behaviorForEnemy(rank, modifier!);
+  const baseStats = rival ? createRivalBossStats(rival) : createEnemyStats(runtime.arenaId, rank, difficultyWave, runtime.arenaKey, runtime.activeEvent, modifier, runtime.loadout);
   const stats =
     rank === "boss"
       ? {
@@ -465,11 +483,11 @@ function spawnEnemy(runtime: TopArenaRuntime, rankOverride?: TopRuntimeEntity["r
   const physics = resolveStatsPhysics(stats);
   const maxFlux = physics.maxFlux;
   const distance = arenaRadius * (rank === "boss" ? 0.5 + rng.next() * 0.08 : 0.72 + rng.next() * 0.19);
-  const baseName = rank === "boss" ? "Brass Judicator" : rank === "elite" ? "Scored Iron Rival" : "Cinder Runner";
+  const baseName = rival?.displayName ?? (rank === "boss" ? "Brass Judicator" : rank === "elite" ? "Scored Iron Rival" : "Cinder Runner");
   const enemy: TopRuntimeEntity = {
     id: `enemy_${spawnIndex}_${rank}`,
     team: "enemy",
-    name: `${modifier.displayName} ${baseName}`,
+    name: modifier ? `${modifier.displayName} ${baseName}` : baseName,
     rank,
     x: Math.cos(angle) * distance,
     y: Math.sin(angle) * distance,
@@ -490,12 +508,17 @@ function spawnEnemy(runtime: TopArenaRuntime, rankOverride?: TopRuntimeEntity["r
     behaviorId,
     bossPhase: rank === "boss" ? 1 : undefined,
     phaseGateCooldown: 0,
-    enemyModifier: {
-      modifierId: modifier.id,
-      displayName: modifier.displayName,
-      rewardQuantity: modifier.rewardQuantity ?? 0,
-      rewardRarity: modifier.rewardRarity ?? 0,
-    },
+    driveId: rival?.driveId,
+    rivalId: rival?.id,
+    rivalMechanicId: rival?.mechanicId,
+    enemyModifier: modifier
+      ? {
+          modifierId: modifier.id,
+          displayName: modifier.displayName,
+          rewardQuantity: modifier.rewardQuantity ?? 0,
+          rewardRarity: modifier.rewardRarity ?? 0,
+        }
+      : undefined,
   };
 
   let nextRuntime = addEffect(
@@ -601,6 +624,7 @@ export function createTopArenaRuntime({
   seed = "top_arena",
   arenaKey,
   mode = "route",
+  rivalId,
 }: {
   arenaId: string;
   frameId: string;
@@ -609,13 +633,15 @@ export function createTopArenaRuntime({
   seed?: string;
   arenaKey?: ArenaKey;
   mode?: TopArenaRuntime["mode"];
+  rivalId?: string;
 }): TopArenaRuntime {
+  const rival = mode === "duel" && rivalId ? getNamedRivalDef(rivalId) : undefined;
   const activeEvent = mode === "duel" ? undefined : createArenaEventState(arenaId, seed, arenaKey);
   const routeMechanic = mode === "duel" ? undefined : createRouteMechanicState(loadout);
   const initialEvents: ArenaLogEvent[] = [
     ...(activeEvent ? [{ id: "top_event_event", tone: "danger" as const, text: `${activeEvent.displayName}: ${activeEvent.logText}` }] : []),
     ...(routeMechanic ? [{ id: "top_event_route", tone: "reward" as const, text: `${routeMechanic.displayName} opened; shatter rivals before it collapses` }] : []),
-    ...(mode === "duel" ? [{ id: "top_event_duel", tone: "danger" as const, text: "Duel Gate armed; shatter the Brass Judicator" }] : []),
+    ...(mode === "duel" ? [{ id: "top_event_duel", tone: "danger" as const, text: `Duel Gate armed; shatter ${rival?.displayName ?? "the Brass Judicator"}` }] : []),
     { id: "top_event_0", tone: "reward" as const, text: "Arena coil is armed" },
   ].slice(0, maxEvents);
   const mapKillTarget = mode === "duel" ? 1 : createMapKillTarget(arenaId, seed, 0, arenaKey);
@@ -624,6 +650,7 @@ export function createTopArenaRuntime({
     seed,
     arenaId,
     mode,
+    rivalId: rival?.id,
     arenaKey,
     activeEvent,
     routeMechanic,

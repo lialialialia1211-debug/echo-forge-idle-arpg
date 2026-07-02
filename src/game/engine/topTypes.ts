@@ -479,6 +479,8 @@ export type TopRuntimeEntity = {
   cooldownRemaining: number;
   stats: TopRuntimeStats;
   driveId?: string;
+  rivalId?: string;
+  rivalMechanicId?: RivalMechanicId;
   enemyModifier?: EnemyModifierState;
   behaviorId?: EnemyBehaviorId;
   bossPhase?: 1 | 2 | 3;
@@ -580,6 +582,7 @@ export type TopArenaRuntime = {
   seed: string;
   arenaId: string;
   mode: "route" | "duel";
+  rivalId?: string;
   arenaKey?: ArenaKey;
   activeEvent?: ArenaEventState;
   routeMechanic?: ArenaRouteMechanicState;

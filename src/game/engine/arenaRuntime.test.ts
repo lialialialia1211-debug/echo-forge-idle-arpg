@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { collisionSpinEnergyLoss, createCollisionDamage, createTopArenaRuntime, resolveTopCollisionPhysics, stepTopArenaRuntime } from "./arenaRuntime";
 import { createCollisionPacket } from "./topCombat";
+import { resolveTopRuntimeStats } from "./topAssembly";
 import { generateTopPart } from "./topPartGeneration";
+import { getNamedRivalDef } from "../data/namedRivals";
 import { createStarterEquipment } from "../data/topParts";
 import type { AilmentState, TopRuntimeEntity } from "./topTypes";
 
@@ -575,6 +577,32 @@ describe("top arena runtime", () => {
     expect(next.enemies).toHaveLength(1);
     expect(next.enemies[0].rank).toBe("boss");
     expect(next.enemies.some((enemy) => enemy.rank !== "boss")).toBe(false);
+  });
+
+  it("duel mode resolves named rival boss stats from the rival build", () => {
+    const rival = getNamedRivalDef("rival_sable_reflector");
+    const rivalStats = resolveTopRuntimeStats(rival.frameId, rival.driveId, rival.loadout);
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_red_chancel_disk",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "rival_stat_resolution_test",
+      mode: "duel",
+      rivalId: rival.id,
+    });
+
+    const next = stepTopArenaRuntime(runtime, 0.05);
+    const boss = next.enemies[0];
+
+    expect(next.rivalId).toBe(rival.id);
+    expect(boss.rivalId).toBe(rival.id);
+    expect(boss.rivalMechanicId).toBe(rival.mechanicId);
+    expect(boss.driveId).toBe(rival.driveId);
+    expect(boss.name).toContain(rival.displayName);
+    expect(boss.stats.rpm).toBeCloseTo(rivalStats.rpm, 5);
+    expect(boss.stats.mass).toBeCloseTo(rivalStats.mass, 5);
+    expect(boss.stats.impact).toBeCloseTo(rivalStats.impact, 5);
+    expect(boss.stats.maxSpinIntegrity).toBeCloseTo(rivalStats.maxSpinIntegrity * 2.2 * (rival.integrityScalar ?? 1), 5);
   });
 
   it("duel mode uses a smaller ring-out boundary", () => {
