@@ -387,6 +387,20 @@ export type CircuitNetworkNodeDef = {
   requiredNodeIds?: string[];
 };
 
+export type RivalMechanicId = "reflectProjectiles" | "gravityWell" | "heavyCrash" | "phaseShift" | "ringWard";
+
+export type NamedRivalDef = {
+  id: string;
+  displayName: string;
+  frameId: string;
+  driveId: string;
+  loadout: TopLoadoutConfig;
+  mechanicId: RivalMechanicId;
+  circuitNodeId: string;
+  uniqueDropBaseIds: string[];
+  integrityScalar?: number;
+};
+
 export type DoctrineRule = "selfHazardSafe" | "anchorMass" | "overloadSurge" | "precisionBleed" | "fluxRecursion" | "stormConduit";
 
 export type DoctrineNodeDef = {

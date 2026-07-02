@@ -11,12 +11,14 @@ import { doctrines } from "./doctrines";
 import { driveCores } from "./driveCores";
 import { enemyModifiers } from "./enemyModifiers";
 import { topEngravings } from "./engravings";
+import { namedRivals, rivalMechanicIds } from "./namedRivals";
 import { talentNodes } from "./talentNodes";
 import { topPartBases } from "./topPartBases";
 import { topFrames } from "./topFrames";
 import { tuningRunes } from "./tuningRunes";
 import { generateArenaKey, isArenaKeyLegal } from "../engine/arenaKeys";
 import { validateRuneLoadout } from "../engine/driveRuneValidation";
+import { resolveTopRuntimeStats } from "../engine/topAssembly";
 import { generateTopPart } from "../engine/topPartGeneration";
 import { isTopPartLegal } from "../engine/topCrafting";
 import type { DriveTag } from "../engine/topTypes";
@@ -70,6 +72,7 @@ describe("top ARPG data integrity", () => {
     expectUnique(doctrines.map((entry) => entry.id));
     expectUnique(doctrines.flatMap((entry) => entry.nodes.map((node) => node.id)));
     expectUnique(circuitNetworkNodes.map((entry) => entry.id));
+    expectUnique(namedRivals.map((entry) => entry.id));
   });
 
   it("has enough content for the first vertical slice", () => {
@@ -83,6 +86,7 @@ describe("top ARPG data integrity", () => {
     expect(talentNodes.length).toBeGreaterThanOrEqual(90);
     expect(doctrines.length).toBeGreaterThanOrEqual(6);
     expect(arenaAnomalies.length).toBeGreaterThanOrEqual(1);
+    expect(namedRivals.length).toBeGreaterThanOrEqual(rivalMechanicIds.length);
   });
 
   it("keeps frame, drive, rune, and tag references valid", () => {
@@ -298,6 +302,36 @@ describe("top ARPG data integrity", () => {
       for (const requiredId of node.requiredNodeIds ?? []) {
         expect(networkIds.has(requiredId)).toBe(true);
       }
+    }
+  });
+
+  it("keeps named rivals as legal data-driven builds", () => {
+    const frameIds = new Set(topFrames.map((entry) => entry.id));
+    const driveIds = new Set(driveCores.map((entry) => entry.id));
+    const talentIds = new Set(talentNodes.map((entry) => entry.id));
+    const circuitNodeIds = new Set(circuitNetworkNodes.map((entry) => entry.id));
+    const partBaseIds = new Set(topPartBases.map((entry) => entry.id));
+    const doctrineById = new Map(doctrines.map((entry) => [entry.id, entry]));
+    const validMechanicIds = new Set(rivalMechanicIds);
+
+    for (const rival of namedRivals) {
+      expect(frameIds.has(rival.frameId)).toBe(true);
+      expect(driveIds.has(rival.driveId)).toBe(true);
+      expect(validMechanicIds.has(rival.mechanicId)).toBe(true);
+      expect(circuitNodeIds.has(rival.circuitNodeId)).toBe(true);
+      expect(rival.uniqueDropBaseIds.length).toBeGreaterThan(0);
+      expect(rival.uniqueDropBaseIds.every((baseId) => partBaseIds.has(baseId))).toBe(true);
+      expect(rival.integrityScalar ?? 1).toBeGreaterThan(0);
+      expect(validateRuneLoadout(rival.driveId, rival.loadout.runeIds ?? []).issues).toEqual([]);
+      expect((rival.loadout.talentIds ?? []).every((talentId) => talentIds.has(talentId))).toBe(true);
+      if (rival.loadout.doctrineId) {
+        expect(doctrineById.get(rival.loadout.doctrineId)?.frameId).toBe(rival.frameId);
+      }
+
+      const stats = resolveTopRuntimeStats(rival.frameId, rival.driveId, rival.loadout);
+      expect(stats.maxSpinIntegrity).toBeGreaterThan(0);
+      expect(stats.impact).toBeGreaterThan(0);
+      expect(stats.rpm).toBeGreaterThan(0);
     }
   });
 
