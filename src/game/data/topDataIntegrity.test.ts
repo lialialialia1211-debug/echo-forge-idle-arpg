@@ -85,7 +85,7 @@ describe("top ARPG data integrity", () => {
     expect(circuitAtlasNodes.length).toBeGreaterThanOrEqual(12);
     expect(talentNodes.length).toBeGreaterThanOrEqual(90);
     expect(doctrines.length).toBeGreaterThanOrEqual(6);
-    expect(arenaAnomalies.length).toBeGreaterThanOrEqual(1);
+    expect(arenaAnomalies.length).toBeGreaterThanOrEqual(5);
     expect(namedRivals.length).toBeGreaterThanOrEqual(rivalMechanicIds.length);
     expect(circuitNetworkNodes.length).toBeGreaterThanOrEqual(12);
     expect(circuitNetworkNodes.length).toBeLessThanOrEqual(16);
@@ -279,8 +279,10 @@ describe("top ARPG data integrity", () => {
 
   it("keeps circuit network and anomaly references valid", () => {
     const arenaIds = new Set(arenaCircuits.map((entry) => entry.id));
+    const arenaById = new Map(arenaCircuits.map((entry) => [entry.id, entry]));
     const bossGateIds = new Set(bossGates.map((entry) => entry.id));
     const anomalyIds = new Set(arenaAnomalies.map((entry) => entry.id));
+    const anomalyById = new Map(arenaAnomalies.map((entry) => [entry.id, entry]));
     const networkIds = new Set(circuitNetworkNodes.map((entry) => entry.id));
     const rivalIds = new Set(namedRivals.map((entry) => entry.id));
     const roots = circuitNetworkNodes.filter((node) => !node.requiredNodeIds || node.requiredNodeIds.length === 0).map((node) => node.id);
@@ -341,6 +343,7 @@ describe("top ARPG data integrity", () => {
       }
       if (node.anomalyId) {
         expect(anomalyIds.has(node.anomalyId)).toBe(true);
+        expect(arenaById.get(node.arenaId)?.tier).toBeGreaterThanOrEqual(anomalyById.get(node.anomalyId)?.minTier ?? 0);
       }
       for (const requiredId of node.requiredNodeIds ?? []) {
         expect(networkIds.has(requiredId)).toBe(true);
@@ -348,6 +351,7 @@ describe("top ARPG data integrity", () => {
     }
     expect(roots).toContain("network_cinder_gate");
     expect(reachable.size).toBe(circuitNetworkNodes.length);
+    expect(circuitNetworkNodes.filter((node) => node.anomalyId).length).toBeGreaterThanOrEqual(8);
     expect(circuitNetworkNodes.some((node) => visit(node.id))).toBe(false);
   });
 

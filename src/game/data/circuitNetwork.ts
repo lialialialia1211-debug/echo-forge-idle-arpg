@@ -29,6 +29,7 @@ export const circuitNetworkNodes: CircuitNetworkNodeDef[] = [
     arenaId: "arena_glass_mire_basin",
     requiredNodeIds: ["network_glass_branch"],
     requiredRivalId: "rival_rim_warden",
+    anomalyId: "anomaly_glass_hail",
   },
   {
     id: "network_brass_judicator",
@@ -47,6 +48,7 @@ export const circuitNetworkNodes: CircuitNetworkNodeDef[] = [
     requiredNodeIds: ["network_molten_spur", "network_brass_judicator"],
     requiredRivalId: "rival_sable_reflector",
     unlocksRivalId: "rival_brass_crasher",
+    anomalyId: "anomaly_ember_backdraft",
   },
   {
     id: "network_flux_monsoon",
@@ -74,7 +76,7 @@ export const circuitNetworkNodes: CircuitNetworkNodeDef[] = [
     arenaId: "arena_red_chancel_disk",
     requiredNodeIds: ["network_magnet_well"],
     requiredRivalId: "rival_magnet_oracle",
-    anomalyId: "anomaly_flux_monsoon",
+    anomalyId: "anomaly_static_overload",
   },
   {
     id: "network_phase_lattice",
@@ -84,7 +86,7 @@ export const circuitNetworkNodes: CircuitNetworkNodeDef[] = [
     requiredNodeIds: ["network_lattice_slip"],
     requiredRivalId: "rival_magnet_oracle",
     unlocksRivalId: "rival_lattice_apparition",
-    anomalyId: "anomaly_flux_monsoon",
+    anomalyId: "anomaly_static_overload",
   },
   {
     id: "network_orbit_confluence",
@@ -101,7 +103,7 @@ export const circuitNetworkNodes: CircuitNetworkNodeDef[] = [
     arenaId: "arena_red_chancel_disk",
     requiredNodeIds: ["network_molten_bastion", "network_phase_lattice"],
     requiredRivalId: "rival_brass_crasher",
-    anomalyId: "anomaly_flux_monsoon",
+    anomalyId: "anomaly_void_lens",
   },
   {
     id: "network_mapwright_accord",
@@ -110,6 +112,6 @@ export const circuitNetworkNodes: CircuitNetworkNodeDef[] = [
     arenaId: "arena_red_chancel_disk",
     requiredNodeIds: ["network_orbit_confluence", "network_chancel_apex"],
     requiredRivalId: "rival_lattice_apparition",
-    anomalyId: "anomaly_flux_monsoon",
+    anomalyId: "anomaly_void_lens",
   },
 ];
