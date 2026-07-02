@@ -772,6 +772,50 @@ function steerEntity(
 
 type CollisionDamageContext = Pick<TopCollisionEvent, "kind" | "normalImpulse" | "tangentImpulse" | "relativeNormalSpeed" | "relativeTangentialSpeed" | "surfaceShear" | "sparkIntensity" | "contactAge" | "heavy">;
 
+function collisionMatchesTrigger(trigger: ReturnType<typeof getDriveCoreDef>["collisionTrigger"], collision?: CollisionDamageContext): boolean {
+  if (!trigger || !collision) {
+    return false;
+  }
+  if (trigger.requireKinds && !trigger.requireKinds.includes(collision.kind)) {
+    return false;
+  }
+  if (trigger.minSparkIntensity !== undefined && collision.sparkIntensity <= trigger.minSparkIntensity) {
+    return false;
+  }
+  if (trigger.requireHeavy && !collision.heavy) {
+    return false;
+  }
+  return true;
+}
+
+function addCollisionBonus(packet: ReturnType<typeof emptyDamagePacket>, attacker: TopRuntimeEntity, collision: CollisionDamageContext): ReturnType<typeof emptyDamagePacket> {
+  const drive = getDriveCoreDef(attacker.driveId ?? "drive_shard_barrage");
+  const bonus = drive.collisionBonus;
+  if (!bonus) {
+    return packet;
+  }
+  const bonusDamage =
+    collision.surfaceShear * (bonus.fromSurfaceShear ?? 0) +
+    (!collision.heavy ? collision.surfaceShear * (bonus.fromSurfaceShearWhenNotHeavy ?? 0) : 0) +
+    Math.abs(collision.tangentImpulse) * (bonus.fromTangentImpulse ?? 0) +
+    collision.sparkIntensity * (bonus.fromSparkIntensity ?? 0) +
+    collision.normalImpulse * (bonus.fromNormalImpulse ?? 0) +
+    (collision.heavy ? collision.normalImpulse * (bonus.fromNormalImpulseOnHeavy ?? 0) : 0) +
+    (collision.kind === "grind" ? collision.contactAge * (bonus.fromContactAgeOnGrind ?? 0) : 0) +
+    attacker.stats.rpm * (bonus.fromRpm ?? 0);
+
+  return {
+    ...packet,
+    [bonus.damageType]: packet[bonus.damageType] + bonusDamage,
+  };
+}
+
+function collisionHazardIntensity(hazard: NonNullable<ReturnType<typeof getDriveCoreDef>["collisionHazard"]>, collision: CollisionDamageContext): number {
+  const rawBonus = collision.sparkIntensity * (hazard.fromSparkIntensity ?? 0) + collision.contactAge * (hazard.fromContactAge ?? 0);
+  const cappedBonus = hazard.maxIntensityBonus === undefined ? rawBonus : Math.min(hazard.maxIntensityBonus, rawBonus);
+  return hazard.baseIntensity + cappedBonus;
+}
+
 export function createCollisionDamage(attacker: TopRuntimeEntity, defender: TopRuntimeEntity, collision?: CollisionDamageContext): ReturnType<typeof emptyDamagePacket> {
   const physics = resolveStatsPhysics(attacker.stats);
   const impactSeed = collisionImpactSeedFromMass(physics.designMass);
@@ -785,27 +829,15 @@ export function createCollisionDamage(attacker: TopRuntimeEntity, defender: TopR
 
 function createSkillDamage(attacker: TopRuntimeEntity, collision?: CollisionDamageContext, behaviors: ActiveRuneBehaviors = {}): ReturnType<typeof emptyDamagePacket> {
   const drive = getDriveCoreDef(attacker.driveId ?? "drive_shard_barrage");
-  const packet = { ...(drive.hit?.damage ?? drive.baseDamage) };
+  let packet = { ...(drive.hit?.damage ?? drive.baseDamage) };
   if (collision && (drive.trigger === "onCollision" || drive.trigger === "onHeavyCollision")) {
     const scrapeBonus = collision.kind === "scrape" ? collision.surfaceShear * 0.28 + Math.abs(collision.tangentImpulse) * 0.34 : 0;
     const smashBonus = collision.kind === "smash" ? collision.normalImpulse * 0.42 : 0;
     packet.impact += collision.normalImpulse * 0.2 + Math.abs(collision.tangentImpulse) * (0.22 + attacker.stats.edge) + scrapeBonus + smashBonus;
     packet.impact *= collision.heavy ? 1.14 : 1;
   }
-  if (collision && drive.id === "drive_shard_barrage") {
-    packet.impact += collision.surfaceShear * 0.2 + Math.abs(collision.tangentImpulse) * 0.3;
-  }
-  if (collision && drive.id === "drive_ember_scour") {
-    packet.heat += collision.surfaceShear * 0.18 + (collision.kind === "grind" ? collision.contactAge * 90 : 0);
-  }
-  if (collision && drive.id === "drive_molten_groove") {
-    packet.heat += collision.surfaceShear * 0.26 + collision.contactAge * 120;
-  }
-  if (collision && drive.id === "drive_storm_lattice") {
-    packet.static += collision.sparkIntensity * 34 + attacker.stats.rpm * 5;
-  }
-  if (collision && drive.id === "drive_chain_tempest") {
-    packet.static += collision.sparkIntensity * 48 + (collision.heavy ? collision.normalImpulse * 0.32 : collision.surfaceShear * 0.12);
+  if (collision) {
+    packet = addCollisionBonus(packet, attacker, collision);
   }
   if (behaviorCount(behaviors, "projectileCount") > 0 && drive.tags.includes("projectile")) {
     packet.impact += attacker.stats.impact * 0.22 * behaviorCount(behaviors, "projectileCount");
@@ -1839,14 +1871,7 @@ function resolvePlayerSkill(runtime: TopArenaRuntime): TopArenaRuntime {
   const runeValidation = validateRuneLoadout(runtime.driveId, runtime.loadout.runeIds ?? []);
   const collisionTarget = runtime.lastCollision ? runtime.enemies.find((enemy) => enemy.id === runtime.lastCollision?.enemyId) : undefined;
   const collisionReady = Boolean(collisionTarget && runtime.lastCollision);
-  const collisionKind = runtime.lastCollision?.kind;
-  const collisionDriven =
-    collisionReady &&
-    (drive.id === "drive_shard_barrage" ||
-      (drive.id === "drive_ember_scour" && (collisionKind === "scrape" || collisionKind === "grind")) ||
-      (drive.id === "drive_molten_groove" && collisionKind === "grind") ||
-      (drive.id === "drive_storm_lattice" && (runtime.lastCollision?.sparkIntensity ?? 0) > 1.7) ||
-      (drive.id === "drive_chain_tempest" && Boolean(runtime.lastCollision?.heavy)));
+  const collisionDriven = collisionReady && collisionMatchesTrigger(drive.collisionTrigger, runtime.lastCollision);
   const target = drive.trigger === "onCollision" || drive.trigger === "onHeavyCollision" || collisionDriven ? collisionTarget : runtime.enemies[0];
   if (!target || runtime.player.cooldownRemaining > 0) {
     return runtime;
@@ -1959,13 +1984,13 @@ function resolvePlayerSkill(runtime: TopArenaRuntime): TopArenaRuntime {
     nextRuntime = damagePlayer(nextRuntime, nextRuntime.player.stats.maxSpinIntegrity * 0.004 * behaviorCount(runeBehaviors, "risk"));
   }
 
-  if (runtime.lastCollision && (drive.id === "drive_molten_groove" || (drive.id === "drive_ember_scour" && runtime.lastCollision.kind === "grind"))) {
+  if (runtime.lastCollision && drive.collisionHazard && collisionMatchesTrigger({ requireKinds: drive.collisionHazard.requireKinds }, runtime.lastCollision)) {
     nextRuntime = addEffect(nextRuntime, {
       kind: "hazard",
       x: runtime.lastCollision.x,
       y: runtime.lastCollision.y,
-      lifetime: drive.id === "drive_molten_groove" ? 2.6 : 1.8,
-      intensity: drive.id === "drive_molten_groove" ? 1.25 + Math.min(1.4, runtime.lastCollision.contactAge * 2.2) : 0.85 + Math.min(1, runtime.lastCollision.sparkIntensity * 0.2),
+      lifetime: drive.collisionHazard.lifetime,
+      intensity: collisionHazardIntensity(drive.collisionHazard, runtime.lastCollision),
     });
   }
 

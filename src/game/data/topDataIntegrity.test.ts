@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import arenaRuntimeSource from "../engine/arenaRuntime.ts?raw";
 import { arenaKeyAffixes } from "./arenaKeyAffixes";
 import { arenaCircuits } from "./arenaCircuits";
 import { arenaAnomalies } from "./arenaAnomalies";
@@ -48,6 +49,10 @@ const validDamageTypes = ["impact", "heat", "glass", "static", "void"];
 const validCollisionKinds = ["scrape", "clash", "smash", "grind"];
 
 describe("top ARPG data integrity", () => {
+  it("keeps drive collision behavior data-driven in arena runtime", () => {
+    expect(arenaRuntimeSource).not.toMatch(/drive\.id\s*[!=]==/);
+  });
+
   it("has unique IDs across data tables", () => {
     expectUnique(topFrames.map((entry) => entry.id));
     expectUnique(driveCores.map((entry) => entry.id));
