@@ -29,10 +29,47 @@ describe("top crafting", () => {
   });
 
   it("upgrades rarity and keeps the part legal", () => {
-    const upgraded = upgradeTopPartRarity(makePart(), "upgrade-seed").part;
+    const result = upgradeTopPartRarity(makePart(), "upgrade-seed");
+    const upgraded = result.part;
 
     expect(upgraded.rarity).toBe("engraved");
+    expect(result.spent).toEqual({ ash: 6, glass: 1, echo: 0 });
     expect(isTopPartLegal(upgraded)).toBe(true);
+  });
+
+  it("uses the relic upgrade price only for the final rarity step", () => {
+    const engraved = generateTopPart({
+      baseId: "part_ring_serrated_halo",
+      rarity: "engraved",
+      itemLevel: 10,
+      seed: "engraved-source",
+      arenaId: "arena_glass_mire_basin",
+      enemyLevel: 10,
+      source: "drop",
+    });
+
+    const result = upgradeTopPartRarity(engraved, "relic-upgrade-seed");
+
+    expect(result.part.rarity).toBe("relic");
+    expect(result.spent).toEqual({ ash: 18, glass: 5, echo: 1 });
+    expect(isTopPartLegal(result.part)).toBe(true);
+  });
+
+  it("does not spend currency when a relic has no higher rarity", () => {
+    const relic = generateTopPart({
+      baseId: "part_ring_serrated_halo",
+      rarity: "relic",
+      itemLevel: 10,
+      seed: "relic-source",
+      arenaId: "arena_glass_mire_basin",
+      enemyLevel: 10,
+      source: "drop",
+    });
+
+    const result = upgradeTopPartRarity(relic, "blocked-upgrade-seed");
+
+    expect(result.part).toBe(relic);
+    expect(result.spent).toEqual({ ash: 0, glass: 0, echo: 0 });
   });
 
   it("can reroll values while preserving affix identities", () => {

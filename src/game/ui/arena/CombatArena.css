@@ -244,6 +244,12 @@
   color: var(--teal);
 }
 
+.wallet-strip .run-state-defeated {
+  border-color: rgba(223, 98, 76, 0.5);
+  background: rgba(223, 98, 76, 0.14);
+  color: var(--ember);
+}
+
 .wallet-strip .run-state-keyed {
   border-color: rgba(182, 140, 255, 0.42);
   background: rgba(182, 140, 255, 0.13);
@@ -905,6 +911,44 @@
 
 .arena-runtime-error .arena-button {
   justify-self: start;
+}
+
+.arena-defeat-overlay {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 3;
+  width: min(390px, calc(100% - 32px));
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(223, 98, 76, 0.48);
+  border-radius: 8px;
+  background: rgba(9, 10, 11, 0.95);
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.42);
+  padding: 15px;
+  transform: translate(-50%, -50%);
+}
+
+.arena-defeat-overlay small {
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.arena-defeat-overlay strong {
+  color: var(--ember);
+  font-size: 1.2rem;
+}
+
+.arena-defeat-overlay span {
+  color: var(--soft);
+  font-size: 0.84rem;
+}
+
+.arena-defeat-overlay div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .loot-toast-stack {

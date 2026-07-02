@@ -69,7 +69,7 @@ export type TopModifierDef = {
   condition?: CombatCondition;
 };
 
-export type CombatEventKind = TopCollisionKind | "ringout" | "overheat" | "discharge" | "stabilize";
+export type CombatEventKind = TopCollisionKind | "ringout" | "overheat" | "discharge" | "stabilize" | "stance_shift";
 
 export type CombatCondition =
   | { kind: "attr"; attr: "mass" | "volume" | "spinEnergyRatio" | "fluxRatio" | "omega" | "maxFlux"; op: ">=" | "<=" | "<" | ">" | "=="; value: number }
@@ -453,6 +453,10 @@ export type ArenaRouteMechanicState = {
   rewardRarity: number;
 };
 
+export type TopArenaOutcome = "ongoing" | "victory" | "defeat";
+
+export type TopArenaDefeatCause = "spinout" | "break" | "ringout";
+
 export type TopArenaRuntime = {
   seed: string;
   arenaId: string;
@@ -463,6 +467,8 @@ export type TopArenaRuntime = {
   driveId: string;
   loadout: TopLoadoutConfig;
   time: number;
+  outcome: TopArenaOutcome;
+  defeatCause?: TopArenaDefeatCause;
   wave: number;
   kills: number;
   mapKills: number;

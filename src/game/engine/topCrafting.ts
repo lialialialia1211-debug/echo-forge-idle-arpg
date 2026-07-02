@@ -68,6 +68,10 @@ export function salvageTopPart(part: TopPartInstance): TopForgeWallet {
 }
 
 export function upgradeTopPartRarity(part: TopPartInstance, seed: string): TopCraftResult {
+  if (part.rarity === "relic") {
+    return { spent: zeroWallet, part };
+  }
+
   const rarity = nextRarity(part.rarity);
   return {
     spent: { ash: rarity === "relic" ? 18 : 6, glass: rarity === "relic" ? 5 : 1, echo: rarity === "relic" ? 1 : 0 },

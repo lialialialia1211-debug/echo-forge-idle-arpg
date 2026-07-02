@@ -47,7 +47,7 @@ describe("top arena runtime", () => {
     });
 
     let next = runtime;
-    for (let index = 0; index < 120; index += 1) {
+    for (let index = 0; index < 600; index += 1) {
       next = stepTopArenaRuntime(next, 0.05);
     }
 
@@ -1174,6 +1174,231 @@ describe("top arena runtime", () => {
     expect(collisionSpinEnergyLoss(light, 120)).toBeCloseTo(18, 5);
     expect(collisionSpinEnergyLoss(heavy, 120)).toBeCloseTo(9, 5);
     expect(collisionSpinEnergyLoss(light, 120)).toBeGreaterThan(collisionSpinEnergyLoss(heavy, 120));
+  });
+
+  it("does not floor or regenerate player spin integrity", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "no_integrity_floor_test",
+    });
+
+    const next = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...runtime.player, spinIntegrity: 1, cooldownRemaining: 10 },
+        enemies: [],
+        nextEnemyIn: 10,
+      },
+      0.5,
+    );
+
+    expect(next.player.spinIntegrity).toBe(1);
+    expect(next.outcome).toBe("ongoing");
+  });
+
+  it("ends the run when the player spins out", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "player_spinout_defeat_test",
+    });
+
+    const next = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...runtime.player, spinEnergy: 0, spinPower: 0, spinIntegrity: runtime.player.stats.maxSpinIntegrity },
+        enemies: [],
+        nextEnemyIn: 10,
+      },
+      0.05,
+    );
+
+    expect(next.outcome).toBe("defeat");
+    expect(next.defeatCause).toBe("spinout");
+    expect(next.events[0]?.text).toContain("Spin-out");
+  });
+
+  it("ends the run when the player structure breaks", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "player_break_defeat_test",
+    });
+
+    const next = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...runtime.player, spinIntegrity: 0, spinEnergy: runtime.player.maxSpinEnergy, spinPower: 100 },
+        enemies: [],
+        nextEnemyIn: 10,
+      },
+      0.05,
+    );
+
+    expect(next.outcome).toBe("defeat");
+    expect(next.defeatCause).toBe("break");
+    expect(next.events[0]?.text).toContain("Break");
+  });
+
+  it("ends the run when the player rings out", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "player_ringout_defeat_test",
+    });
+
+    const next = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...runtime.player, x: 999, y: 0, vx: 1600, vy: 0, cooldownRemaining: 10, stats: { ...runtime.player.stats, rpm: 26 } },
+        enemies: [],
+        nextEnemyIn: 10,
+      },
+      0.05,
+      { collisionLaunchMultiplier: 2.2 },
+    );
+
+    expect(next.outcome).toBe("defeat");
+    expect(next.defeatCause).toBe("ringout");
+    expect(next.combatEvents.some((event) => event.kind === "ringout" && event.sourceId === runtime.player.id)).toBe(true);
+  });
+
+  it("keeps light collision damage on spin energy and reserves structure damage for heavy hits", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "collision_pool_split_test",
+    });
+    const enemyStats = { ...runtime.player.stats, maxSpinIntegrity: 5000, maxFluxGuard: 80, mass: 1, guard: 80, rpm: 1, edge: 0, modifiers: [] };
+    const makeEnemy = (speed: number, integrity = enemyStats.maxSpinIntegrity) => ({
+      ...runtime.player,
+      id: `pool_split_target_${speed}`,
+      team: "enemy" as const,
+      name: "Pool Split Target",
+      rank: "pack" as const,
+      x: speed > 0 ? 20 : 47.8,
+      y: 0,
+      vx: -speed,
+      vy: 0,
+      radius: 22,
+      spinIntegrity: integrity,
+      fluxGuard: 80,
+      spinPower: speed > 0 ? 100 : 20,
+      spinEnergy: speed > 0 ? runtime.player.maxSpinEnergy : (runtime.player.maxSpinEnergy ?? runtime.player.stats.maxSpinIntegrity) * 0.2,
+      wobble: 0,
+      cooldownRemaining: 10,
+      stats: enemyStats,
+      behaviorId: "hunter" as const,
+    });
+
+    const lightEnemy = makeEnemy(0);
+    const light = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: {
+          ...runtime.player,
+          x: 0,
+          y: 0,
+          vx: 0,
+          vy: 0,
+          cooldownRemaining: 10,
+          spinPower: 20,
+          spinEnergy: (runtime.player.maxSpinEnergy ?? runtime.player.stats.maxSpinIntegrity) * 0.2,
+          stats: { ...runtime.player.stats, rpm: 1, edge: 0 },
+        },
+        enemies: [lightEnemy],
+        nextEnemyIn: 10,
+      },
+      0.005,
+      { collisionLaunchMultiplier: 0.6, sparkMultiplier: 0.6 },
+    );
+    const heavyEnemy = makeEnemy(220);
+    const heavy = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...runtime.player, x: -20, y: 0, vx: 220, vy: 0, cooldownRemaining: 10 },
+        enemies: [heavyEnemy],
+        nextEnemyIn: 10,
+      },
+      0.03,
+      { collisionLaunchMultiplier: 1.7, sparkMultiplier: 1.5 },
+    );
+
+    expect(light.lastCollision?.heavy).toBe(false);
+    expect(light.enemies[0]?.spinEnergy ?? lightEnemy.maxSpinEnergy ?? 0).toBeLessThan(lightEnemy.spinEnergy ?? lightEnemy.maxSpinEnergy ?? 0);
+    expect(light.enemies[0]?.spinIntegrity).toBe(lightEnemy.spinIntegrity);
+    expect(heavy.lastCollision?.heavy).toBe(true);
+    expect(heavy.enemies[0]?.spinIntegrity ?? heavyEnemy.spinIntegrity).toBeLessThan(heavyEnemy.spinIntegrity);
+  });
+
+  it("telegraphs low-energy defense stance only while the condition is active", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      loadout: { runeIds: ["rune_deep_bearing"] },
+      seed: "defense_stance_telegraph_test",
+    });
+    const enemyStats = { ...runtime.player.stats, maxSpinIntegrity: 5000, maxFluxGuard: 80, mass: 1, guard: 80, modifiers: [] };
+    const enemy = {
+      ...runtime.player,
+      id: "stance_attacker",
+      team: "enemy" as const,
+      name: "Stance Attacker",
+      rank: "pack" as const,
+      x: 20,
+      y: 0,
+      vx: -160,
+      vy: 0,
+      radius: 22,
+      spinIntegrity: enemyStats.maxSpinIntegrity,
+      fluxGuard: 80,
+      spinPower: 100,
+      wobble: 0,
+      cooldownRemaining: 10,
+      stats: enemyStats,
+      behaviorId: "hunter" as const,
+    };
+    const lowEnergyPlayer = {
+      ...runtime.player,
+      x: -20,
+      y: 0,
+      vx: 160,
+      vy: 0,
+      spinEnergy: (runtime.player.maxSpinEnergy ?? runtime.player.stats.maxSpinIntegrity) * 0.42,
+      spinPower: 42,
+      cooldownRemaining: 10,
+    };
+
+    const lowEnergy = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: lowEnergyPlayer,
+        enemies: [enemy],
+        nextEnemyIn: 10,
+      },
+      0.03,
+    );
+    const highEnergy = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...lowEnergyPlayer, spinEnergy: runtime.player.maxSpinEnergy, spinPower: 100 },
+        enemies: [enemy],
+        nextEnemyIn: 10,
+      },
+      0.03,
+    );
+
+    expect(lowEnergy.combatEvents.some((event) => event.kind === "stance_shift" && event.sourceId === runtime.player.id)).toBe(true);
+    expect(lowEnergy.events.some((event) => event.text.includes("defense stance"))).toBe(true);
+    expect(highEnergy.combatEvents.some((event) => event.kind === "stance_shift")).toBe(false);
+    expect(highEnergy.events.some((event) => event.text.includes("defense stance"))).toBe(false);
   });
 
   it("shatters enemies when their spin energy reaches zero", () => {

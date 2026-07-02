@@ -26,6 +26,7 @@ import type {
   CombatEvent,
   EnemyBehaviorId,
   EnemyModifierDef,
+  TopArenaDefeatCause,
   TopArenaRuntime,
   TopCollisionEvent,
   TopLoadoutConfig,
@@ -264,6 +265,55 @@ function emitCombatEvent(runtime: TopArenaRuntime, event: CombatEvent): TopArena
     ...runtime,
     combatEvents: [event, ...runtime.combatEvents].slice(0, maxCombatEvents),
   };
+}
+
+function defeatText(cause: TopArenaDefeatCause): string {
+  if (cause === "spinout") {
+    return "Spin-out: E reached zero";
+  }
+  if (cause === "break") {
+    return "Break: structure failed";
+  }
+  return "Ring-out: left the basin";
+}
+
+function defeatCauseForPlayer(runtime: TopArenaRuntime): TopArenaDefeatCause | null {
+  if (runtime.combatEvents.some((event) => event.kind === "ringout" && event.sourceId === runtime.player.id)) {
+    return "ringout";
+  }
+  if (currentSpinEnergy(runtime.player) <= balanceConfig.defeat.spinEnergyEpsilon) {
+    return "spinout";
+  }
+  if (runtime.player.spinIntegrity <= balanceConfig.defeat.spinIntegrityEpsilon) {
+    return "break";
+  }
+  return null;
+}
+
+function resolvePlayerDefeat(runtime: TopArenaRuntime): TopArenaRuntime {
+  if (runtime.outcome !== "ongoing") {
+    return runtime;
+  }
+  const cause = defeatCauseForPlayer(runtime);
+  if (!cause) {
+    return runtime;
+  }
+  return pushEvent(
+    {
+      ...runtime,
+      outcome: "defeat",
+      defeatCause: cause,
+      player: {
+        ...runtime.player,
+        spinEnergy: Math.max(0, currentSpinEnergy(runtime.player)),
+        spinPower: Math.max(0, runtime.player.spinPower),
+        spinIntegrity: Math.max(0, runtime.player.spinIntegrity),
+        cooldownRemaining: 0,
+      },
+    },
+    "danger",
+    defeatText(cause),
+  );
 }
 
 function addEffect(runtime: TopArenaRuntime, effect: Omit<ArenaEffect, "id" | "age">): TopArenaRuntime {
@@ -580,6 +630,7 @@ export function createTopArenaRuntime({
     driveId,
     loadout,
     time: 0,
+    outcome: "ongoing",
     wave: 1,
     kills: 0,
     mapKills: 0,
@@ -675,7 +726,7 @@ function steerEntity(entity: TopRuntimeEntity, target: TopRuntimeEntity | null, 
     const dot = vx * normal.x + vy * normal.y;
     const physics = resolveStatsPhysics(entity.stats, { spinEnergy: currentSpinEnergy(entity) });
     const wallImpact = Math.max(0, dot);
-    const ringoutGate = Math.max(60, physics.designMass * Math.max(0.2, entity.stats.grip) * 42);
+    const ringoutGate = Math.max(balanceConfig.defeat.ringoutMinImpact, physics.designMass * Math.max(0.2, entity.stats.grip) * balanceConfig.defeat.ringoutGripMassScalar);
     if (wallImpact >= ringoutGate) {
       combatEvent = {
         kind: "ringout",
@@ -783,14 +834,13 @@ function createSkillDamage(attacker: TopRuntimeEntity, collision?: CollisionDama
 }
 
 function damagePlayer(runtime: TopArenaRuntime, amount: number, impulseX = 0, impulseY = 0): TopArenaRuntime {
-  const player = drainSpinEnergy(runtime.player, amount);
   return {
     ...runtime,
     player: {
-      ...player,
+      ...runtime.player,
       spinIntegrity: Math.max(0, runtime.player.spinIntegrity - amount),
-      vx: player.vx + impulseX,
-      vy: player.vy + impulseY,
+      vx: runtime.player.vx + impulseX,
+      vy: runtime.player.vy + impulseY,
     },
   };
 }
@@ -870,11 +920,39 @@ function applyBossPhaseGate(
   };
 }
 
-function defenderDamageTakenScalar(runtime: TopArenaRuntime, defender: TopRuntimeEntity): number {
+function defenderDamageTakenScalar(runtime: TopArenaRuntime, defender: TopRuntimeEntity): { scalar: number; activated: boolean } {
   const context = createCombatContext(defender, runtime.combatEvents);
-  return defender.stats.modifiers
+  const scalar = defender.stats.modifiers
     .filter((modifier) => modifier.stat === "damage" && modifier.type === "less" && evaluateCombatCondition(modifier.condition, context))
     .reduce((scalar, modifier) => scalar * Math.max(0, 1 - modifier.value), 1);
+  return { scalar, activated: scalar < 1 };
+}
+
+function emitDefenseStance(runtime: TopArenaRuntime, defender: TopRuntimeEntity, preventedDamage: number): TopArenaRuntime {
+  if (runtime.combatEvents.some((event) => event.kind === "stance_shift" && event.sourceId === defender.id)) {
+    return runtime;
+  }
+
+  return pushEvent(
+    emitCombatEvent(
+      addEffect(runtime, {
+        kind: "bossSignal",
+        x: defender.x,
+        y: defender.y,
+        lifetime: balanceConfig.defeat.defenseStanceTelegraphSeconds,
+        intensity: 0.9,
+      }),
+      {
+        kind: "stance_shift",
+        sourceId: defender.id,
+        magnitude: preventedDamage,
+        x: defender.x,
+        y: defender.y,
+      },
+    ),
+    "danger",
+    `${defender.name} enters defense stance`,
+  );
 }
 
 function dealDamage(
@@ -904,12 +982,15 @@ function dealDamage(
   });
   const defenderPhase = defender.rank === "boss" ? bossPhaseFor(defender) : undefined;
   const phaseDamageScalar = defenderPhase === 3 && source === "collision" && !collision?.heavy ? 0.42 : 1;
-  const defenseRuneScalar = defender.team === "player" ? defenderDamageTakenScalar(runtime, defender) : 1;
-  const totalDamage = hit.totalDamage * damageScalar * phaseDamageScalar * defenseRuneScalar;
-  const bossGate = applyBossPhaseGate(defender, totalDamage);
+  const defenseRune = defender.team === "player" ? defenderDamageTakenScalar(runtime, defender) : { scalar: 1, activated: false };
+  const rawTotalDamage = hit.totalDamage * damageScalar * phaseDamageScalar;
+  const totalDamage = rawTotalDamage * defenseRune.scalar;
+  const energyDamage = source === "collision" ? totalDamage : 0;
+  const integrityDamage = source === "skill" || collision?.heavy ? totalDamage : 0;
+  const bossGate = applyBossPhaseGate(defender, integrityDamage);
   const impulseDirection = normalize(defender.x - attacker.x, defender.y - attacker.y);
   const skillImpulse = source === "skill" ? Math.min(120, bossGate.appliedDamage / defender.stats.mass) * 0.08 : 0;
-  const damagedDefender = drainSpinEnergy(defender, bossGate.appliedDamage);
+  const damagedDefender = energyDamage > 0 ? drainSpinEnergy(defender, energyDamage) : defender;
   const defenderNext = {
     ...damagedDefender,
     spinIntegrity: bossGate.nextSpinIntegrity,
@@ -928,9 +1009,12 @@ function dealDamage(
     x2: source === "skill" && drive.visual === "stormArc" ? defender.x : undefined,
     y2: source === "skill" && drive.visual === "stormArc" ? defender.y : undefined,
     lifetime: source === "skill" ? 0.55 : 0.24,
-    intensity: clamp(Math.max(bossGate.appliedDamage, totalDamage * 0.18) / 180, 0.45, 2.2),
+    intensity: clamp(Math.max(bossGate.appliedDamage, energyDamage, totalDamage * 0.18) / 180, 0.45, 2.2),
   });
-  if (attacker.team === "player" && bossGate.appliedDamage > 0) {
+  if (defenseRune.activated && rawTotalDamage > totalDamage) {
+    nextRuntime = emitDefenseStance(nextRuntime, defender, rawTotalDamage - totalDamage);
+  }
+  if (attacker.team === "player" && (bossGate.appliedDamage > 0 || energyDamage > 0)) {
     nextRuntime = { ...nextRuntime, player: addFlux(nextRuntime.player, balanceConfig.flux.hitRegen) };
   }
 
@@ -1731,14 +1815,12 @@ function resolvePlayerSkill(runtime: TopArenaRuntime): TopArenaRuntime {
 }
 
 function recoverPlayer(player: TopRuntimeEntity, deltaSeconds: number): TopRuntimeEntity {
-  const integrityRecovery = player.stats.maxSpinIntegrity * 0.025 * deltaSeconds * player.stats.resonance;
   const guardRecovery = player.stats.maxFluxGuard * 0.04 * deltaSeconds * player.stats.resonance;
   const fluxRecovery = balanceConfig.flux.naturalRegenPerSecond * deltaSeconds * Math.max(0.35, player.stats.resonance + (player.stats.reservationEfficiency ?? 0));
   const recoveredFlux = addFlux(player, fluxRecovery);
 
   return {
     ...recoveredFlux,
-    spinIntegrity: Math.min(recoveredFlux.stats.maxSpinIntegrity, Math.max(recoveredFlux.spinIntegrity, recoveredFlux.stats.maxSpinIntegrity * 0.04) + integrityRecovery),
     fluxGuard: Math.min(recoveredFlux.stats.maxFluxGuard, recoveredFlux.fluxGuard + guardRecovery),
   };
 }
@@ -1770,6 +1852,15 @@ function emitStabilizeEventIfNeeded(runtime: TopArenaRuntime, previousPlayer: To
 }
 
 export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: number, tuningOverrides?: Partial<ArenaTuningConfig>): TopArenaRuntime {
+  if (runtime.outcome !== "ongoing") {
+    return runtime;
+  }
+
+  const immediateOutcome = resolvePlayerDefeat(runtime);
+  if (immediateOutcome.outcome !== "ongoing") {
+    return immediateOutcome;
+  }
+
   const arena = getArenaCircuitDef(runtime.arenaId);
   const tuning = normalizeArenaTuning(tuningOverrides);
   const previousPlayer = runtime.player;
@@ -1821,6 +1912,7 @@ export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: numb
   nextRuntime = sustainPlayerEnergy(nextRuntime, deltaSeconds);
   nextRuntime = emitStabilizeEventIfNeeded(nextRuntime, previousPlayer);
   nextRuntime = handleKills(nextRuntime);
+  nextRuntime = resolvePlayerDefeat(nextRuntime);
 
   return nextRuntime;
 }

@@ -25,6 +25,13 @@ export const balanceConfig = {
     frictionLossPerMassPerSecond: 8,
     collisionLossScalar: 0.6,
   },
+  defeat: {
+    spinEnergyEpsilon: 0,
+    spinIntegrityEpsilon: 0,
+    ringoutMinImpact: 900,
+    ringoutGripMassScalar: 300,
+    defenseStanceTelegraphSeconds: 0.9,
+  },
   progression: {
     towerRequirementBase: 50,
     towerRequirementGrowth: 1.15,

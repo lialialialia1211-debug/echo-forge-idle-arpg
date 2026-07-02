@@ -60,6 +60,7 @@ import type {
   CircuitAtlasNodeDef,
   TalentNodeDef,
   TopArenaRuntime,
+  TopArenaDefeatCause,
   TopEquipment,
   TopLoadoutConfig,
   TopModifierDef,
@@ -202,6 +203,30 @@ const forgeActionCosts: Record<"upgrade" | "rerollAffixes" | "rerollValues" | "a
   add: { ash: 8, glass: 0, echo: 0 },
   remove: { ash: 0, glass: 0, echo: 1 },
 };
+type ForgeAction = keyof typeof forgeActionCosts;
+
+function forgeActionCost(action: ForgeAction, part: TopPartInstance | null | undefined): CurrencyWallet {
+  if (action === "upgrade" && part?.rarity === "engraved") {
+    return { ash: 18, glass: 5, echo: 1 };
+  }
+  return forgeActionCosts[action];
+}
+
+function canApplyForgeAction(action: ForgeAction, part: TopPartInstance | null | undefined): boolean {
+  if (!part) {
+    return false;
+  }
+  if (action === "upgrade") {
+    return part.rarity !== "relic";
+  }
+  if (action === "add") {
+    return (part.affixes ?? []).length < 6;
+  }
+  if (action === "remove") {
+    return (part.affixes ?? []).length > 0;
+  }
+  return true;
+}
 
 const talentNodePositions: Record<string, { x: number; y: number }> = {
   talent_iron_rotation: { x: 50, y: 52 },
@@ -367,8 +392,37 @@ function formatRuneLines(rune: TuningRuneDef): string[] {
 }
 
 function formatCombatEvent(event: CombatEvent): string {
+  if (event.kind === "stance_shift") {
+    return `STANCE SHIFT: prevented ${formatNumber(event.magnitude, 1)}`;
+  }
   const label = event.driveId ? `${event.kind} / ${event.driveId}` : event.kind;
   return `${label}: ${formatNumber(event.magnitude, 1)}`;
+}
+
+function formatDefeatCause(cause?: TopArenaDefeatCause): string {
+  if (cause === "spinout") {
+    return "Spin-out";
+  }
+  if (cause === "break") {
+    return "Break";
+  }
+  if (cause === "ringout") {
+    return "Ring-out";
+  }
+  return "Defeat";
+}
+
+function formatDefeatDetail(cause?: TopArenaDefeatCause): string {
+  if (cause === "spinout") {
+    return "E reached zero";
+  }
+  if (cause === "break") {
+    return "Structure failed";
+  }
+  if (cause === "ringout") {
+    return "Left the basin";
+  }
+  return "Run ended";
 }
 
 function formatTalentLines(talent: TalentNodeDef): string[] {
@@ -767,6 +821,9 @@ export function CombatArena() {
   const playerIntegrity = selectLifeRatio(runtime.player);
   const playerFluxRatio = selectFluxRatio(runtime.player);
   const playerFluxLow = selectFluxLow(runtime.player);
+  const runtimeDefeated = runtime.outcome === "defeat";
+  const defeatCauseLabel = formatDefeatCause(runtime.defeatCause);
+  const defeatCauseDetail = formatDefeatDetail(runtime.defeatCause);
   const playerOmega = selectOmega(runtime.player);
   const playerAttackFrequency = selectAttackFrequency(runtime.player);
   const dpsBreakdown = selectDpsBreakdown(runtime.player);
@@ -1090,6 +1147,11 @@ export function CombatArena() {
         lastTime = now;
         const nextRuntime = stepTopArenaRuntime(runtimeRef.current, elapsed * speed, arenaTuningRef.current);
         runtimeRef.current = nextRuntime;
+        if (nextRuntime.outcome !== "ongoing") {
+          setRuntime(nextRuntime);
+          setRunning(false);
+          return;
+        }
         if (now - lastUiPublish >= 100) {
           setRuntime(nextRuntime);
           lastUiPublish = now;
@@ -1234,13 +1296,17 @@ export function CombatArena() {
     const routeProgress = runtime.bossSpawned || remainingToBoss === 0 ? 8 : Math.max(1, Math.ceil(clearRatio * 8));
     const objectiveLabel = runtime.bossSpawned ? "Boss wave" : remainingToBoss === 0 ? "Boss ready" : remainingToBoss <= 10 ? "Final pack" : "Clear basin";
     const objectiveDetail =
-      runtime.bossSpawned
+      runtimeDefeated
+        ? defeatCauseDetail
+        : runtime.bossSpawned
         ? "Shatter boss to forge route key"
         : remainingToBoss === 0
           ? "Field clear; boss drops next"
           : `${remainingToBoss} rivals before boss`;
     const actionPanel: ActivePanel =
-      runtime.drops.length > 0
+      runtimeDefeated
+        ? "route"
+        : runtime.drops.length > 0
         ? "inventory"
         : selectedPartVerdict?.action === "forge"
           ? "forge"
@@ -1250,21 +1316,21 @@ export function CombatArena() {
               ? "route"
               : "loadout";
     const tone: "neutral" | "good" | "warn" | "rare" =
-      runtimeError || dangerCue?.tone === "danger" ? "warn" : bestDrop?.rarity === "relic" || runtime.routeClears > 0 ? "rare" : runtime.drops.length > 0 ? "good" : "neutral";
+      runtimeError || runtimeDefeated || dangerCue?.tone === "danger" ? "warn" : bestDrop?.rarity === "relic" || runtime.routeClears > 0 ? "rare" : runtime.drops.length > 0 ? "good" : "neutral";
 
     return {
       actionLabel: actionPanel === "inventory" ? "Inventory" : actionPanel === "forge" ? "Forge" : actionPanel === "route" ? "Route" : "Loadout",
       actionPanel,
       bestDropText: bestDrop ? `${bestDrop.rarity} ${bestDrop.label}` : "No drops yet",
-      detail: dangerCue ? dangerCue.label : selectedPartVerdict ? selectedPartVerdict.label : "Stabilize build",
+      detail: runtimeDefeated ? defeatCauseDetail : dangerCue ? dangerCue.label : selectedPartVerdict ? selectedPartVerdict.label : "Stabilize build",
       objectiveDetail,
-      objectiveLabel,
+      objectiveLabel: runtimeDefeated ? defeatCauseLabel : objectiveLabel,
       routeProgress,
-      status: runtimeError ? "Stopped" : running ? "Live run" : runtime.drops.length > 0 ? "Loot ready" : "Ready",
-      summary: `Clear ${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)} / ${formatNumber(runtime.kills, 0)} total kills`,
+      status: runtimeError ? "Stopped" : runtimeDefeated ? "Defeated" : running ? "Live run" : runtime.drops.length > 0 ? "Loot ready" : "Ready",
+      summary: runtimeDefeated ? `${defeatCauseLabel} after ${formatNumber(runtime.kills, 0)} kills` : `Clear ${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)} / ${formatNumber(runtime.kills, 0)} total kills`,
       tone,
     };
-  }, [bossProjection.successChance, dangerCue, running, runtime.bossSpawned, runtime.drops, runtime.kills, runtime.mapKillTarget, runtime.mapKills, runtime.routeClears, runtimeError, selectedPartVerdict]);
+  }, [bossProjection.successChance, dangerCue, defeatCauseDetail, defeatCauseLabel, running, runtime.bossSpawned, runtime.drops, runtime.kills, runtime.mapKillTarget, runtime.mapKills, runtime.routeClears, runtimeDefeated, runtimeError, selectedPartVerdict]);
 
   const renderBuildSummaryPanel = () => (
     <section className="workbench-section build-summary-section">
@@ -1618,9 +1684,9 @@ export function CombatArena() {
             ["add", "Add", "One engraving"],
             ["remove", "Remove", "One engraving"],
           ].map(([action, label, detail]) => {
-            const key = action as keyof typeof forgeActionCosts;
-            const cost = forgeActionCosts[key];
-            const disabled = !selectedPart || !canSpend(wallet, cost) || (key === "remove" && (selectedPart.affixes ?? []).length === 0);
+            const key = action as ForgeAction;
+            const cost = forgeActionCost(key, selectedPart);
+            const disabled = !canApplyForgeAction(key, selectedPart) || !canSpend(wallet, cost);
             return (
               <button className="forge-action" disabled={disabled} key={action} onClick={() => craftSelectedPart(key)} type="button">
                 <strong>{label}</strong>
@@ -1946,6 +2012,10 @@ export function CombatArena() {
   };
 
   const toggleRunning = () => {
+    if (runtimeRef.current.outcome !== "ongoing") {
+      setRuntime(runtimeRef.current);
+      return;
+    }
     if (running) {
       setRuntime(runtimeRef.current);
     }
@@ -2027,6 +2097,20 @@ export function CombatArena() {
           { label: "Then", value: "Restart run" },
         ],
         onClick: () => resetArena(),
+      };
+    } else if (runtimeDefeated) {
+      action = {
+        tone: "warn",
+        icon: <AlertTriangle size={17} aria-hidden />,
+        label: "Run defeated",
+        detail: `${defeatCauseLabel} / ${defeatCauseDetail}`,
+        button: "Route",
+        cues: [
+          { label: "Now", value: defeatCauseLabel, tone: "warn" },
+          { label: "Signal", value: defeatCauseDetail, tone: "warn" },
+          { label: "Then", value: "Adjust build" },
+        ],
+        onClick: openMap,
       };
     } else if (running && dangerCue) {
       action = {
@@ -2210,7 +2294,7 @@ export function CombatArena() {
   };
 
   return (
-    <main className={["top-arena-shell", `top-arena-screen-${screen}`, running ? "top-arena-running" : "", currentArenaKey ? "top-arena-keyed" : ""].filter(Boolean).join(" ")}>
+    <main className={["top-arena-shell", `top-arena-screen-${screen}`, running ? "top-arena-running" : "", currentArenaKey ? "top-arena-keyed" : "", runtimeDefeated ? "top-arena-defeated" : ""].filter(Boolean).join(" ")}>
       <header className="arena-topbar">
         <div className="arena-brand">
           <div className="brand-sigil">
@@ -2222,7 +2306,7 @@ export function CombatArena() {
           </div>
         </div>
         <div className="wallet-strip">
-          <span className={running ? "run-state run-state-live" : "run-state"}>{running ? "Live" : "Ready"}</span>
+          <span className={runtimeDefeated ? "run-state run-state-defeated" : running ? "run-state run-state-live" : "run-state"}>{runtimeDefeated ? "Defeated" : running ? "Live" : "Ready"}</span>
           {currentArenaKey ? <span className="run-state run-state-keyed">Keyed</span> : null}
           <span>Ash {wallet.ash}</span>
           <span>Glass {wallet.glass}</span>
@@ -2234,9 +2318,9 @@ export function CombatArena() {
             <ScreenTab active={screen === "map"} icon={<MapIcon size={15} aria-hidden />} label="Map" onClick={openMap} />
             <ScreenTab active={screen === "workbench"} icon={<Hammer size={15} aria-hidden />} label="Workbench" onClick={() => setScreen("workbench")} />
           </div>
-          <button className={running ? "arena-button arena-button-live" : "arena-button"} onClick={toggleRunning} type="button">
+          <button className={running ? "arena-button arena-button-live" : "arena-button"} disabled={runtimeDefeated} onClick={toggleRunning} type="button">
             {running ? <Pause size={16} aria-hidden /> : <Play size={16} aria-hidden />}
-            {running ? "Pause" : "Start"}
+            {runtimeDefeated ? "Defeated" : running ? "Pause" : "Start"}
           </button>
           <button className="arena-button" onClick={() => resetArena()} type="button">
             <RotateCcw size={16} aria-hidden />
@@ -2346,6 +2430,23 @@ export function CombatArena() {
                   <RotateCcw size={15} aria-hidden />
                   Reset
                 </button>
+              </div>
+            ) : null}
+            {runtimeDefeated ? (
+              <div className="arena-defeat-overlay" role="alert">
+                <small>Run ended</small>
+                <strong>{defeatCauseLabel}</strong>
+                <span>{defeatCauseDetail}</span>
+                <div>
+                  <button className="arena-button" onClick={openMap} type="button">
+                    <MapIcon size={15} aria-hidden />
+                    Route Map
+                  </button>
+                  <button className="arena-button" onClick={() => resetArena()} type="button">
+                    <RotateCcw size={15} aria-hidden />
+                    Reset
+                  </button>
+                </div>
               </div>
             ) : null}
             {lootNotices.length > 0 ? (
