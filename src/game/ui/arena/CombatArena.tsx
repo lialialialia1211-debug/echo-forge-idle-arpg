@@ -93,6 +93,7 @@ import type {
   TuningRuneDef,
 } from "../../engine/topTypes";
 import { ArenaPhaserView, type ArenaRendererMetrics } from "./ArenaPhaserView";
+import { TalentTreeView } from "./TalentTreeView";
 import { selectAttackFrequency, selectDpsBreakdown, selectDriveGateStatus, selectESustain, selectFluxLow, selectFluxRatio, selectLifeRatio, selectOmega } from "./runtimeSelectors";
 import "./CombatArena.css";
 
@@ -1994,41 +1995,13 @@ export function CombatArena() {
             </div>
           </div>
         ) : null}
-        <div className="talent-board" aria-label="Talent board">
-          <svg className="talent-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
-            {talentNodes.flatMap((node) =>
-              (node.requiredNodeIds ?? []).map((requiredId) => {
-                const from = getTalentNodeDef(requiredId).position;
-                const to = node.position;
-                const active = talentIds.includes(requiredId) && talentIds.includes(node.id);
-                return from && to ? <line className={active ? "talent-link talent-link-active" : "talent-link"} key={`${requiredId}-${node.id}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} /> : null;
-              }),
-            )}
-          </svg>
-          {talentNodes.map((node) => {
-            const active = talentIds.includes(node.id);
-            const available = active ? canRefundTalent(node.id) : canAllocateTalent(node.id);
-            const selected = selectedTalentId === node.id;
-            const position = node.position;
-            const talentClass = ["talent-node", `talent-node-${node.kind}`, active ? "talent-node-active" : "", selected ? "talent-node-selected" : "", !active && !available ? "talent-node-locked" : ""]
-              .filter(Boolean)
-              .join(" ");
-            return (
-              <button
-                aria-pressed={selected}
-                className={talentClass}
-                key={node.id}
-                onClick={() => setSelectedTalentId(node.id)}
-                style={{ "--talent-x": `${position.x}%`, "--talent-y": `${position.y}%` } as CSSProperties}
-                title={node.description}
-                type="button"
-              >
-                <small>{node.cost} pt</small>
-                <strong>{node.displayName}</strong>
-              </button>
-            );
-          })}
-        </div>
+        <TalentTreeView
+          activeTalentIds={talentIds}
+          canUseTalent={(talentId) => (talentIds.includes(talentId) ? canRefundTalent(talentId) : canAllocateTalent(talentId))}
+          nodes={talentNodes}
+          onSelectTalent={setSelectedTalentId}
+          selectedTalentId={selectedTalentId}
+        />
         <div className="talent-detail-panel">
           <div className="talent-detail-header">
             <div>

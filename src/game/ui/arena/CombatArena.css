@@ -2266,6 +2266,59 @@
     radial-gradient(circle at 50% 52%, rgba(101, 198, 176, 0.14), transparent 72px),
     radial-gradient(circle at 50% 50%, transparent 0 66px, rgba(217, 165, 84, 0.11) 67px 68px, transparent 70px),
     linear-gradient(145deg, rgba(255, 255, 255, 0.035), rgba(0, 0, 0, 0.18));
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.talent-board-dragging {
+  cursor: grabbing;
+}
+
+.talent-board-viewport {
+  position: absolute;
+  inset: 0;
+  transform: translate(var(--talent-tree-x), var(--talent-tree-y)) scale(var(--talent-tree-scale));
+  transform-origin: 50% 50%;
+}
+
+.talent-board-controls {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid rgba(230, 215, 181, 0.14);
+  border-radius: 7px;
+  background: rgba(4, 6, 7, 0.78);
+  padding: 4px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+}
+
+.talent-board-controls button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(230, 215, 181, 0.14);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--soft);
+  cursor: pointer;
+}
+
+.talent-board-controls button:hover {
+  border-color: rgba(101, 198, 176, 0.48);
+  color: var(--teal);
+}
+
+.talent-board-controls span {
+  min-width: 42px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-align: center;
 }
 
 .atlas-board {
@@ -2392,6 +2445,9 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   white-space: normal;
   font-size: 0.66rem;
   line-height: 1.15;
@@ -2970,6 +3026,20 @@
 
   .talent-board {
     min-height: 560px;
+  }
+
+  .talent-board-controls {
+    right: 6px;
+    top: 6px;
+  }
+
+  .talent-board-controls button {
+    width: 28px;
+    height: 28px;
+  }
+
+  .talent-board-controls span {
+    min-width: 36px;
   }
 
   .talent-board .talent-node {
