@@ -5,7 +5,7 @@ export const balanceConfig = {
     legacyMassToDesignMass: 5,
     defaultVolume: 5,
     fallbackForce: 5,
-    massDamageKappa: 18,
+    massDamageKappa: 30,
     energyPerForce: 200,
     frequencyLambda: 0.085,
     omegaReference: 11.7,
@@ -18,6 +18,7 @@ export const balanceConfig = {
     hitRegen: 4,
     killRegen: 25,
     fluxToEnergyRate: 8,
+    energySustainConversionPerSecond: 6,
     lowThresholdRatio: 0.15,
   },
   energy: {

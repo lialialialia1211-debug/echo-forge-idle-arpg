@@ -77,6 +77,13 @@ export function projectTopCombat({
   const drive = getDriveCoreDef(driveId);
   const player = resolveTopRuntimeStats(frameId, driveId, loadout);
   const playerPhysics = resolveStatsPhysics(player);
+  const defaultContext = {
+    physics: playerPhysics,
+    spinEnergyRatio: 1,
+    fluxRatio: 1,
+    omega: playerPhysics.omega,
+    events: [],
+  };
   const enemy = createEnemyStats(arenaId);
   const collisionHit = resolveTopHit({
     baseDamage: createCollisionPacket(player),
@@ -84,6 +91,7 @@ export function projectTopCombat({
     defender: enemy,
     drive,
     sourceTags: ["attack", "melee"],
+    context: defaultContext,
   });
   const driveHit = resolveTopHit({
     baseDamage: drive.hit?.damage ?? drive.baseDamage,
@@ -91,6 +99,7 @@ export function projectTopCombat({
     defender: enemy,
     drive,
     sourceTags: drive.tags,
+    context: defaultContext,
   });
   const collisionDps = collisionHit.totalDamage * Math.max(0.25, playerPhysics.attackFrequency);
   const cooldown = drive.cooldown?.baseSeconds ?? drive.baseCooldown;

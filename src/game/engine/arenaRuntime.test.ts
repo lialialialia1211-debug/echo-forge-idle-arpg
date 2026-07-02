@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createTopArenaRuntime, stepTopArenaRuntime } from "./arenaRuntime";
+import { createCollisionDamage, createTopArenaRuntime, stepTopArenaRuntime } from "./arenaRuntime";
+import { createCollisionPacket } from "./topCombat";
 import { generateTopPart } from "./topPartGeneration";
 
 describe("top arena runtime", () => {
@@ -46,7 +47,7 @@ describe("top arena runtime", () => {
     });
 
     let next = runtime;
-    for (let index = 0; index < 60; index += 1) {
+    for (let index = 0; index < 120; index += 1) {
       next = stepTopArenaRuntime(next, 0.05);
     }
 
@@ -293,7 +294,7 @@ describe("top arena runtime", () => {
     };
     const withCollision = {
       ...baseRuntime,
-      player: { ...baseRuntime.player, x: 0, y: 0, vx: 92, vy: 8, cooldownRemaining: 0, spinPower: 100, wobble: 0 },
+      player: { ...baseRuntime.player, stats: { ...baseRuntime.player.stats, mass: 1.3 }, x: 0, y: 0, vx: 92, vy: 8, cooldownRemaining: 0, spinPower: 100, wobble: 0 },
       enemies: [
         {
           ...baseRuntime.player,
@@ -1101,5 +1102,226 @@ describe("top arena runtime", () => {
     );
 
     expect(next.effects.some((effect) => effect.kind === "stormArc")).toBe(true);
+  });
+
+  it("does not restore spin energy unless Flux can sustain it", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "flux_energy_sustain_test",
+    });
+    const lowEnergyPlayer = {
+      ...runtime.player,
+      spinEnergy: 120,
+      spinPower: (120 / Math.max(1, runtime.player.maxSpinEnergy ?? runtime.player.stats.maxSpinIntegrity)) * 100,
+      cooldownRemaining: 10,
+    };
+
+    const noFlux = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...lowEnergyPlayer, stats: { ...lowEnergyPlayer.stats, mass: 1.3 }, flux: 0 },
+        enemies: [],
+        nextEnemyIn: 10,
+      },
+      0.01,
+    );
+    const withFlux = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...lowEnergyPlayer, flux: 100 },
+        enemies: [],
+        nextEnemyIn: 10,
+      },
+      0.5,
+    );
+    const fullEnergy = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...runtime.player, flux: 100, cooldownRemaining: 10 },
+        enemies: [],
+        nextEnemyIn: 10,
+      },
+      0.5,
+    );
+
+    expect(noFlux.player.spinEnergy ?? 0).toBeLessThan(120);
+    expect(withFlux.player.spinEnergy ?? 0).toBeGreaterThan(120);
+    expect(withFlux.player.flux ?? 0).toBeLessThan(fullEnergy.player.flux ?? 0);
+  });
+
+  it("shatters enemies when their spin energy reaches zero", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "zero_energy_kill_test",
+    });
+    const exhaustedEnemy = {
+      ...runtime.player,
+      id: "exhausted_enemy",
+      team: "enemy" as const,
+      name: "Exhausted Rival",
+      rank: "pack" as const,
+      spinIntegrity: 500,
+      spinEnergy: 0,
+      spinPower: 0,
+      stats: { ...runtime.player.stats, maxSpinIntegrity: 500, modifiers: [] },
+      cooldownRemaining: 10,
+      behaviorId: "hunter" as const,
+    };
+
+    const next = stepTopArenaRuntime(
+      {
+        ...runtime,
+        enemies: [exhaustedEnemy],
+        nextEnemyIn: 10,
+      },
+      0.01,
+    );
+
+    expect(next.enemies).toHaveLength(0);
+    expect(next.kills).toBe(1);
+  });
+
+  it("uses D=M collision damage in real hits and keeps it independent from rpm and impact speed", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "dm_collision_damage_test",
+    });
+    const defender = {
+      ...runtime.player,
+      id: "dm_defender",
+      team: "enemy" as const,
+      rank: "pack" as const,
+      stats: { ...runtime.player.stats, modifiers: [] },
+    };
+    const collision = {
+      kind: "clash" as const,
+      normalImpulse: 80,
+      tangentImpulse: 20,
+      relativeNormalSpeed: 120,
+      relativeTangentialSpeed: 40,
+      surfaceShear: 90,
+      sparkIntensity: 1,
+      contactAge: 0.02,
+      heavy: false,
+    };
+    const lowMass = {
+      ...runtime.player,
+      stats: { ...runtime.player.stats, mass: 0.9, rpm: 2.2, impact: 40, modifiers: [] },
+      vx: 40,
+      vy: 0,
+    };
+    const lowMassFast = {
+      ...lowMass,
+      stats: { ...lowMass.stats, rpm: 9.4, impact: 200 },
+      vx: 260,
+      vy: -180,
+    };
+    const highMass = {
+      ...lowMass,
+      stats: { ...lowMass.stats, mass: 1.35 },
+    };
+
+    const lowDamage = createCollisionDamage(lowMass, defender, collision).impact;
+    const lowFastDamage = createCollisionDamage(lowMassFast, defender, { ...collision, normalImpulse: 260, tangentImpulse: 140 }).impact;
+    const highDamage = createCollisionDamage(highMass, defender, collision).impact;
+    const projected = createCollisionPacket(lowMass.stats).impact;
+
+    expect(lowDamage).toBeCloseTo(projected, 5);
+    expect(lowFastDamage).toBeCloseTo(lowDamage, 5);
+    expect(highDamage).toBeGreaterThan(lowDamage * 1.4);
+  });
+
+  it("emits collision and discharge events only when a gated Drive is physically unlocked", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_razor_rebound",
+      seed: "drive_gate_event_test",
+    });
+    const makeEnemy = () => ({
+      ...runtime.player,
+      id: "gate_target",
+      team: "enemy" as const,
+      name: "Gate Target",
+      rank: "pack" as const,
+      x: 42,
+      y: 0,
+      vx: -40,
+      vy: 0,
+      radius: 22,
+      spinIntegrity: 1200,
+      fluxGuard: 80,
+      spinPower: 100,
+      wobble: 0,
+      cooldownRemaining: 10,
+      stats: { ...runtime.player.stats, maxSpinIntegrity: 1200, maxFluxGuard: 80, guard: 50, mass: 1, modifiers: [] },
+      behaviorId: "hunter" as const,
+    });
+    const makeRuntime = (mass: number) => ({
+      ...runtime,
+      player: {
+        ...runtime.player,
+        stats: { ...runtime.player.stats, mass },
+        x: 0,
+        y: 0,
+        vx: 40,
+        vy: 0,
+        flux: 100,
+        cooldownRemaining: 0,
+      },
+      enemies: [makeEnemy()],
+      nextEnemyIn: 10,
+    });
+
+    const locked = stepTopArenaRuntime(makeRuntime(1), 0.03);
+    const unlocked = stepTopArenaRuntime(makeRuntime(1.3), 0.03);
+
+    expect(locked.combatEvents.some((event) => event.kind === "clash" || event.kind === "smash" || event.kind === "scrape" || event.kind === "grind")).toBe(true);
+    expect(locked.combatEvents.some((event) => event.kind === "discharge")).toBe(false);
+    expect(unlocked.combatEvents.some((event) => event.kind === "discharge" && event.driveId === "drive_razor_rebound")).toBe(true);
+  });
+
+  it("emits overheat when a ready skill wants to fire with empty Flux", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "overheat_event_test",
+    });
+    const enemy = {
+      ...runtime.player,
+      id: "overheat_target",
+      team: "enemy" as const,
+      name: "Overheat Target",
+      rank: "pack" as const,
+      x: 80,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      radius: 22,
+      spinIntegrity: 800,
+      fluxGuard: 80,
+      cooldownRemaining: 10,
+      stats: { ...runtime.player.stats, maxSpinIntegrity: 800, maxFluxGuard: 80, modifiers: [] },
+      behaviorId: "hunter" as const,
+    };
+
+    const next = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...runtime.player, flux: 0, cooldownRemaining: 0 },
+        enemies: [enemy],
+        nextEnemyIn: 10,
+      },
+      0,
+    );
+
+    expect(next.combatEvents.some((event) => event.kind === "overheat" && event.driveId === "drive_shard_barrage")).toBe(true);
   });
 });

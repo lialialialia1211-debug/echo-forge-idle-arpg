@@ -1,3 +1,4 @@
+import { balanceConfig } from "./balanceConfig";
 import type { DriveCoreDef } from "../engine/topTypes";
 
 export const driveCores: DriveCoreDef[] = [
@@ -32,6 +33,7 @@ export const driveCores: DriveCoreDef[] = [
     trigger: "onCollision",
     baseCooldown: 0.58,
     baseDamage: { impact: 54, heat: 0, glass: 0, static: 0, void: 0 },
+    requiredAttributes: [{ kind: "attr", attr: "mass", op: ">=", value: balanceConfig.thresholds.specializedDriveAttribute }],
     cost: { amount: 12 },
     cooldown: { baseSeconds: 0.58, recoveryStat: "cooldownRecovery" },
     hit: {
@@ -46,6 +48,7 @@ export const driveCores: DriveCoreDef[] = [
     ],
     modifiers: [
       { id: "rebound_more_melee", stat: "impact", type: "more", value: 0.14, tags: ["melee"] },
+      { id: "rebound_smash_mass_more", stat: "impact", type: "more", value: 0.3, tags: ["melee"], condition: { kind: "event", event: "smash" } },
       { id: "rebound_edge", stat: "edge", type: "flat", value: 0.025, tags: ["critical"] },
     ],
     visual: "sparks",

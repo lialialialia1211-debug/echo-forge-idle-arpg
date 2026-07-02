@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { CombatContext } from "./conditionEval";
 import { resolveTopHit } from "./topDamage";
 import type { DriveCoreDef, TopModifierDef, TopRuntimeStats } from "./topTypes";
 import { emptyDamagePacket, zeroResistances } from "./topTypes";
@@ -33,6 +34,27 @@ function createStats(modifiers: TopModifierDef[] = [], overrides: Partial<TopRun
     partRarity: 0,
     resistances: zeroResistances(),
     modifiers,
+    ...overrides,
+  };
+}
+
+function createContext(overrides: Partial<CombatContext> = {}): CombatContext {
+  return {
+    physics: {
+      designMass: 5,
+      volume: 5,
+      force: 5,
+      spinEnergy: 800,
+      momentOfInertia: 14,
+      omega: 10,
+      attackFrequency: 0.85,
+      maxFlux: 108,
+      fluxLowThreshold: 16.2,
+    },
+    spinEnergyRatio: 1,
+    fluxRatio: 1,
+    omega: 10,
+    events: [],
     ...overrides,
   };
 }
@@ -139,5 +161,61 @@ describe("top damage resolver", () => {
     expect(hit.rawDamage.impact).toBeCloseTo(50, 5);
     expect(hit.rawDamage.heat).toBeCloseTo(50, 5);
     expect(hit.rawDamage.static).toBeCloseTo(15, 5);
+  });
+
+  it("applies event-gated modifiers only when the combat event is present", () => {
+    const packet = emptyDamagePacket();
+    packet.impact = 100;
+    const drive = {
+      ...neutralDrive,
+      tags: ["melee"],
+      modifiers: [{ id: "smash_more", stat: "impact", type: "more", value: 0.3, tags: ["melee"], condition: { kind: "event", event: "smash" } }],
+    } satisfies DriveCoreDef;
+
+    const idle = resolveTopHit({
+      baseDamage: packet,
+      attacker: createStats(),
+      defender: createStats(),
+      drive,
+      sourceTags: ["attack", "melee"],
+      context: createContext(),
+    });
+    const smash = resolveTopHit({
+      baseDamage: packet,
+      attacker: createStats(),
+      defender: createStats(),
+      drive,
+      sourceTags: ["attack", "melee"],
+      context: createContext({ events: [{ kind: "smash", sourceId: "player_top", targetId: "enemy_1", magnitude: 120, x: 0, y: 0 }] }),
+    });
+
+    expect(idle.rawDamage.impact).toBeCloseTo(100, 5);
+    expect(smash.rawDamage.impact).toBeCloseTo(130, 5);
+  });
+
+  it("applies attribute-gated modifiers from combat context", () => {
+    const packet = emptyDamagePacket();
+    packet.impact = 100;
+    const attacker = createStats([{ id: "low_energy_more", stat: "impact", type: "more", value: 0.25, condition: { kind: "attr", attr: "spinEnergyRatio", op: "<", value: 0.5 } }]);
+
+    const highEnergy = resolveTopHit({
+      baseDamage: packet,
+      attacker,
+      defender: createStats(),
+      drive: neutralDrive,
+      sourceTags: ["attack"],
+      context: createContext({ spinEnergyRatio: 0.8 }),
+    });
+    const lowEnergy = resolveTopHit({
+      baseDamage: packet,
+      attacker,
+      defender: createStats(),
+      drive: neutralDrive,
+      sourceTags: ["attack"],
+      context: createContext({ spinEnergyRatio: 0.32 }),
+    });
+
+    expect(highEnergy.rawDamage.impact).toBeCloseTo(100, 5);
+    expect(lowEnergy.rawDamage.impact).toBeCloseTo(125, 5);
   });
 });

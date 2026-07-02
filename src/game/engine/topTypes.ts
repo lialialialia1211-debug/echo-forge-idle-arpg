@@ -66,7 +66,17 @@ export type TopModifierDef = {
   fromDamageType?: TopDamageType;
   toDamageType?: TopDamageType;
   scope?: "local" | "global";
+  condition?: CombatCondition;
 };
+
+export type CombatEventKind = TopCollisionKind | "ringout" | "overheat" | "discharge" | "stabilize";
+
+export type CombatCondition =
+  | { kind: "attr"; attr: "mass" | "volume" | "spinEnergyRatio" | "fluxRatio" | "omega"; op: ">=" | "<=" | "<" | ">" | "=="; value: number }
+  | { kind: "event"; event: CombatEventKind }
+  | { kind: "and" | "or"; terms: CombatCondition[] };
+
+export type DriveAttributeRequirement = Extract<CombatCondition, { kind: "attr" }>;
 
 export type TopFrameDef = {
   id: string;
@@ -151,6 +161,7 @@ export type DriveCoreDef = {
   minion?: SatelliteProfile;
   arenaEffect?: HazardProfile;
   scaling?: ScalingRule[];
+  requiredAttributes?: DriveAttributeRequirement[];
 };
 
 export type ArenaCircuitDef = {
@@ -358,6 +369,17 @@ export type TopRuntimeEntity = {
 
 export type TopCollisionKind = "scrape" | "clash" | "smash" | "grind";
 
+export type CombatEvent = {
+  kind: CombatEventKind;
+  sourceId: string;
+  targetId?: string;
+  magnitude: number;
+  x: number;
+  y: number;
+  driveId?: string;
+  tags?: DriveTag[];
+};
+
 export type TopCollisionEvent = {
   id: string;
   playerId: string;
@@ -456,6 +478,7 @@ export type TopArenaRuntime = {
   effects: ArenaEffect[];
   drops: ArenaDrop[];
   events: ArenaLogEvent[];
+  combatEvents: CombatEvent[];
   lastCollision?: TopCollisionEvent;
   collisionContacts: Record<string, number>;
 };

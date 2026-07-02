@@ -7,9 +7,11 @@ import { enemyModifiers } from "../data/enemyModifiers";
 import { getTopFrameDef } from "../data/topFrames";
 import { getTuningRuneDef } from "../data/tuningRunes";
 import { summarizeArenaKeyRiskReward } from "./arenaKeys";
+import { evaluateCombatCondition, type CombatContext } from "./conditionEval";
+import { evaluateDriveGate } from "./driveGate";
 import { validateRuneLoadout } from "./driveRuneValidation";
 import { clamp } from "./math";
-import { resolveStatsPhysics } from "./topPhysics";
+import { collisionImpactSeedFromMass, resolveStatsPhysics } from "./topPhysics";
 import { createRng } from "./rng";
 import { resolveTopRuntimeStats } from "./topAssembly";
 import { resolveTopHit } from "./topDamage";
@@ -21,6 +23,7 @@ import type {
   ArenaLogEvent,
   ArenaTuningConfig,
   ArenaRewardBias,
+  CombatEvent,
   EnemyBehaviorId,
   EnemyModifierDef,
   TopArenaRuntime,
@@ -34,6 +37,7 @@ import type {
 import { emptyDamagePacket, zeroResistances } from "./topTypes";
 
 const maxEvents = 8;
+const maxCombatEvents = 16;
 const maxEffects = 80;
 const maxDrops = 12;
 const minMapKillTarget = 150;
@@ -187,6 +191,33 @@ function spendFlux(entity: TopRuntimeEntity, amount: number): TopRuntimeEntity {
   return withFlux(entity, currentFlux(entity) - Math.max(0, amount));
 }
 
+function createCombatContext(entity: TopRuntimeEntity, events: CombatEvent[] = []): CombatContext {
+  const physics = resolveStatsPhysics(entity.stats, { spinEnergy: currentSpinEnergy(entity) });
+  return {
+    physics,
+    spinEnergyRatio: spinEnergyRatio(entity),
+    fluxRatio: clamp(currentFlux(entity) / maxFlux(entity), 0, 1.2),
+    omega: physics.omega,
+    events,
+  };
+}
+
+function sustainSpinEnergyFromFlux(entity: TopRuntimeEntity, deltaSeconds: number): TopRuntimeEntity {
+  const missingEnergy = Math.max(0, maxSpinEnergy(entity) - currentSpinEnergy(entity));
+  if (missingEnergy <= 0 || currentFlux(entity) <= 0) {
+    return entity;
+  }
+
+  const maxFluxSpend = balanceConfig.flux.energySustainConversionPerSecond * deltaSeconds;
+  const fluxNeeded = missingEnergy / balanceConfig.flux.fluxToEnergyRate;
+  const fluxSpent = Math.min(currentFlux(entity), maxFluxSpend, fluxNeeded);
+  if (fluxSpent <= 0) {
+    return entity;
+  }
+
+  return addSpinEnergy(spendFlux(entity, fluxSpent), fluxSpent * balanceConfig.flux.fluxToEnergyRate);
+}
+
 function angularSurfaceSpeed(entity: TopRuntimeEntity): number {
   return entity.stats.rpm * spinRatio(entity) * entity.radius * 0.72;
 }
@@ -215,6 +246,13 @@ function pushEvent(runtime: TopArenaRuntime, tone: ArenaLogEvent["tone"], text: 
     ...runtime,
     eventIndex,
     events: [{ id: `top_event_${eventIndex}`, tone, text }, ...runtime.events].slice(0, maxEvents),
+  };
+}
+
+function emitCombatEvent(runtime: TopArenaRuntime, event: CombatEvent): TopArenaRuntime {
+  return {
+    ...runtime,
+    combatEvents: [event, ...runtime.combatEvents].slice(0, maxCombatEvents),
   };
 }
 
@@ -547,12 +585,18 @@ export function createTopArenaRuntime({
     effects: [],
     drops: [],
     events: initialEvents,
+    combatEvents: [],
     lastCollision: undefined,
     collisionContacts: {},
   };
 }
 
-function steerEntity(entity: TopRuntimeEntity, target: TopRuntimeEntity | null, arenaRadius: number, deltaSeconds: number, tuning: ArenaTuningConfig = defaultArenaTuning): TopRuntimeEntity {
+type SteerEntityResult = {
+  entity: TopRuntimeEntity;
+  combatEvent?: CombatEvent;
+};
+
+function steerEntity(entity: TopRuntimeEntity, target: TopRuntimeEntity | null, arenaRadius: number, deltaSeconds: number, tuning: ArenaTuningConfig = defaultArenaTuning): SteerEntityResult {
   let desiredX = -entity.x * 0.25;
   let desiredY = -entity.y * 0.25;
 
@@ -612,12 +656,25 @@ function steerEntity(entity: TopRuntimeEntity, target: TopRuntimeEntity | null, 
   let x = entity.x + vx * deltaSeconds;
   let y = entity.y + vy * deltaSeconds;
   const distanceFromCenter = length(x, y);
+  let combatEvent: CombatEvent | undefined;
 
   if (distanceFromCenter + entity.radius > arenaRadius) {
     const normal = normalize(x, y);
     x = normal.x * (arenaRadius - entity.radius);
     y = normal.y * (arenaRadius - entity.radius);
     const dot = vx * normal.x + vy * normal.y;
+    const physics = resolveStatsPhysics(entity.stats, { spinEnergy: currentSpinEnergy(entity) });
+    const wallImpact = Math.max(0, dot);
+    const ringoutGate = Math.max(60, physics.designMass * Math.max(0.2, entity.stats.grip) * 42);
+    if (wallImpact >= ringoutGate) {
+      combatEvent = {
+        kind: "ringout",
+        sourceId: entity.id,
+        magnitude: wallImpact,
+        x,
+        y,
+      };
+    }
     vx = (vx - 2 * dot * normal.x) * (0.55 + entity.stats.grip * 0.22);
     vy = (vy - 2 * dot * normal.y) * (0.55 + entity.stats.grip * 0.22);
     speed = length(vx, vy);
@@ -629,31 +686,31 @@ function steerEntity(entity: TopRuntimeEntity, target: TopRuntimeEntity | null, 
   const wobbleRecovery = Math.max(0, entity.wobble - (0.28 + entity.stats.grip * 0.18) * deltaSeconds);
 
   return {
-    ...spinState,
-    x,
-    y,
-    vx,
-    vy,
-    angle: entity.angle + entity.stats.rpm * spinRatio(entity) * deltaSeconds * 4.5,
-    wobble: wobbleRecovery,
-    cooldownRemaining: Math.max(0, entity.cooldownRemaining - deltaSeconds),
-    phaseGateCooldown: entity.phaseGateCooldown === undefined ? undefined : Math.max(0, entity.phaseGateCooldown - deltaSeconds),
+    entity: {
+      ...spinState,
+      x,
+      y,
+      vx,
+      vy,
+      angle: entity.angle + entity.stats.rpm * spinRatio(entity) * deltaSeconds * 4.5,
+      wobble: wobbleRecovery,
+      cooldownRemaining: Math.max(0, entity.cooldownRemaining - deltaSeconds),
+      phaseGateCooldown: entity.phaseGateCooldown === undefined ? undefined : Math.max(0, entity.phaseGateCooldown - deltaSeconds),
+    },
+    combatEvent,
   };
 }
 
 type CollisionDamageContext = Pick<TopCollisionEvent, "kind" | "normalImpulse" | "tangentImpulse" | "relativeNormalSpeed" | "relativeTangentialSpeed" | "surfaceShear" | "sparkIntensity" | "contactAge" | "heavy">;
 
-function createCollisionDamage(attacker: TopRuntimeEntity, defender: TopRuntimeEntity, collision?: CollisionDamageContext): ReturnType<typeof emptyDamagePacket> {
-  const relativeSpeed = length(attacker.vx - defender.vx, attacker.vy - defender.vy);
-  const impulseDamage = collision
-    ? collision.normalImpulse * (0.3 + attacker.stats.edge * 1.25) + Math.abs(collision.tangentImpulse) * (0.16 + attacker.stats.grip * 0.08)
-    : relativeSpeed * attacker.stats.mass * 0.38;
-  const spinFactor = 0.68 + spinRatio(attacker) * 0.42;
+export function createCollisionDamage(attacker: TopRuntimeEntity, defender: TopRuntimeEntity, collision?: CollisionDamageContext): ReturnType<typeof emptyDamagePacket> {
+  const physics = resolveStatsPhysics(attacker.stats);
+  const impactSeed = collisionImpactSeedFromMass(physics.designMass);
   const kindFactor = collision?.kind === "smash" ? 1.28 : collision?.kind === "scrape" ? 0.88 : collision?.kind === "grind" ? 0.74 : 1;
   const heavyFactor = collision?.heavy ? 1.16 : 1;
   const playerIncomingScalar = defender.team === "player" ? (attacker.rank === "boss" ? 0.78 : attacker.rank === "elite" ? 0.68 : 0.54) : 1;
   const packet = emptyDamagePacket();
-  packet.impact = (attacker.stats.impact * spinFactor + impulseDamage + relativeSpeed * attacker.stats.mass * 0.08) * heavyFactor * kindFactor * playerIncomingScalar;
+  packet.impact = impactSeed * heavyFactor * kindFactor * playerIncomingScalar;
   return packet;
 }
 
@@ -803,6 +860,13 @@ function applyBossPhaseGate(
   };
 }
 
+function defenderDamageTakenScalar(runtime: TopArenaRuntime, defender: TopRuntimeEntity): number {
+  const context = createCombatContext(defender, runtime.combatEvents);
+  return defender.stats.modifiers
+    .filter((modifier) => modifier.stat === "damage" && modifier.type === "less" && evaluateCombatCondition(modifier.condition, context))
+    .reduce((scalar, modifier) => scalar * Math.max(0, 1 - modifier.value), 1);
+}
+
 function dealDamage(
   runtime: TopArenaRuntime,
   attacker: TopRuntimeEntity,
@@ -826,10 +890,11 @@ function dealDamage(
     defender: defender.stats,
     drive,
     sourceTags: source === "collision" ? ["attack", "melee"] : drive.tags,
+    context: createCombatContext(attacker, runtime.combatEvents),
   });
   const defenderPhase = defender.rank === "boss" ? bossPhaseFor(defender) : undefined;
   const phaseDamageScalar = defenderPhase === 3 && source === "collision" && !collision?.heavy ? 0.42 : 1;
-  const defenseRuneScalar = defender.team === "player" && behaviorCount(activeRuneBehaviors(runtime), "defense") > 0 ? (source === "collision" ? 0.9 : 0.86) : 1;
+  const defenseRuneScalar = defender.team === "player" ? defenderDamageTakenScalar(runtime, defender) : 1;
   const totalDamage = hit.totalDamage * damageScalar * phaseDamageScalar * defenseRuneScalar;
   const bossGate = applyBossPhaseGate(defender, totalDamage);
   const impulseDirection = normalize(defender.x - attacker.x, defender.y - attacker.y);
@@ -1116,7 +1181,8 @@ function handleKills(runtime: TopArenaRuntime): TopArenaRuntime {
   const survivors: TopRuntimeEntity[] = [];
 
   for (const enemy of runtime.enemies) {
-    if (enemy.spinIntegrity > 0) {
+    const energyDepleted = enemy.rank !== "boss" && currentSpinEnergy(enemy) <= 0;
+    if (enemy.spinIntegrity > 0 && !energyDepleted) {
       survivors.push(enemy);
       continue;
     }
@@ -1329,6 +1395,14 @@ function resolveCollisions(runtime: TopArenaRuntime, deltaSeconds: number, tunin
       player = resolved.player;
       nextEnemy = resolved.enemy;
       nextRuntime = { ...nextRuntime, lastCollision: resolved.collision };
+      nextRuntime = emitCombatEvent(nextRuntime, {
+        kind: resolved.collision.kind,
+        sourceId: player.id,
+        targetId: nextEnemy.id,
+        magnitude: resolved.collision.normalImpulse,
+        x: resolved.collision.x,
+        y: resolved.collision.y,
+      });
 
       if (resolved.collision.sparkIntensity > 0.55) {
         const sparkLength = 24 + resolved.collision.surfaceShear * 0.24;
@@ -1533,11 +1607,36 @@ function resolvePlayerSkill(runtime: TopArenaRuntime): TopArenaRuntime {
 
   const collisionDamageContext = drive.trigger === "onCollision" || drive.trigger === "onHeavyCollision" || collisionDriven ? runtime.lastCollision : undefined;
   const driveFluxCost = (drive.cost?.amount ?? 0) * runeValidation.costMultiplier;
+  const gateStatus = evaluateDriveGate(drive, createCombatContext(runtime.player, runtime.combatEvents));
+  if (!gateStatus.unlocked) {
+    return runtime;
+  }
   if (currentFlux(runtime.player) < driveFluxCost) {
+    if (currentFlux(runtime.player) <= 0.001) {
+      return emitCombatEvent(runtime, {
+        kind: "overheat",
+        sourceId: runtime.player.id,
+        targetId: target.id,
+        magnitude: driveFluxCost,
+        x: runtime.player.x,
+        y: runtime.player.y,
+        driveId: drive.id,
+        tags: drive.tags,
+      });
+    }
     return runtime;
   }
   let enemies = runtime.enemies;
-  let nextRuntime = { ...runtime, player: spendFlux(runtime.player, driveFluxCost) };
+  let nextRuntime = emitCombatEvent({ ...runtime, player: spendFlux(runtime.player, driveFluxCost) }, {
+    kind: "discharge",
+    sourceId: runtime.player.id,
+    targetId: target.id,
+    magnitude: driveFluxCost,
+    x: target.x,
+    y: target.y,
+    driveId: drive.id,
+    tags: drive.tags,
+  });
   const hitEnemyIds = new Set<string>();
   const applyPlayerSkillHit = (enemy: TopRuntimeEntity, scalar: number) => {
     const skillHit = dealDamage(nextRuntime, nextRuntime.player, enemy, "skill", collisionDamageContext, scalar);
@@ -1627,19 +1726,44 @@ function recoverPlayer(player: TopRuntimeEntity, deltaSeconds: number): TopRunti
   const guardRecovery = player.stats.maxFluxGuard * 0.04 * deltaSeconds * player.stats.resonance;
   const fluxRecovery = balanceConfig.flux.naturalRegenPerSecond * deltaSeconds * Math.max(0.35, player.stats.resonance + (player.stats.reservationEfficiency ?? 0));
   const recoveredFlux = addFlux(player, fluxRecovery);
-  const recoveredEnergy = addSpinEnergy(recoveredFlux, maxSpinEnergy(recoveredFlux) * 0.025 * deltaSeconds * recoveredFlux.stats.resonance);
-  const stabilizedEnergy = withSpinEnergy(recoveredEnergy, Math.max(currentSpinEnergy(recoveredEnergy), maxSpinEnergy(recoveredEnergy) * 0.04));
 
   return {
-    ...stabilizedEnergy,
-    spinIntegrity: Math.min(stabilizedEnergy.stats.maxSpinIntegrity, Math.max(stabilizedEnergy.spinIntegrity, stabilizedEnergy.stats.maxSpinIntegrity * 0.04) + integrityRecovery),
-    fluxGuard: Math.min(stabilizedEnergy.stats.maxFluxGuard, stabilizedEnergy.fluxGuard + guardRecovery),
+    ...recoveredFlux,
+    spinIntegrity: Math.min(recoveredFlux.stats.maxSpinIntegrity, Math.max(recoveredFlux.spinIntegrity, recoveredFlux.stats.maxSpinIntegrity * 0.04) + integrityRecovery),
+    fluxGuard: Math.min(recoveredFlux.stats.maxFluxGuard, recoveredFlux.fluxGuard + guardRecovery),
   };
+}
+
+function sustainPlayerEnergy(runtime: TopArenaRuntime, deltaSeconds: number): TopArenaRuntime {
+  return {
+    ...runtime,
+    player: sustainSpinEnergyFromFlux(runtime.player, deltaSeconds),
+  };
+}
+
+function emitStabilizeEventIfNeeded(runtime: TopArenaRuntime, previousPlayer: TopRuntimeEntity): TopArenaRuntime {
+  const previousEnergyRatio = spinEnergyRatio(previousPlayer);
+  const nextEnergyRatio = spinEnergyRatio(runtime.player);
+  const energyStabilized = previousEnergyRatio < 0.3 && nextEnergyRatio >= 0.3;
+  const wobbleStabilized = previousPlayer.wobble > 0.001 && runtime.player.wobble <= 0.001;
+
+  if (!energyStabilized && !wobbleStabilized) {
+    return runtime;
+  }
+
+  return emitCombatEvent(runtime, {
+    kind: "stabilize",
+    sourceId: runtime.player.id,
+    magnitude: energyStabilized ? nextEnergyRatio : previousPlayer.wobble,
+    x: runtime.player.x,
+    y: runtime.player.y,
+  });
 }
 
 export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: number, tuningOverrides?: Partial<ArenaTuningConfig>): TopArenaRuntime {
   const arena = getArenaCircuitDef(runtime.arenaId);
   const tuning = normalizeArenaTuning(tuningOverrides);
+  const previousPlayer = runtime.player;
   let nextRuntime: TopArenaRuntime = {
     ...runtime,
     time: runtime.time + deltaSeconds,
@@ -1651,6 +1775,7 @@ export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: numb
       .filter((effect) => effect.age < effect.lifetime),
     drops: runtime.drops.map((drop) => ({ ...drop, age: drop.age + deltaSeconds })).slice(0, maxDrops),
     lastCollision: undefined,
+    combatEvents: [],
   };
   nextRuntime = tickRouteMechanic(nextRuntime, deltaSeconds);
 
@@ -1666,14 +1791,26 @@ export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: numb
   }
 
   const firstEnemy = nextRuntime.enemies[0] ?? null;
-  const player = steerEntity(nextRuntime.player, firstEnemy, arena.radius, deltaSeconds, tuning);
-  const enemies = nextRuntime.enemies.map((enemy) => steerEntity(enemy, player, arena.radius, deltaSeconds, tuning));
+  const playerSteer = steerEntity(nextRuntime.player, firstEnemy, arena.radius, deltaSeconds, tuning);
+  let player = playerSteer.entity;
+  if (playerSteer.combatEvent) {
+    nextRuntime = emitCombatEvent(nextRuntime, playerSteer.combatEvent);
+  }
+  const enemies = nextRuntime.enemies.map((enemy) => {
+    const result = steerEntity(enemy, player, arena.radius, deltaSeconds, tuning);
+    if (result.combatEvent) {
+      nextRuntime = emitCombatEvent(nextRuntime, result.combatEvent);
+    }
+    return result.entity;
+  });
   nextRuntime = { ...nextRuntime, player, enemies };
   nextRuntime = resolveEnemyCrowdPhysics(nextRuntime, tuning);
   nextRuntime = resolveEnemySkills(nextRuntime);
   nextRuntime = resolveHazards(nextRuntime, deltaSeconds);
   nextRuntime = resolveCollisions(nextRuntime, deltaSeconds, tuning);
   nextRuntime = resolvePlayerSkill(nextRuntime);
+  nextRuntime = sustainPlayerEnergy(nextRuntime, deltaSeconds);
+  nextRuntime = emitStabilizeEventIfNeeded(nextRuntime, previousPlayer);
   nextRuntime = handleKills(nextRuntime);
 
   return nextRuntime;

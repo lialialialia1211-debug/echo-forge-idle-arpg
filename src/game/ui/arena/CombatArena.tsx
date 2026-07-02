@@ -56,6 +56,7 @@ import type {
   ArenaEffect,
   ArenaKey,
   ArenaTuningConfig,
+  CombatEvent,
   CircuitAtlasNodeDef,
   TalentNodeDef,
   TopArenaRuntime,
@@ -72,7 +73,7 @@ import type {
   TuningRuneDef,
 } from "../../engine/topTypes";
 import { ArenaPhaserView, type ArenaRendererMetrics } from "./ArenaPhaserView";
-import { selectFluxLow, selectFluxRatio, selectLifeRatio } from "./runtimeSelectors";
+import { selectAttackFrequency, selectDpsBreakdown, selectDriveGateStatus, selectESustain, selectFluxLow, selectFluxRatio, selectLifeRatio, selectOmega } from "./runtimeSelectors";
 import "./CombatArena.css";
 
 type ArenaScreen = "combat" | "map" | "workbench";
@@ -363,6 +364,11 @@ function formatPartLines(part: TopPartInstance): string[] {
 
 function formatRuneLines(rune: TuningRuneDef): string[] {
   return [...formatStatLines(rune.statBonuses), ...formatResistanceLines(rune.resistanceBonuses), ...rune.modifiers.map(formatModifierLine)];
+}
+
+function formatCombatEvent(event: CombatEvent): string {
+  const label = event.driveId ? `${event.kind} / ${event.driveId}` : event.kind;
+  return `${label}: ${formatNumber(event.magnitude, 1)}`;
 }
 
 function formatTalentLines(talent: TalentNodeDef): string[] {
@@ -761,6 +767,11 @@ export function CombatArena() {
   const playerIntegrity = selectLifeRatio(runtime.player);
   const playerFluxRatio = selectFluxRatio(runtime.player);
   const playerFluxLow = selectFluxLow(runtime.player);
+  const playerOmega = selectOmega(runtime.player);
+  const playerAttackFrequency = selectAttackFrequency(runtime.player);
+  const dpsBreakdown = selectDpsBreakdown(runtime.player);
+  const eSustain = selectESustain(runtime.player);
+  const driveGateStatus = selectDriveGateStatus(runtime.player, driveId, runtime.combatEvents);
   const cooldownRatio = drive.baseCooldown > 0 ? 1 - clamp(runtime.player.cooldownRemaining / drive.baseCooldown, 0, 1) : 1;
   const routeMechanic = runtime.routeMechanic;
   const routeMechanicProgress = routeMechanic ? clamp(routeMechanic.progress / routeMechanic.maxProgress, 0, 1) : 0;
@@ -1470,6 +1481,15 @@ export function CombatArena() {
           <div className="skill-detail">
             <strong>{drive.displayName}</strong>
             <span>{drive.trigger} / {round(drive.baseCooldown, 2)}s</span>
+            <div className={driveGateStatus.unlocked ? "skill-gate skill-gate-ready" : "skill-gate skill-gate-locked"}>
+              <small>Drive gate</small>
+              <strong>{driveGateStatus.unlocked ? "READY" : "LOCKED"}</strong>
+              {driveGateStatus.missing.map((requirement) => (
+                <span key={`${requirement.attr}_${requirement.op}_${requirement.value}`}>
+                  {requirement.attr} {round(requirement.currentValue, 2)} / {requirement.op} {requirement.value}
+                </span>
+              ))}
+            </div>
             <div className="damage-tags">
               {Object.entries(drive.baseDamage)
                 .filter(([, value]) => value > 0)
@@ -2377,7 +2397,7 @@ export function CombatArena() {
             <div className="arena-hud-grid">
               <StatPill icon={<Activity size={16} />} label="Clear" value={`${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)}`} tone="rare" />
               <StatPill icon={<Gauge size={16} />} label="Integrity" value={formatPercent(playerIntegrity, 0)} tone={playerIntegrity > 0.35 ? "good" : "warn"} meter={playerIntegrity} />
-              <StatPill icon={<Zap size={16} />} label="Drive" value={formatPercent(cooldownRatio, 0)} tone="good" meter={cooldownRatio} />
+              <StatPill icon={<Zap size={16} />} label="Drive" value={driveGateStatus.unlocked ? formatPercent(cooldownRatio, 0) : "LOCKED"} tone={driveGateStatus.unlocked ? "good" : "warn"} meter={driveGateStatus.unlocked ? cooldownRatio : 0} />
               <StatPill icon={<Gem size={16} />} label="Kills" value={formatNumber(totalKills, 0)} tone="rare" />
             </div>
           </div>
@@ -2430,22 +2450,40 @@ export function CombatArena() {
                 </button>
               </div>
               {showDebugHud ? (
-                <div className={collisionDebugClass}>
-                  <div>
-                    <small>Collision</small>
-                    <strong>{lastCollision ? lastCollision.kind.toUpperCase() : "IDLE"}</strong>
+                <>
+                  <div className={collisionDebugClass}>
+                    <div>
+                      <small>Collision</small>
+                      <strong>{lastCollision ? lastCollision.kind.toUpperCase() : "IDLE"}</strong>
+                    </div>
+                    <span>N {lastCollision ? formatNumber(lastCollision.normalImpulse, 0) : "-"}</span>
+                    <span>T {lastCollision ? formatNumber(Math.abs(lastCollision.tangentImpulse), 0) : "-"}</span>
+                    <span>Shear {lastCollision ? formatNumber(lastCollision.surfaceShear, 0) : "-"}</span>
+                    <span>Spark {lastCollision ? round(lastCollision.sparkIntensity, 1) : "-"}</span>
+                    <span>Age {lastCollision ? `${round(lastCollision.contactAge, 2)}s` : "-"}</span>
+                    <span>Spin {formatPercent(runtime.player.spinPower / 100, 0)}</span>
+                    <span>Wobble {formatPercent(runtime.player.wobble, 0)}</span>
                   </div>
-                  <span>N {lastCollision ? formatNumber(lastCollision.normalImpulse, 0) : "-"}</span>
-                  <span>T {lastCollision ? formatNumber(Math.abs(lastCollision.tangentImpulse), 0) : "-"}</span>
-                  <span>Shear {lastCollision ? formatNumber(lastCollision.surfaceShear, 0) : "-"}</span>
-                  <span>Spark {lastCollision ? round(lastCollision.sparkIntensity, 1) : "-"}</span>
-                  <span>Age {lastCollision ? `${round(lastCollision.contactAge, 2)}s` : "-"}</span>
-                  <span>Spin {formatPercent(runtime.player.spinPower / 100, 0)}</span>
-                  <span>Wobble {formatPercent(runtime.player.wobble, 0)}</span>
-                </div>
+                  <div className="physical-debug" aria-label="Physical combat telemetry">
+                    <span>D=M {formatNumber(dpsBreakdown.collisionSeed, 1)}</span>
+                    <span>omega {round(playerOmega, 2)}</span>
+                    <span>attackFrequency {round(playerAttackFrequency, 2)}</span>
+                    <span>collisionDps {formatNumber(dpsBreakdown.collisionDps, 1)}</span>
+                    <span>Flux to E {formatNumber(eSustain.energyPerSecond, 1)}/s</span>
+                    <span>Sustain Flux {formatNumber(eSustain.fluxPerSecond, 1)}/s</span>
+                    <span>Gate {driveGateStatus.unlocked ? "READY" : "LOCKED"}</span>
+                  </div>
+                </>
               ) : null}
             </div>
             <div className="event-feed compact-events">
+              {showDebugHud
+                ? runtime.combatEvents.slice(0, 5).map((event, index) => (
+                    <div className="event-line event-line-debug" key={`${event.kind}_${event.sourceId}_${event.targetId ?? "self"}_${index}`}>
+                      {formatCombatEvent(event)}
+                    </div>
+                  ))
+                : null}
               {runtime.events.map((event) => (
                 <div className={`event-line event-line-${event.tone}`} key={event.id}>
                   {event.text}

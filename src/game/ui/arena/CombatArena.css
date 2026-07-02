@@ -1256,6 +1256,30 @@
   color: var(--teal);
 }
 
+.physical-debug {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(72px, 1fr));
+  gap: 5px;
+  align-items: stretch;
+}
+
+.physical-debug span {
+  min-width: 0;
+  min-height: 30px;
+  display: grid;
+  align-content: center;
+  border: 1px solid rgba(101, 198, 176, 0.2);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 5px 7px;
+  color: var(--teal);
+  font-size: 0.7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .arena-stat {
   min-width: 0;
   min-height: 46px;
@@ -1342,6 +1366,11 @@
   background: rgba(255, 255, 255, 0.035);
   padding: 6px 8px;
   font-size: 0.74rem;
+}
+
+.event-line-debug {
+  border-color: rgba(101, 198, 176, 0.18);
+  color: var(--teal);
 }
 
 .event-line-skill {
@@ -1820,6 +1849,47 @@
   display: grid;
   gap: 8px;
   margin-top: 8px;
+}
+
+.skill-gate {
+  display: grid;
+  gap: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.24);
+  padding: 8px;
+}
+
+.skill-gate small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.skill-gate strong {
+  color: var(--soft);
+  font-size: 0.82rem;
+}
+
+.skill-gate span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.skill-gate-ready {
+  border-color: rgba(101, 198, 176, 0.3);
+}
+
+.skill-gate-ready strong {
+  color: var(--teal);
+}
+
+.skill-gate-locked {
+  border-color: rgba(223, 98, 76, 0.36);
+}
+
+.skill-gate-locked strong {
+  color: var(--ember);
 }
 
 .skill-physics {
@@ -2459,6 +2529,7 @@
   .telemetry-grid,
   .run-review-strip,
   .collision-debug,
+  .physical-debug,
   .combat-bottom,
   .build-summary-grid,
   .equipment-slots,
@@ -2590,6 +2661,10 @@
     min-height: 24px;
     padding: 4px 6px;
     font-size: 0.64rem;
+  }
+
+  .physical-debug {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .arena-tuning-panel {

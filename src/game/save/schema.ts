@@ -25,6 +25,7 @@ const topModifierSchema = z.object({
   fromDamageType: z.string().optional(),
   toDamageType: z.string().optional(),
   scope: z.enum(["local", "global"]).optional(),
+  condition: z.unknown().optional(),
 });
 
 const topRolledEngravingSchema = z.object({

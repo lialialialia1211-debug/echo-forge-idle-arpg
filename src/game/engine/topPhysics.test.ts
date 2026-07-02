@@ -15,7 +15,7 @@ import {
 describe("top physics foundation", () => {
   it("bridges legacy mass into the design mass scale", () => {
     expect(toDesignMass(1)).toBe(5);
-    expect(collisionImpactSeedFromMass(toDesignMass(1))).toBe(90);
+    expect(collisionImpactSeedFromMass(toDesignMass(1))).toBe(150);
   });
 
   it("derives inertia, omega, and attack frequency from spin energy", () => {

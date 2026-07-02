@@ -1,6 +1,7 @@
 import { clamp } from "./math";
 import type { DamagePacket, DriveCoreDef, TopDamageType, TopModifierDef, TopRuntimeStats } from "./topTypes";
 import { emptyDamagePacket } from "./topTypes";
+import { evaluateCombatCondition, type CombatContext } from "./conditionEval";
 
 export type TopHitInput = {
   baseDamage: DamagePacket;
@@ -8,6 +9,7 @@ export type TopHitInput = {
   defender: TopRuntimeStats;
   drive: DriveCoreDef;
   sourceTags: string[];
+  context?: CombatContext;
 };
 
 export type TopHitResult = {
@@ -19,15 +21,15 @@ export type TopHitResult = {
   expectedCritMultiplier: number;
 };
 
-function modifierApplies(modifier: TopModifierDef, tags: string[]): boolean {
+function modifierApplies(modifier: TopModifierDef, tags: string[], context?: CombatContext): boolean {
   if (!modifier.tags || modifier.tags.length === 0) {
-    return true;
+    return evaluateCombatCondition(modifier.condition, context);
   }
-  return modifier.tags.some((tag) => tags.includes(tag));
+  return modifier.tags.some((tag) => tags.includes(tag)) && evaluateCombatCondition(modifier.condition, context);
 }
 
-function getModifiers(attacker: TopRuntimeStats, drive: DriveCoreDef, tags: string[]): TopModifierDef[] {
-  return [...attacker.modifiers, ...drive.modifiers].filter((modifier) => modifierApplies(modifier, tags));
+function getModifiers(attacker: TopRuntimeStats, drive: DriveCoreDef, tags: string[], context?: CombatContext): TopModifierDef[] {
+  return [...attacker.modifiers, ...drive.modifiers].filter((modifier) => modifierApplies(modifier, tags, context));
 }
 
 function statModifierValue(modifiers: TopModifierDef[], stat: string, type: TopModifierDef["type"]): number {
@@ -101,9 +103,9 @@ function mitigateDamageType(type: TopDamageType, value: number, defender: TopRun
   return value * (1 - resistance);
 }
 
-export function resolveTopHit({ baseDamage, attacker, defender, drive, sourceTags }: TopHitInput): TopHitResult {
+export function resolveTopHit({ baseDamage, attacker, defender, drive, sourceTags, context }: TopHitInput): TopHitResult {
   const tags = [...drive.tags, ...sourceTags];
-  const modifiers = getModifiers(attacker, drive, tags);
+  const modifiers = getModifiers(attacker, drive, tags, context);
   const converted = applyConversion(baseDamage, modifiers);
   const withExtra = applyExtraAs(converted, modifiers);
   const rawDamage = emptyDamagePacket();

@@ -42,7 +42,10 @@ export const tuningRunes: TuningRuneDef[] = [
     costMultiplier: 1.1,
     behavior: "defense",
     statBonuses: { mass: 0.08, guard: 54 },
-    modifiers: [{ id: "rune_deep_bearing_more", stat: "impact", type: "more", value: 0.08, tags: ["melee"] }],
+    modifiers: [
+      { id: "rune_deep_bearing_more", stat: "impact", type: "more", value: 0.08, tags: ["melee"] },
+      { id: "rune_deep_bearing_low_energy_guard", stat: "damage", type: "less", value: 0.18, condition: { kind: "attr", attr: "spinEnergyRatio", op: "<", value: 0.5 } },
+    ],
   },
   {
     id: "rune_echo_coil",
