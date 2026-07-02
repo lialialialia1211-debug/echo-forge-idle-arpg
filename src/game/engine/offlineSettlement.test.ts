@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { balanceConfig } from "../data/balanceConfig";
+import { namedRivals } from "../data/namedRivals";
 import { createStarterEquipment } from "../data/topParts";
 import { resolveOfflineSettlement } from "./offlineSettlement";
 import type { TopLoadoutConfig } from "./topTypes";
@@ -64,5 +65,34 @@ describe("resolveOfflineSettlement", () => {
 
     expect(result.parts.length).toBeLessThanOrEqual(balanceConfig.offline.dropCap);
     expect(result.wallet.ash + result.wallet.glass + result.wallet.echo).toBeGreaterThan(0);
+  });
+
+  it("uses the circuit node arena as the offline target", () => {
+    const result = resolveOfflineSettlement(
+      input({
+        arenaId: "arena_cinder_crucible",
+        arenaTier: 1,
+        circuitNodeId: "network_magnet_well",
+      }),
+    );
+
+    expect(result.circuitNodeId).toBe("network_magnet_well");
+    expect(result.targetArenaId).toBe("arena_red_chancel_disk");
+    expect(result.targetArenaTier).toBe(3);
+  });
+
+  it("does not create named rival unique drops for offline rival nodes", () => {
+    const rivalUniqueBaseIds = new Set(namedRivals.flatMap((rival) => rival.uniqueDropBaseIds));
+    const result = resolveOfflineSettlement(
+      input({
+        elapsedSeconds: balanceConfig.offline.capSeconds,
+        circuitNodeId: "network_magnet_well",
+        partQuantity: 5,
+        partRarity: 100,
+      }),
+    );
+
+    expect(result.rivalUniqueDropsBlocked).toBe(true);
+    expect(result.parts.some((part) => rivalUniqueBaseIds.has(part.baseId))).toBe(false);
   });
 });

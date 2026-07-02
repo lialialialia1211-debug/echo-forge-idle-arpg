@@ -672,6 +672,7 @@ export function CombatArena() {
   const [selectedTalentId, setSelectedTalentId] = useState(talentNodes[0].id);
   const [selectedAtlasNodeId, setSelectedAtlasNodeId] = useState(circuitAtlasNodes[0].id);
   const [selectedArenaKeyId, setSelectedArenaKeyId] = useState<string | null>((initialSave.top.arenaKeys as ArenaKey[])[0]?.id ?? null);
+  const [selectedOfflineNodeId, setSelectedOfflineNodeId] = useState<string | null>(null);
   const [currentArenaKey, setCurrentArenaKey] = useState<ArenaKey | null>(null);
   const [activeAnomalyId, setActiveAnomalyId] = useState<string | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
@@ -885,6 +886,17 @@ export function CombatArena() {
     const nextState = accountReducer(account, action);
     dispatchAccount(action);
     resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState), null);
+  };
+
+  const selectOfflineNode = (nodeId: string) => {
+    const node = circuitNetworkNodes.find((entry) => entry.id === nodeId);
+    if (!node) {
+      return;
+    }
+    setSelectedOfflineNodeId(node.id);
+    if (node.arenaId !== arenaId) {
+      selectArena(node.arenaId);
+    }
   };
 
   const equipPart = (part: TopPartInstance) => {
@@ -1238,6 +1250,7 @@ export function CombatArena() {
       frameId,
       driveId,
       arenaId,
+      circuitNodeId: selectedOfflineNodeId ?? undefined,
       loadout,
       elapsedSeconds,
       arenaTier: arena.tier,
@@ -1288,6 +1301,7 @@ export function CombatArena() {
     initialSave.lastSavedAt,
     initialSave.top.lastSettledAt,
     loadout,
+    selectedOfflineNodeId,
   ]);
 
   useEffect(() => {
@@ -2003,6 +2017,9 @@ export function CombatArena() {
                       {unlocked ? anomaly.displayName : "Locked"}
                     </button>
                   ) : null}
+                  <button className="arena-button" disabled={!unlocked} onClick={() => selectOfflineNode(node.id)} type="button">
+                    {selectedOfflineNodeId === node.id ? "Offline set" : "Offline"}
+                  </button>
                   {!rival && !anomaly ? <strong>{unlocked ? "open" : "locked"}</strong> : null}
                 </div>
               </div>
