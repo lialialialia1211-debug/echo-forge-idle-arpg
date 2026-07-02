@@ -203,6 +203,7 @@ const statLabels: Record<keyof TopStatBlock, string> = {
   reservationEfficiency: "Reserve",
   stagger: "Stagger",
   ringOutPressure: "Ring-Out",
+  inertiaBias: "Inertia",
   partQuantity: "Quantity",
   partRarity: "Rarity",
 };
@@ -242,7 +243,7 @@ function isPart(part: TopPartInstance | null | undefined): part is TopPartInstan
 }
 
 function formatStatValue(stat: keyof TopStatBlock, value: number): string {
-  if (["edge", "grip", "resonance", "partQuantity", "partRarity"].includes(stat)) {
+  if (["edge", "grip", "resonance", "inertiaBias", "partQuantity", "partRarity"].includes(stat)) {
     return formatPercent(value, 0);
   }
   if (stat === "fracture") {

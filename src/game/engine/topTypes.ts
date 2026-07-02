@@ -38,6 +38,7 @@ export type TopStatId =
   | "reservationEfficiency"
   | "stagger"
   | "ringOutPressure"
+  | "inertiaBias"
   | "partQuantity"
   | "partRarity";
 
@@ -433,6 +434,7 @@ export type TopRuntimeStats = {
   reservationEfficiency?: number;
   stagger?: number;
   ringOutPressure?: number;
+  inertiaBias?: number;
   partQuantity: number;
   partRarity: number;
   resistances: Required<TopResistanceBlock>;

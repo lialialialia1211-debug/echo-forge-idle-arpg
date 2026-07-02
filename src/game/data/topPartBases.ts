@@ -64,7 +64,7 @@ export const topPartBases: TopPartBaseDef[] = [
     requiredLevel: 1,
     baseWeight: 105,
     tags: ["physical", "melee"],
-    implicitStats: { mass: 0.08, guard: 58, grip: 0.04 },
+    implicitStats: { mass: 0.34, inertiaBias: 0.14, guard: 58, grip: 0.04 },
   },
   {
     id: "part_disk_hollow_flywheel",
@@ -74,7 +74,7 @@ export const topPartBases: TopPartBaseDef[] = [
     requiredLevel: 2,
     baseWeight: 92,
     tags: ["speed", "critical"],
-    implicitStats: { rpm: 0.42, drift: 54 },
+    implicitStats: { mass: -0.08, inertiaBias: -0.18, rpm: 0.42, drift: 54 },
   },
   {
     id: "part_tip_needle",
@@ -234,7 +234,7 @@ export const topPartBases: TopPartBaseDef[] = [
     requiredLevel: 4,
     baseWeight: 82,
     tags: ["speed", "control"],
-    implicitStats: { drift: 82, mass: 0.04, grip: 0.04 },
+    implicitStats: { drift: 82, mass: 0.22, inertiaBias: -0.1, grip: 0.04 },
   },
   {
     id: "part_disk_judicator_plate",
@@ -244,7 +244,7 @@ export const topPartBases: TopPartBaseDef[] = [
     requiredLevel: 8,
     baseWeight: 48,
     tags: ["physical", "thorns"],
-    implicitStats: { guard: 86, mass: 0.14, spinIntegrity: 110 },
+    implicitStats: { guard: 86, mass: 0.58, inertiaBias: 0.24, spinIntegrity: 110 },
     implicitModifiers: [{ id: "judicator_plate_thorns", stat: "impact", type: "increased", value: 0.1, tags: ["thorns"] }],
   },
   {

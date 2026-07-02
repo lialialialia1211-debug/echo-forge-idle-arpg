@@ -53,6 +53,7 @@ const topStatIds = new Set<TopStatId>([
   "reservationEfficiency",
   "stagger",
   "ringOutPressure",
+  "inertiaBias",
   "partQuantity",
   "partRarity",
 ]);
@@ -150,6 +151,7 @@ function applyStatBonuses(stats: TopRuntimeStats, bonuses: TopStatBlock): TopRun
     reservationEfficiency: (stats.reservationEfficiency ?? 0) + (bonuses.reservationEfficiency ?? 0),
     stagger: (stats.stagger ?? 0) + (bonuses.stagger ?? 0),
     ringOutPressure: (stats.ringOutPressure ?? 0) + (bonuses.ringOutPressure ?? 0),
+    inertiaBias: (stats.inertiaBias ?? 0) + (bonuses.inertiaBias ?? 0),
     partQuantity: stats.partQuantity + (bonuses.partQuantity ?? 0),
     partRarity: stats.partRarity + (bonuses.partRarity ?? 0),
   };

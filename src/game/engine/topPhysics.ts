@@ -6,6 +6,7 @@ export type TopPhysicsInput = {
   maxSpinIntegrity?: number;
   resonance?: number;
   volume?: number;
+  inertiaBias?: number;
   force?: number;
   spinEnergy?: number;
 };
@@ -66,7 +67,8 @@ export function maxFluxFromResonance(resonance = 1): number {
 
 export function resolveDerivedTopPhysics(input: TopPhysicsInput): TopDerivedPhysics {
   const designMass = toDesignMass(input.mass);
-  const volume = input.volume ?? balanceConfig.topPhysics.defaultVolume;
+  const baseVolume = input.volume ?? balanceConfig.topPhysics.defaultVolume;
+  const volume = baseVolume * Math.max(0.55, 1 + (input.inertiaBias ?? 0));
   const force = input.force ?? balanceConfig.topPhysics.fallbackForce;
   const spinEnergy = input.spinEnergy ?? input.maxSpinIntegrity ?? initialSpinEnergy(force);
   const moment = momentOfInertia(designMass, volume);
@@ -91,6 +93,7 @@ export function resolveStatsPhysics(stats: TopRuntimeStats, options: Pick<TopPhy
     mass: stats.mass,
     maxSpinIntegrity: stats.maxSpinIntegrity,
     resonance: stats.resonance,
+    inertiaBias: stats.inertiaBias,
     ...options,
   });
 }

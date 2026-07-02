@@ -8,9 +8,11 @@ import {
   momentOfInertia,
   omegaFromEnergy,
   resolveDerivedTopPhysics,
+  resolveStatsPhysics,
   toDesignMass,
   towerRequirement,
 } from "./topPhysics";
+import { resolveTopRuntimeStats } from "./topAssembly";
 
 describe("top physics foundation", () => {
   it("bridges legacy mass into the design mass scale", () => {
@@ -40,6 +42,29 @@ describe("top physics foundation", () => {
 
     expect(collisionImpactSeedFromMass(heavy.designMass)).toBeGreaterThan(collisionImpactSeedFromMass(light.designMass));
     expect(light.attackFrequency).toBeGreaterThan(heavy.attackFrequency);
+  });
+
+  it("lets disk inertia distribution alter omega at the same mass", () => {
+    const centerWeighted = resolveDerivedTopPhysics({ mass: 1, volume: 5, inertiaBias: -0.18, spinEnergy: 1000 });
+    const rimWeighted = resolveDerivedTopPhysics({ mass: 1, volume: 5, inertiaBias: 0.24, spinEnergy: 1000 });
+
+    expect(centerWeighted.momentOfInertia).toBeLessThan(rimWeighted.momentOfInertia);
+    expect(centerWeighted.omega).toBeGreaterThan(rimWeighted.omega);
+    expect(centerWeighted.attackFrequency).toBeGreaterThan(rimWeighted.attackFrequency);
+  });
+
+  it("keeps widened frame mass spread directionally readable", () => {
+    const light = resolveTopRuntimeStats("frame_storm_needle", "drive_storm_lattice");
+    const heavy = resolveTopRuntimeStats("frame_ember_crucible", "drive_ember_scour");
+    const lightPhysics = resolveStatsPhysics(light);
+    const heavyPhysics = resolveStatsPhysics(heavy);
+
+    expect(light.mass).toBeLessThan(0.8);
+    expect(heavy.mass).toBeGreaterThan(1.9);
+    expect(collisionImpactSeedFromMass(heavyPhysics.designMass)).toBeGreaterThan(collisionImpactSeedFromMass(lightPhysics.designMass) * 2.5);
+    expect(lightPhysics.omega).toBeGreaterThan(heavyPhysics.omega);
+    expect(lightPhysics.attackFrequency).toBeGreaterThan(heavyPhysics.attackFrequency);
+    expect(light.drift).toBeGreaterThan(heavy.drift);
   });
 
   it("low spin energy naturally slows the top", () => {
