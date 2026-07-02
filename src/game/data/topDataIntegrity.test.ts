@@ -116,6 +116,15 @@ describe("top ARPG data integrity", () => {
     }
   });
 
+  it("keeps equipment modifiers out of more and less multiplier layers", () => {
+    const equipmentModifiers = [
+      ...topPartBases.flatMap((base) => base.implicitModifiers ?? []),
+      ...topEngravings.flatMap((engraving) => engraving.modifiers ?? []),
+    ];
+
+    expect(equipmentModifiers.filter((modifier) => modifier.type === "more" || modifier.type === "less")).toEqual([]);
+  });
+
   it("keeps arena key and boss gate references valid", () => {
     const arenaIds = new Set(arenaCircuits.map((entry) => entry.id));
     const validRewardBiasTargets = new Set([...topPartBases.map((entry) => entry.slot), "forgeMedia", "bossFragment", "any"]);

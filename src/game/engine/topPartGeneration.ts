@@ -128,17 +128,19 @@ export function chooseTopPartRarity(rng: Rng, rarityBonus = 0): TopPartRarity {
   return "common";
 }
 
-export function topPartAffixCountForRarity(rarity: TopPartRarity, rng: Rng): number {
-  if (rarity === "common") {
-    return 0;
+export function topPartAffixSlotsForRarity(rarity: TopPartRarity): Record<"prefix" | "suffix", number> {
+  if (rarity === "common" || rarity === "relic") {
+    return { prefix: 0, suffix: 0 };
   }
   if (rarity === "tuned") {
-    return rng.int(1, 2);
+    return { prefix: 1, suffix: 1 };
   }
-  if (rarity === "engraved") {
-    return rng.int(4, 6);
-  }
-  return 6;
+  return { prefix: 3, suffix: 3 };
+}
+
+export function topPartAffixCountForRarity(rarity: TopPartRarity): number {
+  const slots = topPartAffixSlotsForRarity(rarity);
+  return slots.prefix + slots.suffix;
 }
 
 export function getEligibleTopEngravings(base: TopPartBaseDef, itemLevel: number, usedGroups = new Set<string>()): TopEngravingDef[] {
@@ -181,15 +183,16 @@ function rollEngravings({
   const rolled: TopRolledEngraving[] = [];
   let prefixCount = 0;
   let suffixCount = 0;
+  const slotLimits = exactAffixIds ? { prefix: 3, suffix: 3 } : topPartAffixSlotsForRarity(rarity);
 
   const tryAdd = (engraving: TopEngravingDef) => {
     if (usedGroups.has(engraving.group)) {
       return false;
     }
-    if (engraving.slot === "prefix" && prefixCount >= 3) {
+    if (engraving.slot === "prefix" && prefixCount >= slotLimits.prefix) {
       return false;
     }
-    if (engraving.slot === "suffix" && suffixCount >= 3) {
+    if (engraving.slot === "suffix" && suffixCount >= slotLimits.suffix) {
       return false;
     }
     if (engraving.slots && !engraving.slots.includes(base.slot)) {
@@ -215,13 +218,13 @@ function rollEngravings({
     tryAdd(getTopEngravingDef(affixId));
   }
 
-  const targetCount = exactAffixIds ? rolled.length : Math.max(rolled.length, topPartAffixCountForRarity(rarity, rng));
+  const targetCount = exactAffixIds ? rolled.length : Math.max(rolled.length, topPartAffixCountForRarity(rarity));
   while (rolled.length < targetCount) {
     const candidates = getEligibleTopEngravings(base, itemLevel, usedGroups).filter((engraving) => {
-      if (engraving.slot === "prefix" && prefixCount >= 3) {
+      if (engraving.slot === "prefix" && prefixCount >= slotLimits.prefix) {
         return false;
       }
-      if (engraving.slot === "suffix" && suffixCount >= 3) {
+      if (engraving.slot === "suffix" && suffixCount >= slotLimits.suffix) {
         return false;
       }
       return true;

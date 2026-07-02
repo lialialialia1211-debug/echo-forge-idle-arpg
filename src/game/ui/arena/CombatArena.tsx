@@ -6,6 +6,8 @@ import {
   Flame,
   Gauge,
   Gem,
+  Hammer,
+  Map as MapIcon,
   Network,
   PackageOpen,
   Pause,
@@ -70,9 +72,12 @@ import type {
   TuningRuneDef,
 } from "../../engine/topTypes";
 import { ArenaPhaserView, type ArenaRendererMetrics } from "./ArenaPhaserView";
+import { selectFluxLow, selectFluxRatio, selectLifeRatio } from "./runtimeSelectors";
 import "./CombatArena.css";
 
-type ActivePanel = "build" | "loot" | "forge" | "route";
+type ArenaScreen = "combat" | "map" | "workbench";
+
+type ActivePanel = "loadout" | "inventory" | "skills" | "forge" | "route" | "talents";
 
 type CurrencyWallet = {
   ash: number;
@@ -591,6 +596,15 @@ function PanelTab({ active, icon, label, onClick }: { active: boolean; icon: Rea
   );
 }
 
+function ScreenTab({ active, icon, label, onClick }: { active: boolean; icon: ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button aria-label={label} className={active ? "screen-tab screen-tab-active" : "screen-tab"} onClick={onClick} title={label} type="button">
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+}
+
 function drivePhysicsLines(driveId: string): string[] {
   switch (driveId) {
     case "drive_shard_barrage":
@@ -645,7 +659,8 @@ export function CombatArena() {
   const [showTuningHud, setShowTuningHud] = useState(false);
   const [arenaTuning, setArenaTuning] = useState<ArenaTuningConfig>(defaultArenaTuning);
   const [rendererMetrics, setRendererMetrics] = useState<ArenaRendererMetrics>(initialRendererMetrics);
-  const [activePanel, setActivePanel] = useState<ActivePanel>("build");
+  const [screen, setScreen] = useState<ArenaScreen>("combat");
+  const [activePanel, setActivePanel] = useState<ActivePanel>("loadout");
   const [inventoryFilter, setInventoryFilter] = useState<TopPartSlotId | "all">("all");
   const [equipment, setEquipment] = useState<Record<TopPartSlotId, TopPartInstance>>(initialEquipment);
   const [inventory, setInventory] = useState<TopPartInstance[]>(initialInventory);
@@ -669,6 +684,16 @@ export function CombatArena() {
   const lastKillRef = useRef({ seed: "", kills: 0 });
   const lastRouteClearRef = useRef({ seed: "", routeClears: 0 });
   const runeIds = useMemo(() => compactRuneSlots(runeSlots), [runeSlots]);
+
+  const openPanel = useCallback((panel: ActivePanel) => {
+    setActivePanel(panel);
+    setScreen("workbench");
+  }, []);
+
+  const openMap = useCallback(() => {
+    setActivePanel("route");
+    setScreen("map");
+  }, []);
 
   const makeLoadout = useCallback(
     (nextEquipment: TopEquipment = equipment, nextRuneIds = runeIds, nextTalentIds = talentIds, nextCircuitAtlasNodeIds = circuitAtlasNodeIds): TopLoadoutConfig => ({
@@ -733,12 +758,17 @@ export function CombatArena() {
     }
     return resolveTopRuntimeStats(frameId, driveId, makeLoadout({ ...equipment, [selectedPart.slot]: selectedPart }));
   }, [currentStats, driveId, equipment, frameId, makeLoadout, selectedPart]);
-  const playerIntegrity = clamp(runtime.player.spinIntegrity / runtime.player.stats.maxSpinIntegrity, 0, 1);
+  const playerIntegrity = selectLifeRatio(runtime.player);
+  const playerFluxRatio = selectFluxRatio(runtime.player);
+  const playerFluxLow = selectFluxLow(runtime.player);
   const cooldownRatio = drive.baseCooldown > 0 ? 1 - clamp(runtime.player.cooldownRemaining / drive.baseCooldown, 0, 1) : 1;
   const routeMechanic = runtime.routeMechanic;
   const routeMechanicProgress = routeMechanic ? clamp(routeMechanic.progress / routeMechanic.maxProgress, 0, 1) : 0;
   const target = runtime.enemies[0] ?? null;
-  const targetIntegrity = target ? clamp(target.spinIntegrity / target.stats.maxSpinIntegrity, 0, 1) : 0;
+  const targetIntegrity = target ? selectLifeRatio(target) : 0;
+  const bossEnemy = runtime.enemies.find((enemy) => enemy.rank === "boss") ?? null;
+  const bossIntegrity = bossEnemy ? selectLifeRatio(bossEnemy) : 0;
+  const eliteEnemies = runtime.enemies.filter((enemy) => enemy.rank === "elite").slice(0, 4);
   const dangerCue = useMemo(() => {
     const cues = [
       ...runtime.enemies.map((enemy) => buildEnemyDangerCue(enemy, runtime.player)),
@@ -1172,10 +1202,10 @@ export function CombatArena() {
       }
       setLootNotices((current) => [...notices, ...current].slice(0, 8));
       if (!running) {
-        setActivePanel("loot");
+        openPanel("inventory");
       }
     }
-  }, [arena.tier, inventory, running, runtime.drops, runtime.seed, runtime.wave]);
+  }, [arena.tier, inventory, openPanel, running, runtime.drops, runtime.seed, runtime.wave]);
 
   const selectedPartInInventory = selectedPart ? inventory.some((part) => part.id === selectedPart.id) : false;
   const selectedPartEquipped = selectedPart ? selectedCurrentPart?.id === selectedPart.id : false;
@@ -1200,19 +1230,19 @@ export function CombatArena() {
           : `${remainingToBoss} rivals before boss`;
     const actionPanel: ActivePanel =
       runtime.drops.length > 0
-        ? "loot"
+        ? "inventory"
         : selectedPartVerdict?.action === "forge"
           ? "forge"
           : selectedPartVerdict?.action === "equip"
-            ? "loot"
+            ? "inventory"
             : bossProjection.successChance >= 0.5
               ? "route"
-              : "build";
+              : "loadout";
     const tone: "neutral" | "good" | "warn" | "rare" =
       runtimeError || dangerCue?.tone === "danger" ? "warn" : bestDrop?.rarity === "relic" || runtime.routeClears > 0 ? "rare" : runtime.drops.length > 0 ? "good" : "neutral";
 
     return {
-      actionLabel: actionPanel === "loot" ? "Loot" : actionPanel === "forge" ? "Forge" : actionPanel === "route" ? "Route" : "Build",
+      actionLabel: actionPanel === "inventory" ? "Inventory" : actionPanel === "forge" ? "Forge" : actionPanel === "route" ? "Route" : "Loadout",
       actionPanel,
       bestDropText: bestDrop ? `${bestDrop.rarity} ${bestDrop.label}` : "No drops yet",
       detail: dangerCue ? dangerCue.label : selectedPartVerdict ? selectedPartVerdict.label : "Stabilize build",
@@ -1296,7 +1326,7 @@ export function CombatArena() {
               Salvage
             </button>
             {showForgeAction ? (
-              <button className="arena-button" onClick={() => setActivePanel("forge")} type="button">
+              <button className="arena-button" onClick={() => openPanel("forge")} type="button">
                 <Gem size={15} aria-hidden />
                 Forge
               </button>
@@ -1468,7 +1498,7 @@ export function CombatArena() {
               <line x1="50" y1="50" x2="80" y2="24" />
               <line x1="50" y1="50" x2="50" y2="82" />
             </svg>
-            <button className="socket-node socket-drive" onClick={() => setActivePanel("build")} type="button">
+            <button className="socket-node socket-drive" onClick={() => openPanel("loadout")} type="button">
               <small>Drive</small>
               <strong>{drive.displayName}</strong>
               <span>{drive.tags.slice(0, 3).join(" / ")}</span>
@@ -1902,12 +1932,22 @@ export function CombatArena() {
     setRunning((value) => !value);
   };
 
-  const renderBuildPanel = () => (
+  const renderLoadoutWorkbench = () => (
     <>
       {renderBuildSummaryPanel()}
       {renderLoadoutPanel()}
-      {renderSkillsPanel()}
-      {renderTalentsPanel()}
+      {renderSelectedPartInspector({ title: "Selected Part" })}
+    </>
+  );
+
+  const renderWorkbenchContent = () => (
+    <>
+      {activePanel === "loadout" && renderLoadoutWorkbench()}
+      {activePanel === "inventory" && renderInventoryPanel()}
+      {activePanel === "skills" && renderSkillsPanel()}
+      {activePanel === "forge" && renderForgePanel()}
+      {activePanel === "route" && renderRoutePanel()}
+      {activePanel === "talents" && renderTalentsPanel()}
     </>
   );
 
@@ -2050,7 +2090,7 @@ export function CombatArena() {
           { label: "Signal", value: selectedPartSignal, tone: selectedPartVerdict?.tone },
           { label: "Then", value: selectedPartVerdict?.action === "forge" ? "Forge roll" : "Restart run" },
         ],
-        onClick: () => setActivePanel("loot"),
+        onClick: () => openPanel("inventory"),
       };
     } else if (selectedPartVerdict?.action === "forge") {
       action = {
@@ -2064,7 +2104,7 @@ export function CombatArena() {
           { label: "Signal", value: selectedPartVerdict.label, tone: selectedPartVerdict.tone },
           { label: "Then", value: "Recheck build" },
         ],
-        onClick: () => setActivePanel("forge"),
+        onClick: () => openPanel("forge"),
       };
     } else if (selectedPartVerdict?.action === "equip") {
       action = {
@@ -2078,7 +2118,7 @@ export function CombatArena() {
           { label: "Signal", value: selectedPartVerdict.label, tone: selectedPartVerdict.tone },
           { label: "Then", value: "Start run" },
         ],
-        onClick: () => setActivePanel("loot"),
+        onClick: () => openPanel("inventory"),
       };
     } else if (selectedArenaKey) {
       const keySummary = selectedArenaKeySummary ?? summarizeArenaKeyRiskReward(selectedArenaKey);
@@ -2095,7 +2135,7 @@ export function CombatArena() {
           { label: "Signal", value: `Risk ${formatPercent(keyEnemyPressure, 0)}`, tone: keyEnemyPressure > 0 ? "warn" : "neutral" },
           { label: "Then", value: `Reward ${formatPercent(keyReward, 0)}`, tone: "rare" },
         ],
-        onClick: () => setActivePanel("route"),
+        onClick: openMap,
       };
     } else if (bossProjection.successChance >= 0.5 && !clearedBossGateIds.includes(bossProjection.gateId)) {
       action = {
@@ -2109,7 +2149,7 @@ export function CombatArena() {
           { label: "Signal", value: `${formatPercent(bossProjection.successChance, 0)} chance`, tone: "rare" },
           { label: "Then", value: "Unlock route" },
         ],
-        onClick: () => setActivePanel("route"),
+        onClick: openMap,
       };
     } else {
       action = {
@@ -2150,7 +2190,7 @@ export function CombatArena() {
   };
 
   return (
-    <main className={["top-arena-shell", running ? "top-arena-running" : "", currentArenaKey ? "top-arena-keyed" : ""].filter(Boolean).join(" ")}>
+    <main className={["top-arena-shell", `top-arena-screen-${screen}`, running ? "top-arena-running" : "", currentArenaKey ? "top-arena-keyed" : ""].filter(Boolean).join(" ")}>
       <header className="arena-topbar">
         <div className="arena-brand">
           <div className="brand-sigil">
@@ -2169,6 +2209,11 @@ export function CombatArena() {
           <span>Echo {wallet.echo}</span>
         </div>
         <div className="arena-controls" aria-label="Arena controls">
+          <div className="screen-tabs" aria-label="Main screens">
+            <ScreenTab active={screen === "combat"} icon={<Swords size={15} aria-hidden />} label="Combat" onClick={() => setScreen("combat")} />
+            <ScreenTab active={screen === "map"} icon={<MapIcon size={15} aria-hidden />} label="Map" onClick={openMap} />
+            <ScreenTab active={screen === "workbench"} icon={<Hammer size={15} aria-hidden />} label="Workbench" onClick={() => setScreen("workbench")} />
+          </div>
           <button className={running ? "arena-button arena-button-live" : "arena-button"} onClick={toggleRunning} type="button">
             {running ? <Pause size={16} aria-hidden /> : <Play size={16} aria-hidden />}
             {running ? "Pause" : "Start"}
@@ -2209,7 +2254,8 @@ export function CombatArena() {
 
       {renderNextActionStrip()}
 
-      <section className="arena-layout">
+      <section className={`arena-layout arena-layout-${screen}`}>
+        {screen === "combat" ? (
         <section className={["arena-stage-panel", running ? "arena-stage-live" : "", currentArenaKey ? "arena-stage-keyed" : ""].filter(Boolean).join(" ")}>
           <div className="arena-stage-header">
             <div>
@@ -2291,6 +2337,43 @@ export function CombatArena() {
                 ))}
               </div>
             ) : null}
+            {bossEnemy ? (
+              <div className="boss-hp-bar" aria-label="Boss integrity">
+                <span>{bossEnemy.name}</span>
+                <strong>{formatPercent(bossIntegrity, 0)}</strong>
+                <i style={{ width: `${bossIntegrity * 100}%` }} />
+              </div>
+            ) : null}
+            {eliteEnemies.length > 0 ? (
+              <div className="elite-hp-stack" aria-label="Elite integrity">
+                {eliteEnemies.map((enemy) => {
+                  const ratio = selectLifeRatio(enemy);
+                  return (
+                    <div className="elite-hp-bar" key={enemy.id}>
+                      <span>{enemy.name}</span>
+                      <strong>{formatPercent(ratio, 0)}</strong>
+                      <i style={{ width: `${ratio * 100}%` }} />
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            <div className={playerFluxLow ? "combat-orb-hud combat-orb-hud-flux-low" : "combat-orb-hud"} aria-label="Player resource orbs">
+              <div className="resource-orb resource-orb-life">
+                <i style={{ height: `${playerIntegrity * 100}%` }} />
+                <div>
+                  <small>E</small>
+                  <strong>{formatPercent(playerIntegrity, 0)}</strong>
+                </div>
+              </div>
+              <div className="resource-orb resource-orb-flux">
+                <i style={{ height: `${playerFluxRatio * 100}%` }} />
+                <div>
+                  <small>Flux</small>
+                  <strong>{formatPercent(playerFluxRatio, 0)}</strong>
+                </div>
+              </div>
+            </div>
             <div className="arena-hud-grid">
               <StatPill icon={<Activity size={16} />} label="Clear" value={`${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)}`} tone="rare" />
               <StatPill icon={<Gauge size={16} />} label="Integrity" value={formatPercent(playerIntegrity, 0)} tone={playerIntegrity > 0.35 ? "good" : "warn"} meter={playerIntegrity} />
@@ -2342,7 +2425,7 @@ export function CombatArena() {
                     Map <strong>{runtime.mapKills}/{runtime.mapKillTarget}</strong>
                   </span>
                 </div>
-                <button className="arena-button" onClick={() => setActivePanel(runReview.actionPanel)} type="button">
+                <button className="arena-button" onClick={() => openPanel(runReview.actionPanel)} type="button">
                   {runReview.actionLabel}
                 </button>
               </div>
@@ -2371,22 +2454,42 @@ export function CombatArena() {
             </div>
           </div>
         </section>
+        ) : null}
 
-        <aside className={showTuningHud ? "workbench-panel workbench-panel-tuning" : "workbench-panel"}>
+        {screen === "map" ? (
+          <section className="screen-panel map-screen-panel">
+            <div className="screen-panel-head">
+              <div>
+                <span className="arena-kicker">{currentArenaKey ? "Key Device Armed" : "Circuit Map"}</span>
+                <h1>Route Map</h1>
+              </div>
+              <button className="arena-button" onClick={() => setScreen("combat")} type="button">
+                <Play size={15} aria-hidden />
+                Combat
+              </button>
+            </div>
+            <div className="workbench-content screen-content">
+              {renderRoutePanel()}
+            </div>
+          </section>
+        ) : null}
+
+        {screen === "workbench" ? (
+        <aside className={showTuningHud ? "workbench-panel workbench-panel-tuning workbench-panel-full" : "workbench-panel workbench-panel-full"}>
           <nav className="panel-tabs" aria-label="Workbench">
-            <PanelTab active={activePanel === "build"} icon={<CircleDot size={15} aria-hidden />} label="Build" onClick={() => setActivePanel("build")} />
-            <PanelTab active={activePanel === "loot"} icon={<PackageOpen size={15} aria-hidden />} label="Loot" onClick={() => setActivePanel("loot")} />
-            <PanelTab active={activePanel === "forge"} icon={<Recycle size={15} aria-hidden />} label="Forge" onClick={() => setActivePanel("forge")} />
-            <PanelTab active={activePanel === "route"} icon={<Flame size={15} aria-hidden />} label="Route" onClick={() => setActivePanel("route")} />
+            <PanelTab active={activePanel === "loadout"} icon={<CircleDot size={15} aria-hidden />} label="Loadout" onClick={() => openPanel("loadout")} />
+            <PanelTab active={activePanel === "inventory"} icon={<PackageOpen size={15} aria-hidden />} label="Inventory" onClick={() => openPanel("inventory")} />
+            <PanelTab active={activePanel === "skills"} icon={<Sparkles size={15} aria-hidden />} label="Skills" onClick={() => openPanel("skills")} />
+            <PanelTab active={activePanel === "forge"} icon={<Recycle size={15} aria-hidden />} label="Forge" onClick={() => openPanel("forge")} />
+            <PanelTab active={activePanel === "route"} icon={<Flame size={15} aria-hidden />} label="Route" onClick={() => openPanel("route")} />
+            <PanelTab active={activePanel === "talents"} icon={<Network size={15} aria-hidden />} label="Talents" onClick={() => openPanel("talents")} />
           </nav>
           {showTuningHud ? renderTuningPanel() : null}
           <div className="workbench-content">
-            {activePanel === "build" && renderBuildPanel()}
-            {activePanel === "loot" && renderInventoryPanel()}
-            {activePanel === "forge" && renderForgePanel()}
-            {activePanel === "route" && renderRoutePanel()}
+            {renderWorkbenchContent()}
           </div>
         </aside>
+        ) : null}
       </section>
     </main>
   );

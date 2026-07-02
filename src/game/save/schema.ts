@@ -219,8 +219,8 @@ export function createNewAccountSave(classId = "veilrunner"): AccountSave {
       talentIds: [],
       circuitAtlasNodeIds: [],
       wallet: {
-        ash: 0,
-        glass: 0,
+        ash: 12,
+        glass: 2,
         echo: 0,
       },
       arenaKeys: [],

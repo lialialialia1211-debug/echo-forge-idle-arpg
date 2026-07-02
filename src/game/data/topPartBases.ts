@@ -54,7 +54,7 @@ export const topPartBases: TopPartBaseDef[] = [
     baseWeight: 90,
     tags: ["spell", "lightning", "chain"],
     implicitStats: { tracking: 42 },
-    implicitModifiers: [{ id: "arc_teeth_static_more", stat: "static", type: "more", value: 0.08, tags: ["lightning"], scope: "local" }],
+    implicitModifiers: [{ id: "arc_teeth_static_more", stat: "static", type: "increased", value: 0.08, tags: ["lightning"], scope: "local" }],
   },
   {
     id: "part_disk_deep_bearing",
@@ -222,7 +222,7 @@ export const topPartBases: TopPartBaseDef[] = [
     baseWeight: 72,
     tags: ["fire", "area"],
     implicitStats: { impact: 14, resonance: 0.08 },
-    implicitModifiers: [{ id: "furnace_teeth_heat_more", stat: "heat", type: "more", value: 0.07, tags: ["fire"] }],
+    implicitModifiers: [{ id: "furnace_teeth_heat_more", stat: "heat", type: "increased", value: 0.07, tags: ["fire"] }],
   },
   {
     id: "part_disk_orbit_weight",
@@ -377,7 +377,7 @@ export const topPartBases: TopPartBaseDef[] = [
     },
     implicitStats: { tracking: 72, resonance: 0.12, edge: 0.018 },
     implicitResistances: { static: 0.08 },
-    implicitModifiers: [{ id: "storm_orbit_static_more", stat: "static", type: "more", value: 0.12, tags: ["lightning", "chain"] }],
+    implicitModifiers: [{ id: "storm_orbit_static_more", stat: "static", type: "increased", value: 0.12, tags: ["lightning", "chain"] }],
   },
   {
     id: "part_chip_mapwright_contract",

@@ -342,6 +342,10 @@ export type TopRuntimeEntity = {
   spinIntegrity: number;
   fluxGuard: number;
   spinPower: number;
+  maxSpinEnergy?: number;
+  spinEnergy?: number;
+  maxFlux?: number;
+  flux?: number;
   wobble: number;
   cooldownRemaining: number;
   stats: TopRuntimeStats;

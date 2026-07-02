@@ -37,6 +37,25 @@ describe("top arena runtime", () => {
     expect(next.mapKills).toBeLessThan(next.mapKillTarget);
   });
 
+  it("keeps opening spin energy readable during early combat", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "opening_sustain_test",
+    });
+
+    let next = runtime;
+    for (let index = 0; index < 60; index += 1) {
+      next = stepTopArenaRuntime(next, 0.05);
+    }
+
+    const energyRatio = (next.player.spinEnergy ?? 0) / Math.max(1, next.player.maxSpinEnergy ?? next.player.stats.maxSpinIntegrity);
+
+    expect(next.kills).toBeGreaterThan(0);
+    expect(energyRatio).toBeGreaterThan(0.12);
+  });
+
   it("slides tops down the basin slope toward the center", () => {
     const runtime = createTopArenaRuntime({
       arenaId: "arena_cinder_crucible",

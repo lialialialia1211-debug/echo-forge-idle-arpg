@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createPartFromArenaDrop, generateTopPart } from "./topPartGeneration";
+import { createPartFromArenaDrop, generateTopPart, topPartAffixCountForRarity } from "./topPartGeneration";
 
 describe("top part generation", () => {
   it("is deterministic for the same seed", () => {
@@ -41,6 +41,46 @@ describe("top part generation", () => {
     expect(groups.size).toBe(affixes.length);
     expect(affixes.filter((affix) => affix.slot === "prefix").length).toBeLessThanOrEqual(3);
     expect(affixes.filter((affix) => affix.slot === "suffix").length).toBeLessThanOrEqual(3);
+  });
+
+  it("uses POE-style affix counts by rarity", () => {
+    const tuned = generateTopPart({
+      baseId: "part_ring_serrated_halo",
+      rarity: "tuned",
+      itemLevel: 18,
+      seed: "poe-tuned",
+      arenaId: "arena_red_chancel_disk",
+      enemyLevel: 18,
+      source: "drop",
+    });
+    const engraved = generateTopPart({
+      baseId: "part_ring_serrated_halo",
+      rarity: "engraved",
+      itemLevel: 18,
+      seed: "poe-engraved",
+      arenaId: "arena_red_chancel_disk",
+      enemyLevel: 18,
+      source: "drop",
+    });
+    const relic = generateTopPart({
+      baseId: "part_ring_serrated_halo",
+      rarity: "relic",
+      itemLevel: 18,
+      seed: "poe-relic",
+      arenaId: "arena_red_chancel_disk",
+      enemyLevel: 18,
+      source: "drop",
+    });
+
+    expect(topPartAffixCountForRarity("common")).toBe(0);
+    expect(topPartAffixCountForRarity("tuned")).toBe(2);
+    expect(topPartAffixCountForRarity("engraved")).toBe(6);
+    expect(topPartAffixCountForRarity("relic")).toBe(0);
+    expect(tuned.affixes?.filter((affix) => affix.slot === "prefix")).toHaveLength(1);
+    expect(tuned.affixes?.filter((affix) => affix.slot === "suffix")).toHaveLength(1);
+    expect(engraved.affixes?.filter((affix) => affix.slot === "prefix")).toHaveLength(3);
+    expect(engraved.affixes?.filter((affix) => affix.slot === "suffix")).toHaveLength(3);
+    expect(relic.affixes ?? []).toHaveLength(0);
   });
 
   it("uses the arena drop label to bias slot selection", () => {

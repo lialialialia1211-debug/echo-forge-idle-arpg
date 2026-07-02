@@ -23,7 +23,7 @@ export const topEngravings: TopEngravingDef[] = [
     group: "impact_more",
     minItemLevel: 4,
     weight: 70,
-    modifiers: [{ id: "engraving_more_impact", stat: "impact", type: "more", value: 1, tags: ["attack"] }],
+    modifiers: [{ id: "engraving_more_impact", stat: "impact", type: "increased", value: 1, tags: ["attack"] }],
     tiers: [
       { itemLevel: 4, min: 0.06, max: 0.1 },
       { itemLevel: 10, min: 0.11, max: 0.16 },
@@ -149,7 +149,7 @@ export const topEngravings: TopEngravingDef[] = [
     minItemLevel: 4,
     weight: 72,
     resistanceBonuses: { heat: 0.04 },
-    modifiers: [{ id: "engraving_heat_more", stat: "heat", type: "more", value: 1, tags: ["fire"] }],
+    modifiers: [{ id: "engraving_heat_more", stat: "heat", type: "increased", value: 1, tags: ["fire"] }],
     tiers: [
       { itemLevel: 4, min: 0.08, max: 0.13 },
       { itemLevel: 11, min: 0.14, max: 0.21 },
@@ -231,7 +231,7 @@ export const topEngravings: TopEngravingDef[] = [
     minItemLevel: 5,
     weight: 58,
     slots: ["attackRing", "tip", "weightDisk"],
-    modifiers: [{ id: "engraving_melee_more", stat: "impact", type: "more", value: 1, tags: ["melee"] }],
+    modifiers: [{ id: "engraving_melee_more", stat: "impact", type: "increased", value: 1, tags: ["melee"] }],
     tiers: [
       { itemLevel: 5, min: 0.07, max: 0.12 },
       { itemLevel: 12, min: 0.13, max: 0.2 },
@@ -245,7 +245,7 @@ export const topEngravings: TopEngravingDef[] = [
     minItemLevel: 5,
     weight: 62,
     slots: ["attackRing", "launcher"],
-    modifiers: [{ id: "engraving_projectile_more", stat: "impact", type: "more", value: 1, tags: ["projectile"] }],
+    modifiers: [{ id: "engraving_projectile_more", stat: "impact", type: "increased", value: 1, tags: ["projectile"] }],
     tiers: [
       { itemLevel: 5, min: 0.07, max: 0.12 },
       { itemLevel: 12, min: 0.13, max: 0.19 },
@@ -301,7 +301,7 @@ export const topEngravings: TopEngravingDef[] = [
     minItemLevel: 6,
     weight: 58,
     slots: ["core", "seal", "launcher"],
-    modifiers: [{ id: "engraving_fire_dot", stat: "heat", type: "more", value: 1, tags: ["duration"] }],
+    modifiers: [{ id: "engraving_fire_dot", stat: "heat", type: "increased", value: 1, tags: ["duration"] }],
     tiers: [
       { itemLevel: 6, min: 0.08, max: 0.14 },
       { itemLevel: 13, min: 0.15, max: 0.23 },
@@ -338,7 +338,7 @@ export const topEngravings: TopEngravingDef[] = [
     minItemLevel: 6,
     weight: 60,
     slots: ["attackRing", "launcher", "seal"],
-    modifiers: [{ id: "engraving_static_more", stat: "static", type: "more", value: 1, tags: ["lightning"] }],
+    modifiers: [{ id: "engraving_static_more", stat: "static", type: "increased", value: 1, tags: ["lightning"] }],
     tiers: [
       { itemLevel: 6, min: 0.08, max: 0.14 },
       { itemLevel: 13, min: 0.15, max: 0.22 },
@@ -375,7 +375,7 @@ export const topEngravings: TopEngravingDef[] = [
     minItemLevel: 5,
     weight: 50,
     slots: ["attackRing", "seal"],
-    modifiers: [{ id: "engraving_glass_damage", stat: "glass", type: "more", value: 1, tags: ["cold"] }],
+    modifiers: [{ id: "engraving_glass_damage", stat: "glass", type: "increased", value: 1, tags: ["cold"] }],
     tiers: [
       { itemLevel: 5, min: 0.07, max: 0.12 },
       { itemLevel: 12, min: 0.13, max: 0.2 },
@@ -397,7 +397,7 @@ export const topEngravings: TopEngravingDef[] = [
     group: "void_damage",
     minItemLevel: 8,
     weight: 36,
-    modifiers: [{ id: "engraving_void_damage", stat: "void", type: "more", value: 1, tags: ["void"] }],
+    modifiers: [{ id: "engraving_void_damage", stat: "void", type: "increased", value: 1, tags: ["void"] }],
     tiers: [
       { itemLevel: 8, min: 0.08, max: 0.14 },
       { itemLevel: 14, min: 0.15, max: 0.24 },

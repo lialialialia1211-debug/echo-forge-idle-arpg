@@ -15,6 +15,8 @@ describe("save schema", () => {
     expect(parsed.top.equipment.core?.slot).toBe("core");
     expect(parsed.top.inventory.length).toBeGreaterThan(0);
     expect(parsed.top.circuitAtlasNodeIds).toEqual([]);
+    expect(parsed.top.wallet.ash).toBeGreaterThanOrEqual(12);
+    expect(parsed.top.wallet.glass).toBeGreaterThanOrEqual(2);
   });
 
   it("migrates legacy v1 saves into top arena state", () => {

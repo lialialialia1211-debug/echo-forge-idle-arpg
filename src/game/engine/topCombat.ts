@@ -4,6 +4,7 @@ import { emptyDamagePacket, zeroResistances, type DamagePacket, type TopLoadoutC
 import { resolveTopRuntimeStats } from "./topAssembly";
 import { resolveTopHit } from "./topDamage";
 import { clamp } from "./math";
+import { collisionImpactSeedFromMass, effectiveCooldownFromOmega, resolveStatsPhysics } from "./topPhysics";
 
 export type TopCombatProjection = {
   collisionDps: number;
@@ -44,9 +45,10 @@ function createEnemyStats(arenaId: string): TopRuntimeStats {
   };
 }
 
-function createCollisionPacket(stats: TopRuntimeStats): DamagePacket {
+export function createCollisionPacket(stats: TopRuntimeStats): DamagePacket {
+  const physics = resolveStatsPhysics(stats);
   const packet = emptyDamagePacket();
-  packet.impact = stats.impact + stats.mass * stats.rpm * 18;
+  packet.impact = collisionImpactSeedFromMass(physics.designMass);
   return packet;
 }
 
@@ -74,6 +76,7 @@ export function projectTopCombat({
 }): TopCombatProjection {
   const drive = getDriveCoreDef(driveId);
   const player = resolveTopRuntimeStats(frameId, driveId, loadout);
+  const playerPhysics = resolveStatsPhysics(player);
   const enemy = createEnemyStats(arenaId);
   const collisionHit = resolveTopHit({
     baseDamage: createCollisionPacket(player),
@@ -89,9 +92,9 @@ export function projectTopCombat({
     drive,
     sourceTags: drive.tags,
   });
-  const collisionDps = collisionHit.totalDamage * Math.max(0.4, player.rpm * 0.72);
+  const collisionDps = collisionHit.totalDamage * Math.max(0.25, playerPhysics.attackFrequency);
   const cooldown = drive.cooldown?.baseSeconds ?? drive.baseCooldown;
-  const effectiveCooldown = cooldown / Math.max(0.35, player.resonance + (player.cooldownRecovery ?? 0));
+  const effectiveCooldown = effectiveCooldownFromOmega(cooldown, playerPhysics.omega, player.resonance, player.cooldownRecovery ?? 0);
   const driveDps = driveHit.totalDamage / Math.max(0.25, effectiveCooldown);
   const dotDps = drive.dot ? scaleDotDps(drive.dot.baseDps, drive.dot.damageType, player, enemy) : 0;
   const totalDps = collisionDps + driveDps + dotDps;

@@ -41,17 +41,19 @@ function chooseArenaKeyRarity(rng: Rng): ArenaKeyRarity {
   return "common";
 }
 
-function affixCountForRarity(rarity: ArenaKeyRarity, rng: Rng): number {
-  if (rarity === "common") {
-    return 0;
+export function arenaKeyAffixSlotsForRarity(rarity: ArenaKeyRarity): Record<"prefix" | "suffix", number> {
+  if (rarity === "common" || rarity === "relic") {
+    return { prefix: 0, suffix: 0 };
   }
   if (rarity === "tuned") {
-    return rng.int(1, 2);
+    return { prefix: 1, suffix: 1 };
   }
-  if (rarity === "engraved") {
-    return rng.int(3, 4);
-  }
-  return 5;
+  return { prefix: 3, suffix: 3 };
+}
+
+export function arenaKeyAffixCountForRarity(rarity: ArenaKeyRarity): number {
+  const slots = arenaKeyAffixSlotsForRarity(rarity);
+  return slots.prefix + slots.suffix;
 }
 
 function rollAffix(def: ArenaKeyAffixDef, tier: number): ArenaKeyAffix {
@@ -78,17 +80,18 @@ function chooseAffixes(rng: Rng, tier: number, rarity: ArenaKeyRarity): ArenaKey
   const affixes: ArenaKeyAffix[] = [];
   let prefixCount = 0;
   let suffixCount = 0;
-  const targetCount = affixCountForRarity(rarity, rng);
+  const slotLimits = arenaKeyAffixSlotsForRarity(rarity);
+  const targetCount = arenaKeyAffixCountForRarity(rarity);
 
   while (affixes.length < targetCount) {
     const candidates = arenaKeyAffixes.filter((affix) => {
       if (affix.minTier > tier || usedGroups.has(affix.group)) {
         return false;
       }
-      if (affix.slot === "prefix" && prefixCount >= 3) {
+      if (affix.slot === "prefix" && prefixCount >= slotLimits.prefix) {
         return false;
       }
-      if (affix.slot === "suffix" && suffixCount >= 3) {
+      if (affix.slot === "suffix" && suffixCount >= slotLimits.suffix) {
         return false;
       }
       return true;
