@@ -1,7 +1,10 @@
 import { circuitAtlasNodes, getCircuitAtlasNodeDef } from "../data/circuitAtlasNodes";
 import { getDoctrineDef } from "../data/doctrines";
 import { getDriveCoreDef } from "../data/driveCores";
+import { getArenaCircuitDef } from "../data/arenaCircuits";
+import { getBossGateDef } from "../data/bossGates";
 import { getTalentNodeDef, talentNodes } from "../data/talentNodes";
+import { getTopFrameDef } from "../data/topFrames";
 import { isRuneCompatible, tuningRunes } from "../data/tuningRunes";
 import { validateRuneLoadout } from "./driveRuneValidation";
 import { salvageTopPart, type TopCraftResult, type TopForgeWallet } from "./topCrafting";
@@ -13,6 +16,10 @@ export const arenaKeyCapacity = 24;
 export const keyForgeCost: AccountWallet = { ash: 6, glass: 1, echo: 0 };
 
 export type AccountAction =
+  | { type: "selectFrame"; frameId: string }
+  | { type: "selectDrive"; driveId: string }
+  | { type: "selectArena"; arenaId: string }
+  | { type: "markBossGateCleared"; gateId: string }
   | { type: "equipPart"; part: TopPartInstance }
   | { type: "toggleLock"; partId: string }
   | { type: "salvagePart"; partId: string }
@@ -135,6 +142,17 @@ function canSelectDoctrine(state: AccountRuntimeState, doctrineId: string | null
   }
 }
 
+function clearIncompatibleRunes(driveId: string, runeSlots: AccountRuntimeState["runeSlots"]): AccountRuntimeState["runeSlots"] {
+  const drive = getDriveCoreDef(driveId);
+  return runeSlots.map((runeId) => {
+    if (!runeId) {
+      return null;
+    }
+    const rune = tuningRunes.find((entry) => entry.id === runeId);
+    return rune && isRuneCompatible(rune, drive.tags) ? runeId : null;
+  }) as AccountRuntimeState["runeSlots"];
+}
+
 function replacePartEverywhere(state: AccountRuntimeState, sourcePartId: string, nextPart: TopPartInstance): AccountRuntimeState {
   const equippedSlot = Object.entries(state.equipment).find(([, part]) => part.id === sourcePartId)?.[0] as keyof AccountRuntimeState["equipment"] | undefined;
   return {
@@ -146,6 +164,39 @@ function replacePartEverywhere(state: AccountRuntimeState, sourcePartId: string,
 
 export function accountReducer(state: AccountRuntimeState, action: AccountAction): AccountRuntimeState {
   switch (action.type) {
+    case "selectFrame": {
+      const frame = getTopFrameDef(action.frameId);
+      const nextDriveId = frame.startingDriveId;
+      const nextState = {
+        ...state,
+        frameId: action.frameId,
+        driveId: nextDriveId,
+        runeSlots: clearIncompatibleRunes(nextDriveId, state.runeSlots),
+      };
+      return {
+        ...nextState,
+        doctrineId: canSelectDoctrine(nextState, nextState.doctrineId) ? nextState.doctrineId : null,
+      };
+    }
+
+    case "selectDrive":
+      getDriveCoreDef(action.driveId);
+      return {
+        ...state,
+        driveId: action.driveId,
+        runeSlots: clearIncompatibleRunes(action.driveId, state.runeSlots),
+      };
+
+    case "selectArena":
+      getArenaCircuitDef(action.arenaId);
+      return { ...state, arenaId: action.arenaId };
+
+    case "markBossGateCleared":
+      getBossGateDef(action.gateId);
+      return state.clearedBossGateIds.includes(action.gateId)
+        ? state
+        : { ...state, clearedBossGateIds: [...state.clearedBossGateIds, action.gateId] };
+
     case "equipPart": {
       const replaced = state.equipment[action.part.slot];
       const withoutEquipped = state.inventory.filter((part) => part.id !== action.part.id);

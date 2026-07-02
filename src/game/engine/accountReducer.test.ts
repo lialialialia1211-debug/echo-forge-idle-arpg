@@ -40,6 +40,45 @@ function part(id: string, baseId = "part_tip_needle") {
 }
 
 describe("accountReducer", () => {
+  it("selects a frame with its starter drive and clears incompatible runes and doctrine", () => {
+    const state = createState({
+      frameId: "frame_ember_crucible",
+      driveId: "drive_ember_scour",
+      runeSlots: ["rune_red_heat", "rune_slow_burn", null],
+      doctrineId: "doctrine_ember_rail_monk",
+    });
+
+    const next = accountReducer(state, { type: "selectFrame", frameId: "frame_storm_needle" });
+
+    expect(next.frameId).toBe("frame_storm_needle");
+    expect(next.driveId).toBe("drive_storm_lattice");
+    expect(next.runeSlots).toEqual([null, null, null]);
+    expect(next.doctrineId).toBeNull();
+  });
+
+  it("selects a drive and keeps only compatible rune sockets", () => {
+    const state = createState({
+      driveId: "drive_shard_barrage",
+      runeSlots: ["rune_splintered_edge", "rune_red_heat", null],
+    });
+
+    const next = accountReducer(state, { type: "selectDrive", driveId: "drive_ember_scour" });
+
+    expect(next.driveId).toBe("drive_ember_scour");
+    expect(next.runeSlots).toEqual([null, "rune_red_heat", null]);
+  });
+
+  it("selects arenas and marks boss gates idempotently", () => {
+    const state = createState();
+    const arenaSelected = accountReducer(state, { type: "selectArena", arenaId: "arena_red_chancel_disk" });
+    const cleared = accountReducer(arenaSelected, { type: "markBossGateCleared", gateId: "boss_gate_brass_judicator" });
+    const repeated = accountReducer(cleared, { type: "markBossGateCleared", gateId: "boss_gate_brass_judicator" });
+
+    expect(arenaSelected.arenaId).toBe("arena_red_chancel_disk");
+    expect(cleared.clearedBossGateIds).toEqual(["boss_gate_brass_judicator"]);
+    expect(repeated.clearedBossGateIds).toEqual(["boss_gate_brass_judicator"]);
+  });
+
   it("equips a part and returns the replaced part to inventory", () => {
     const nextTip = part("new_tip");
     const state = createState({ inventory: [nextTip] });
