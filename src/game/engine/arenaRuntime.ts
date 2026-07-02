@@ -933,6 +933,51 @@ function ailmentDamageTakenScalar(entity: TopRuntimeEntity): number {
   return 1 + clamp(shock, 0, 0.45);
 }
 
+function hasAilment(entity: TopRuntimeEntity, kind: AilmentState["kind"]): boolean {
+  return (entity.ailments ?? []).some((ailment) => ailment.kind === kind && ailment.remainingSeconds > 0);
+}
+
+function doctrineSkillDamageScalar(
+  runtime: TopArenaRuntime,
+  attacker: TopRuntimeEntity,
+  defender: TopRuntimeEntity,
+  hit: ReturnType<typeof resolveTopHit>,
+  source: "collision" | "skill",
+): number {
+  if (source !== "skill" || attacker.team !== "player") {
+    return 1;
+  }
+
+  let scalar = 1;
+  if (hasDoctrineRule(runtime, "overloadSurge")) {
+    const omega = createCombatContext(attacker, runtime.combatEvents).omega;
+    if (omega >= 11) {
+      scalar *= 1.12 + clamp((omega - 11) / 45, 0, 0.08);
+    }
+  }
+  if (hasDoctrineRule(runtime, "stormConduit") && hit.mitigatedDamage.static > 0 && hasAilment(defender, "shock")) {
+    scalar *= 1.18;
+  }
+  return scalar;
+}
+
+function buildDoctrineAilments(
+  runtime: TopArenaRuntime,
+  attacker: TopRuntimeEntity,
+  hit: ReturnType<typeof resolveTopHit>,
+  source: "collision" | "skill",
+  damage: number,
+): AilmentState[] {
+  if (source !== "skill" || attacker.team !== "player" || !hasDoctrineRule(runtime, "precisionBleed") || hit.critChance <= 0 || hit.expectedCritMultiplier <= 1) {
+    return [];
+  }
+
+  const duration = 2.8;
+  const critPressure = clamp(hit.critChance * (hit.expectedCritMultiplier - 1), 0.04, 0.45);
+  const bleed = createAilmentState("bleed", "glass", attacker.id, (damage * critPressure * 0.2) / duration, duration);
+  return bleed ? [bleed] : [];
+}
+
 function buildAilmentsFromHit(
   attacker: TopRuntimeEntity,
   defender: TopRuntimeEntity,
@@ -1177,7 +1222,8 @@ function dealDamage(
   const phaseDamageScalar = defenderPhase === 3 && source === "collision" && !collision?.heavy ? 0.42 : 1;
   const defenseRune = defender.team === "player" ? defenderDamageTakenScalar(runtime, defender) : { scalar: 1, activated: false };
   const ailmentTakenScalar = ailmentDamageTakenScalar(defender);
-  const rawTotalDamage = hit.totalDamage * damageScalar * phaseDamageScalar * ailmentTakenScalar;
+  const doctrineDamageScalar = doctrineSkillDamageScalar(runtime, attacker, defender, hit, source);
+  const rawTotalDamage = hit.totalDamage * damageScalar * phaseDamageScalar * ailmentTakenScalar * doctrineDamageScalar;
   const totalDamage = rawTotalDamage * defenseRune.scalar;
   const energyDamage = source === "collision" ? totalDamage : 0;
   const integrityDamage = source === "skill" || collision?.heavy ? totalDamage : 0;
@@ -1185,6 +1231,10 @@ function dealDamage(
   const impulseDirection = normalize(defender.x - attacker.x, defender.y - attacker.y);
   const skillImpulse = source === "skill" ? Math.min(120, bossGate.appliedDamage / defender.stats.mass) * 0.08 : 0;
   const damagedDefender = energyDamage > 0 ? drainSpinEnergy(defender, energyDamage) : defender;
+  const hitAilments = [
+    ...buildAilmentsFromHit(attacker, defender, drive, hit, source, damageScalar * doctrineDamageScalar),
+    ...buildDoctrineAilments(runtime, attacker, hit, source, rawTotalDamage),
+  ];
   const defenderNext = mergeAilments(
     {
       ...damagedDefender,
@@ -1195,7 +1245,7 @@ function dealDamage(
       bossPhase: defender.rank === "boss" ? bossGate.bossPhase : defender.bossPhase,
       phaseGateCooldown: defender.rank === "boss" ? bossGate.phaseGateCooldown : defender.phaseGateCooldown,
     },
-    buildAilmentsFromHit(attacker, defender, drive, hit, source, damageScalar),
+    hitAilments,
   );
   const midpointX = (attacker.x + defender.x) / 2;
   const midpointY = (attacker.y + defender.y) / 2;
@@ -1485,7 +1535,10 @@ function handleKills(runtime: TopArenaRuntime): TopArenaRuntime {
     nextRuntime = pushEvent(nextRuntime, "kill", `${enemy.name} shattered`);
     nextRuntime = advanceRouteMechanic(nextRuntime, enemy);
     nextRuntime = handleDrops(nextRuntime, enemy);
-    const rewardedPlayer = addSpinEnergy(addFlux(nextRuntime.player, balanceConfig.flux.killRegen), maxSpinEnergy(nextRuntime.player) * 0.14);
+    let rewardedPlayer = addSpinEnergy(addFlux(nextRuntime.player, balanceConfig.flux.killRegen), maxSpinEnergy(nextRuntime.player) * 0.14);
+    if (hasDoctrineRule(nextRuntime, "fluxRecursion")) {
+      rewardedPlayer = addFlux(rewardedPlayer, Math.max(balanceConfig.flux.killRegen, maxFlux(rewardedPlayer) * 0.08));
+    }
     nextRuntime = {
       ...nextRuntime,
       player: {
@@ -1689,7 +1742,14 @@ function resolveCollisions(runtime: TopArenaRuntime, deltaSeconds: number, tunin
       const contactAge = (runtime.collisionContacts[enemy.id] ?? 0) + deltaSeconds;
       collisionContacts[enemy.id] = contactAge;
       const resolved = resolveTopCollisionPhysics(player, nextEnemy, runtime.time, index, contactAge, tuning);
-      player = resolved.player;
+      player = hasDoctrineRule(nextRuntime, "anchorMass")
+        ? {
+            ...resolved.player,
+            vx: resolved.player.vx * 0.84,
+            vy: resolved.player.vy * 0.84,
+            wobble: resolved.player.wobble * 0.85,
+          }
+        : resolved.player;
       nextEnemy = resolved.enemy;
       nextRuntime = { ...nextRuntime, lastCollision: resolved.collision };
       nextRuntime = emitCombatEvent(nextRuntime, {
@@ -2094,7 +2154,8 @@ export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: numb
 
   const firstEnemy = nextRuntime.enemies[0] ?? null;
   const ringoutGateScalar = nextRuntime.mode === "duel" ? 0.68 : 1;
-  const playerSteer = steerEntity(nextRuntime.player, firstEnemy, arenaRadius, deltaSeconds, tuning, ringoutGateScalar);
+  const playerRingoutGateScalar = ringoutGateScalar * (hasDoctrineRule(nextRuntime, "anchorMass") ? 1.35 : 1);
+  const playerSteer = steerEntity(nextRuntime.player, firstEnemy, arenaRadius, deltaSeconds, tuning, playerRingoutGateScalar);
   let player = playerSteer.entity;
   if (playerSteer.combatEvent) {
     nextRuntime = emitCombatEvent(nextRuntime, playerSteer.combatEvent);

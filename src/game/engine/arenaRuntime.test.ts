@@ -3,6 +3,37 @@ import { collisionSpinEnergyLoss, createCollisionDamage, createTopArenaRuntime, 
 import { createCollisionPacket } from "./topCombat";
 import { generateTopPart } from "./topPartGeneration";
 import { createStarterEquipment } from "../data/topParts";
+import type { AilmentState, TopRuntimeEntity } from "./topTypes";
+
+function makeTestEnemy(runtime: ReturnType<typeof createTopArenaRuntime>, overrides: Partial<TopRuntimeEntity> = {}): TopRuntimeEntity {
+  const stats = {
+    ...runtime.player.stats,
+    maxSpinIntegrity: 1200,
+    maxFluxGuard: 80,
+    guard: 0,
+    drift: 1,
+    modifiers: [],
+    ...(overrides.stats ?? {}),
+  };
+  const enemy: TopRuntimeEntity = {
+    ...runtime.player,
+    id: "test_enemy",
+    team: "enemy",
+    name: "Test Enemy",
+    rank: "pack",
+    x: 80,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    radius: 22,
+    spinIntegrity: stats.maxSpinIntegrity,
+    fluxGuard: stats.maxFluxGuard,
+    cooldownRemaining: 10,
+    stats,
+    behaviorId: "hunter",
+  };
+  return { ...enemy, ...overrides, stats };
+}
 
 describe("top arena runtime", () => {
   it("spawns enemies automatically when the arena starts", () => {
@@ -244,6 +275,141 @@ describe("top arena runtime", () => {
     const safe = stepTopArenaRuntime({ ...runtime, effects: [hazard], player: { ...runtime.player, x: 0, y: 0, spinIntegrity: 900 }, enemies: [], nextEnemyIn: 10 }, 0.5);
 
     expect(safe.player.spinIntegrity).toBeGreaterThan(unsafe.player.spinIntegrity);
+  });
+
+  it("doctrine anchorMass raises the player ring-out gate", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "doctrine_anchor_mass_test",
+      mode: "duel",
+      loadout: { doctrineId: "doctrine_swift_orbit_duelist" },
+    });
+    const player = {
+      ...runtime.player,
+      x: 140,
+      y: 0,
+      vx: 720,
+      vy: 0,
+      cooldownRemaining: 10,
+      stats: { ...runtime.player.stats, grip: 0.45, mass: 1.05, ringOutPressure: 0 },
+    };
+
+    const loose = stepTopArenaRuntime({ ...runtime, loadout: {}, player, enemies: [], nextEnemyIn: 10 }, 0.05);
+    const anchored = stepTopArenaRuntime({ ...runtime, player, enemies: [], nextEnemyIn: 10 }, 0.05);
+
+    expect(loose.combatEvents.some((event) => event.kind === "ringout" && event.sourceId === player.id)).toBe(true);
+    expect(anchored.combatEvents.some((event) => event.kind === "ringout" && event.sourceId === player.id)).toBe(false);
+  });
+
+  it("doctrine precisionBleed applies bleed from critical skill pressure", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "doctrine_precision_bleed_test",
+      loadout: { doctrineId: "doctrine_swift_razor_edge" },
+    });
+    const enemy = makeTestEnemy(runtime, { spinIntegrity: 1400, stats: { ...runtime.player.stats, maxSpinIntegrity: 1400, maxFluxGuard: 80, guard: 0, drift: 1, modifiers: [] } });
+    const next = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: {
+          ...runtime.player,
+          cooldownRemaining: 0,
+          flux: 999,
+          stats: { ...runtime.player.stats, edge: 0.75, fracture: 2.25, tracking: 999 },
+        },
+        enemies: [enemy],
+        nextEnemyIn: 10,
+      },
+      0.05,
+    );
+
+    expect(next.enemies[0].ailments?.some((ailment) => ailment.kind === "bleed" && ailment.sourceDamageType === "glass")).toBe(true);
+  });
+
+  it("doctrine fluxRecursion restores extra flux on kills", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_ember_crucible",
+      driveId: "drive_ember_scour",
+      seed: "doctrine_flux_recursion_test",
+      loadout: { doctrineId: "doctrine_ember_ash_reclaimer" },
+    });
+    const defeatedEnemy = makeTestEnemy(runtime, { spinIntegrity: 0 });
+    const baseState = {
+      ...runtime,
+      player: { ...runtime.player, flux: 0, cooldownRemaining: 10 },
+      enemies: [defeatedEnemy],
+      nextEnemyIn: 10,
+    };
+    const normal = stepTopArenaRuntime({ ...baseState, loadout: {} }, 0.05);
+    const recursive = stepTopArenaRuntime(baseState, 0.05);
+
+    expect(recursive.player.flux ?? 0).toBeGreaterThan(normal.player.flux ?? 0);
+  });
+
+  it("doctrine stormConduit adds static damage against shocked targets", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_storm_needle",
+      driveId: "drive_storm_lattice",
+      seed: "doctrine_storm_conduit_test",
+      loadout: { doctrineId: "doctrine_storm_chain_savant" },
+    });
+    const shocked: AilmentState = {
+      id: "shock_test",
+      kind: "shock",
+      sourceDamageType: "static",
+      sourceId: "test",
+      magnitude: 0.2,
+      duration: 2,
+      remainingSeconds: 2,
+    };
+    const enemy = makeTestEnemy(runtime, { spinIntegrity: 1800, stats: { ...runtime.player.stats, maxSpinIntegrity: 1800, maxFluxGuard: 80, guard: 0, drift: 1, modifiers: [] } });
+    const normal = stepTopArenaRuntime(
+      { ...runtime, player: { ...runtime.player, cooldownRemaining: 0, flux: 999 }, enemies: [enemy], nextEnemyIn: 10 },
+      0.05,
+    );
+    const shockedHit = stepTopArenaRuntime(
+      { ...runtime, player: { ...runtime.player, cooldownRemaining: 0, flux: 999 }, enemies: [{ ...enemy, ailments: [shocked] }], nextEnemyIn: 10 },
+      0.05,
+    );
+
+    expect(shockedHit.enemies[0].spinIntegrity).toBeLessThan(normal.enemies[0].spinIntegrity);
+  });
+
+  it("doctrine overloadSurge increases skill damage at high omega", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_storm_needle",
+      driveId: "drive_shard_barrage",
+      seed: "doctrine_overload_surge_test",
+      loadout: { doctrineId: "doctrine_storm_overload_axis" },
+    });
+    const enemy = makeTestEnemy(runtime, { spinIntegrity: 1600, stats: { ...runtime.player.stats, maxSpinIntegrity: 1600, maxFluxGuard: 80, guard: 0, drift: 1, modifiers: [] } });
+    const lowOmega = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...runtime.player, spinEnergy: 20, spinPower: 2, cooldownRemaining: 0, flux: 999 },
+        enemies: [enemy],
+        nextEnemyIn: 10,
+      },
+      0.05,
+    );
+    const highOmega = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...runtime.player, cooldownRemaining: 0, flux: 999 },
+        enemies: [enemy],
+        nextEnemyIn: 10,
+      },
+      0.05,
+    );
+
+    expect(highOmega.enemies[0].spinIntegrity).toBeLessThan(lowOmega.enemies[0].spinIntegrity);
   });
 
   it("shock increases subsequent damage taken", () => {
