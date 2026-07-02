@@ -80,7 +80,7 @@ describe("top ARPG data integrity", () => {
     expect(enemyModifiers.length).toBeGreaterThanOrEqual(5);
     expect(arenaEvents.length).toBeGreaterThanOrEqual(3);
     expect(circuitAtlasNodes.length).toBeGreaterThanOrEqual(12);
-    expect(talentNodes.length).toBeGreaterThanOrEqual(60);
+    expect(talentNodes.length).toBeGreaterThanOrEqual(90);
     expect(doctrines.length).toBeGreaterThanOrEqual(6);
     expect(arenaAnomalies.length).toBeGreaterThanOrEqual(1);
   });
@@ -197,6 +197,8 @@ describe("top ARPG data integrity", () => {
 
   it("keeps talent prerequisites, layout, and modifiers legal", () => {
     const talentIds = new Set(talentNodes.map((entry) => entry.id));
+    const roots = talentNodes.filter((node) => !node.requiredNodeIds || node.requiredNodeIds.length === 0).map((node) => node.id);
+    const childrenByRequiredId = new Map<string, string[]>();
     const visiting = new Set<string>();
     const visited = new Set<string>();
     const visit = (nodeId: string): boolean => {
@@ -213,6 +215,22 @@ describe("top ARPG data integrity", () => {
       visited.add(nodeId);
       return hasCycle;
     };
+    for (const node of talentNodes) {
+      for (const requiredId of node.requiredNodeIds ?? []) {
+        childrenByRequiredId.set(requiredId, [...(childrenByRequiredId.get(requiredId) ?? []), node.id]);
+      }
+    }
+    const reachable = new Set<string>(roots);
+    const queue = [...roots];
+    while (queue.length > 0) {
+      const nodeId = queue.shift()!;
+      for (const childId of childrenByRequiredId.get(nodeId) ?? []) {
+        if (!reachable.has(childId)) {
+          reachable.add(childId);
+          queue.push(childId);
+        }
+      }
+    }
 
     for (const talent of talentNodes) {
       expect(["minor", "notable", "keystone"]).toContain(talent.kind);
@@ -224,8 +242,15 @@ describe("top ARPG data integrity", () => {
         expect(talentIds.has(requiredId)).toBe(true);
       }
       expect((talent.modifiers ?? []).every((modifier) => !modifier.tags || modifier.tags.every((tag) => validDriveTags.includes(tag)))).toBe(true);
+      if (talent.kind === "notable" || talent.kind === "keystone") {
+        expect(talent.modifiers ?? []).not.toHaveLength(0);
+      }
     }
-    expect(talentNodes.filter((node) => node.kind === "keystone").length).toBeGreaterThanOrEqual(3);
+    expect(roots).toContain("talent_iron_rotation");
+    expect(reachable.size).toBe(talentNodes.length);
+    expect(new Set(talentNodes.map((node) => node.clusterId).filter(Boolean)).size).toBeGreaterThanOrEqual(14);
+    expect(talentNodes.filter((node) => node.kind === "keystone").length).toBeGreaterThanOrEqual(6);
+    expect(talentNodes.filter((node) => node.kind === "keystone").length).toBeLessThanOrEqual(8);
     expect(talentNodes.some((node) => visit(node.id))).toBe(false);
   });
 
