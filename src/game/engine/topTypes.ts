@@ -383,6 +383,8 @@ export type CircuitNetworkNodeDef = {
   description: string;
   arenaId: string;
   requiredBossGateId?: string;
+  requiredRivalId?: string;
+  unlocksRivalId?: string;
   anomalyId?: string;
   requiredNodeIds?: string[];
 };

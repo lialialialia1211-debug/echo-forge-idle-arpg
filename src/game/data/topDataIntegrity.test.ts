@@ -87,6 +87,8 @@ describe("top ARPG data integrity", () => {
     expect(doctrines.length).toBeGreaterThanOrEqual(6);
     expect(arenaAnomalies.length).toBeGreaterThanOrEqual(1);
     expect(namedRivals.length).toBeGreaterThanOrEqual(rivalMechanicIds.length);
+    expect(circuitNetworkNodes.length).toBeGreaterThanOrEqual(12);
+    expect(circuitNetworkNodes.length).toBeLessThanOrEqual(16);
   });
 
   it("keeps frame, drive, rune, and tag references valid", () => {
@@ -280,6 +282,41 @@ describe("top ARPG data integrity", () => {
     const bossGateIds = new Set(bossGates.map((entry) => entry.id));
     const anomalyIds = new Set(arenaAnomalies.map((entry) => entry.id));
     const networkIds = new Set(circuitNetworkNodes.map((entry) => entry.id));
+    const rivalIds = new Set(namedRivals.map((entry) => entry.id));
+    const roots = circuitNetworkNodes.filter((node) => !node.requiredNodeIds || node.requiredNodeIds.length === 0).map((node) => node.id);
+    const childrenByRequiredId = new Map<string, string[]>();
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const visit = (nodeId: string): boolean => {
+      if (visited.has(nodeId)) {
+        return false;
+      }
+      if (visiting.has(nodeId)) {
+        return true;
+      }
+      visiting.add(nodeId);
+      const node = circuitNetworkNodes.find((entry) => entry.id === nodeId);
+      const hasCycle = (node?.requiredNodeIds ?? []).some(visit);
+      visiting.delete(nodeId);
+      visited.add(nodeId);
+      return hasCycle;
+    };
+    for (const node of circuitNetworkNodes) {
+      for (const requiredId of node.requiredNodeIds ?? []) {
+        childrenByRequiredId.set(requiredId, [...(childrenByRequiredId.get(requiredId) ?? []), node.id]);
+      }
+    }
+    const reachable = new Set<string>(roots);
+    const queue = [...roots];
+    while (queue.length > 0) {
+      const nodeId = queue.shift()!;
+      for (const childId of childrenByRequiredId.get(nodeId) ?? []) {
+        if (!reachable.has(childId)) {
+          reachable.add(childId);
+          queue.push(childId);
+        }
+      }
+    }
 
     for (const anomaly of arenaAnomalies) {
       expect(anomaly.enemyIntegrityMultiplier).toBeGreaterThan(0);
@@ -296,6 +333,12 @@ describe("top ARPG data integrity", () => {
       if (node.requiredBossGateId) {
         expect(bossGateIds.has(node.requiredBossGateId)).toBe(true);
       }
+      if (node.requiredRivalId) {
+        expect(rivalIds.has(node.requiredRivalId)).toBe(true);
+      }
+      if (node.unlocksRivalId) {
+        expect(rivalIds.has(node.unlocksRivalId)).toBe(true);
+      }
       if (node.anomalyId) {
         expect(anomalyIds.has(node.anomalyId)).toBe(true);
       }
@@ -303,6 +346,9 @@ describe("top ARPG data integrity", () => {
         expect(networkIds.has(requiredId)).toBe(true);
       }
     }
+    expect(roots).toContain("network_cinder_gate");
+    expect(reachable.size).toBe(circuitNetworkNodes.length);
+    expect(circuitNetworkNodes.some((node) => visit(node.id))).toBe(false);
   });
 
   it("keeps named rivals as legal data-driven builds", () => {
@@ -319,6 +365,7 @@ describe("top ARPG data integrity", () => {
       expect(driveIds.has(rival.driveId)).toBe(true);
       expect(validMechanicIds.has(rival.mechanicId)).toBe(true);
       expect(circuitNodeIds.has(rival.circuitNodeId)).toBe(true);
+      expect(circuitNetworkNodes.find((node) => node.id === rival.circuitNodeId)?.unlocksRivalId).toBe(rival.id);
       expect(rival.uniqueDropBaseIds.length).toBeGreaterThan(0);
       expect(rival.uniqueDropBaseIds.every((baseId) => partBaseIds.has(baseId))).toBe(true);
       expect(rival.integrityScalar ?? 1).toBeGreaterThan(0);
