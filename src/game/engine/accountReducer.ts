@@ -106,8 +106,31 @@ export function availableAtlasPoints(state: Pick<AccountRuntimeState, "circuitAt
   return atlasPointTotal(state.totalKills, state.routeClears) - spentAtlasPoints(state.circuitAtlasNodeIds);
 }
 
+export function isTalentReachable(allocatedTalentIds: string[], talentId: string): boolean {
+  const allowed = new Set([...allocatedTalentIds, talentId]);
+  const roots = talentNodes.filter((node) => (!node.requiredNodeIds || node.requiredNodeIds.length === 0) && allowed.has(node.id)).map((node) => node.id);
+  const reachable = new Set<string>(roots);
+  const queue = [...roots];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    for (const node of talentNodes) {
+      if (!allowed.has(node.id) || reachable.has(node.id)) {
+        continue;
+      }
+      if ((node.requiredNodeIds ?? []).includes(currentId)) {
+        reachable.add(node.id);
+        queue.push(node.id);
+      }
+    }
+  }
+
+  return reachable.has(talentId);
+}
+
 function canRefundTalent(talentIds: string[], talentId: string): boolean {
-  return !talentNodes.some((node) => talentIds.includes(node.id) && (node.requiredNodeIds ?? []).includes(talentId));
+  const remainingTalentIds = talentIds.filter((id) => id !== talentId);
+  return remainingTalentIds.every((id) => isTalentReachable(remainingTalentIds, id));
 }
 
 function canAllocateTalent(state: AccountRuntimeState, talentId: string): boolean {
@@ -115,8 +138,9 @@ function canAllocateTalent(state: AccountRuntimeState, talentId: string): boolea
     return false;
   }
   const node = getTalentNodeDef(talentId);
-  const requirementsMet = (node.requiredNodeIds ?? []).every((requiredId) => state.talentIds.includes(requiredId));
-  return requirementsMet && availableTalentPoints(state) >= node.cost;
+  const requiredNodeIds = node.requiredNodeIds ?? [];
+  const requirementsMet = requiredNodeIds.length === 0 || requiredNodeIds.some((requiredId) => state.talentIds.includes(requiredId));
+  return requirementsMet && isTalentReachable(state.talentIds, talentId) && availableTalentPoints(state) >= node.cost;
 }
 
 function canRefundAtlasNode(nodeIds: string[], nodeId: string): boolean {

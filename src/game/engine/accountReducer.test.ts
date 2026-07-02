@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateArenaKey } from "./arenaKeys";
-import { accountReducer, availableAtlasPoints, availableTalentPoints, inventoryCapacity } from "./accountReducer";
+import { accountReducer, availableAtlasPoints, availableTalentPoints, inventoryCapacity, isTalentReachable } from "./accountReducer";
 import type { AccountRuntimeState } from "./accountState";
 import { createStarterEquipment, createStarterInventory } from "../data/topParts";
 import { generateTopPart } from "./topPartGeneration";
@@ -123,6 +123,34 @@ describe("accountReducer", () => {
     expect(blocked.talentIds).toEqual([]);
     expect(child.talentIds).toEqual(["talent_iron_rotation", "talent_razor_geometry"]);
     expect(availableTalentPoints(child)).toBe(1);
+  });
+
+  it("allocates talents only through connected paths", () => {
+    const state = createState({ totalKills: 80 });
+    const root = accountReducer(state, { type: "allocateTalent", talentId: "talent_iron_rotation" });
+    const branch = accountReducer(root, { type: "allocateTalent", talentId: "talent_razor_geometry" });
+    const skipped = accountReducer(branch, { type: "allocateTalent", talentId: "talent_impact_notable" });
+    const entry = accountReducer(branch, { type: "allocateTalent", talentId: "talent_impact_entry" });
+    const path = accountReducer(entry, { type: "allocateTalent", talentId: "talent_impact_path" });
+    const notable = accountReducer(path, { type: "allocateTalent", talentId: "talent_impact_notable" });
+
+    expect(isTalentReachable(["talent_iron_rotation", "talent_razor_geometry"], "talent_impact_entry")).toBe(true);
+    expect(isTalentReachable(["talent_iron_rotation"], "talent_impact_entry")).toBe(false);
+    expect(skipped.talentIds).toEqual(branch.talentIds);
+    expect(notable.talentIds).toContain("talent_impact_notable");
+  });
+
+  it("refuses talent refunds that disconnect downstream allocations", () => {
+    const state = createState({
+      totalKills: 80,
+      talentIds: ["talent_iron_rotation", "talent_razor_geometry", "talent_impact_entry", "talent_impact_path", "talent_impact_notable"],
+    });
+    const blocked = accountReducer(state, { type: "refundTalent", talentId: "talent_impact_path" });
+    const leafRefunded = accountReducer(state, { type: "refundTalent", talentId: "talent_impact_notable" });
+
+    expect(blocked.talentIds).toEqual(state.talentIds);
+    expect(leafRefunded.talentIds).toEqual(["talent_iron_rotation", "talent_razor_geometry", "talent_impact_entry", "talent_impact_path"]);
+    expect(availableTalentPoints(leafRefunded)).toBeGreaterThan(availableTalentPoints(state));
   });
 
   it("enforces atlas prerequisites and route-derived point budget", () => {
