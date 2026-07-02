@@ -21,7 +21,7 @@ import {
   Swords,
   Zap,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { arenaCircuits, getArenaCircuitDef } from "../../data/arenaCircuits";
 import { getArenaAnomalyDef } from "../../data/arenaAnomalies";
 import { circuitAtlasNodes, getCircuitAtlasNodeDef } from "../../data/circuitAtlasNodes";
@@ -41,6 +41,7 @@ import {
 import { isRuneCompatible, tuningRunes } from "../../data/tuningRunes";
 import {
   accountReducer,
+  type AccountAction,
   addWallet,
   atlasPointTotal,
   availableAtlasPoints as resolveAvailableAtlasPoints,
@@ -51,7 +52,7 @@ import {
   talentPointTotal,
   inventoryCapacity,
 } from "../../engine/accountReducer";
-import { compactRuneSlots, toRuneSlots, type AccountRuntimeState, type AccountWallet, type RuneSlotState } from "../../engine/accountState";
+import { accountStateToSaveTop, compactRuneSlots, saveTopToAccountState, toRuneSlots, type AccountRuntimeState, type AccountWallet } from "../../engine/accountState";
 import { createTopArenaRuntime, defaultArenaTuning, stepTopArenaRuntime } from "../../engine/arenaRuntime";
 import { generateArenaKey, summarizeArenaKeyRiskReward } from "../../engine/arenaKeys";
 import { projectBossGateAttempt } from "../../engine/bossGate";
@@ -533,6 +534,12 @@ function loadoutFromAccountState(state: AccountRuntimeState): TopLoadoutConfig {
   };
 }
 
+type AccountUiAction = AccountAction | { type: "replaceAccountState"; state: AccountRuntimeState };
+
+function accountUiReducer(state: AccountRuntimeState, action: AccountUiAction): AccountRuntimeState {
+  return action.type === "replaceAccountState" ? action.state : accountReducer(state, action);
+}
+
 function formatCost(cost: AccountWallet): string {
   return [`Ash ${cost.ash}`, `Glass ${cost.glass}`, `Echo ${cost.echo}`].join(" / ");
 }
@@ -636,10 +643,26 @@ export function CombatArena() {
     }),
     [initialEquipment, initialRuneSlots, initialSave.top.circuitAtlasNodeIds, initialSave.top.doctrineId, initialSave.top.talentIds],
   );
+  const initialAccountState = useMemo(
+    () =>
+      saveTopToAccountState(
+        {
+          ...initialSave.top,
+          equipment: initialEquipment,
+          inventory: initialInventory,
+          runeIds: compactRuneSlots(initialRuneSlots),
+          circuitAtlasNodeIds: initialSave.top.circuitAtlasNodeIds ?? [],
+          doctrineId: initialSave.top.doctrineId ?? null,
+          arenaKeys: initialSave.top.arenaKeys as ArenaKey[],
+          totalKills: initialSave.top.totalKills ?? 0,
+        },
+        initialEquipment,
+      ),
+    [initialEquipment, initialInventory, initialRuneSlots, initialSave.top],
+  );
   const saveShellRef = useRef(initialSave);
-  const [frameId, setFrameId] = useState(initialSave.top.selectedFrameId);
-  const [driveId, setDriveId] = useState(initialSave.top.selectedDriveId);
-  const [arenaId, setArenaId] = useState(initialSave.top.selectedArenaId);
+  const [account, dispatchAccount] = useReducer(accountUiReducer, initialAccountState);
+  const { frameId, driveId, arenaId, equipment, inventory, runeSlots, talentIds, circuitAtlasNodeIds, doctrineId, wallet, arenaKeys, clearedBossGateIds, routeClears, totalKills } = account;
   const [speed, setSpeed] = useState(1);
   const [running, setRunning] = useState(false);
   const [showDebugHud, setShowDebugHud] = useState(false);
@@ -649,24 +672,13 @@ export function CombatArena() {
   const [screen, setScreen] = useState<ArenaScreen>("combat");
   const [activePanel, setActivePanel] = useState<ActivePanel>("loadout");
   const [inventoryFilter, setInventoryFilter] = useState<TopPartSlotId | "all">("all");
-  const [equipment, setEquipment] = useState<Record<TopPartSlotId, TopPartInstance>>(initialEquipment);
-  const [inventory, setInventory] = useState<TopPartInstance[]>(initialInventory);
   const [selectedPartId, setSelectedPartId] = useState(initialInventory[0]?.id ?? initialEquipment.core.id);
-  const [runeSlots, setRuneSlots] = useState<RuneSlotState>(initialRuneSlots);
   const [selectedRuneSocket, setSelectedRuneSocket] = useState(0);
-  const [talentIds, setTalentIds] = useState<string[]>(initialSave.top.talentIds);
   const [selectedTalentId, setSelectedTalentId] = useState(talentNodes[0].id);
-  const [circuitAtlasNodeIds, setCircuitAtlasNodeIds] = useState<string[]>(initialSave.top.circuitAtlasNodeIds ?? []);
   const [selectedAtlasNodeId, setSelectedAtlasNodeId] = useState(circuitAtlasNodes[0].id);
-  const [doctrineId, setDoctrineId] = useState<string | null>(initialSave.top.doctrineId ?? null);
-  const [wallet, setWallet] = useState<AccountWallet>(initialSave.top.wallet);
-  const [arenaKeys, setArenaKeys] = useState<ArenaKey[]>(initialSave.top.arenaKeys as ArenaKey[]);
   const [selectedArenaKeyId, setSelectedArenaKeyId] = useState<string | null>((initialSave.top.arenaKeys as ArenaKey[])[0]?.id ?? null);
   const [currentArenaKey, setCurrentArenaKey] = useState<ArenaKey | null>(null);
   const [activeAnomalyId, setActiveAnomalyId] = useState<string | null>(null);
-  const [clearedBossGateIds, setClearedBossGateIds] = useState<string[]>(initialSave.top.clearedBossGateIds);
-  const [routeClears, setRouteClears] = useState<Record<string, number>>(initialSave.top.routeClears);
-  const [totalKills, setTotalKills] = useState(initialSave.top.totalKills ?? 0);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [lootNotices, setLootNotices] = useState<LootNotice[]>([]);
   const [offlineReport, setOfflineReport] = useState<OfflineReport | null>(null);
@@ -706,41 +718,10 @@ export function CombatArena() {
     [activeAnomalyId, circuitAtlasNodeIds, doctrineId, equipment, runeIds, talentIds],
   );
 
-  const makeAccountState = useCallback(
-    (): AccountRuntimeState => ({
-      frameId,
-      driveId,
-      arenaId,
-      equipment,
-      inventory,
-      runeSlots,
-      talentIds,
-      circuitAtlasNodeIds,
-      doctrineId,
-      wallet,
-      arenaKeys,
-      clearedBossGateIds,
-      routeClears,
-      totalKills,
-    }),
-    [arenaId, arenaKeys, circuitAtlasNodeIds, clearedBossGateIds, doctrineId, driveId, equipment, frameId, inventory, routeClears, runeSlots, talentIds, totalKills, wallet],
-  );
+  const makeAccountState = useCallback((): AccountRuntimeState => account, [account]);
 
   const applyAccountState = useCallback((nextState: AccountRuntimeState) => {
-    setFrameId(nextState.frameId);
-    setDriveId(nextState.driveId);
-    setArenaId(nextState.arenaId);
-    setEquipment(nextState.equipment);
-    setInventory(nextState.inventory);
-    setRuneSlots(nextState.runeSlots);
-    setTalentIds(nextState.talentIds);
-    setCircuitAtlasNodeIds(nextState.circuitAtlasNodeIds);
-    setDoctrineId(nextState.doctrineId);
-    setWallet(nextState.wallet);
-    setArenaKeys(nextState.arenaKeys);
-    setClearedBossGateIds(nextState.clearedBossGateIds);
-    setRouteClears(nextState.routeClears);
-    setTotalKills(nextState.totalKills);
+    dispatchAccount({ type: "replaceAccountState", state: nextState });
   }, []);
 
   const [runtime, setRuntime] = useState(() =>
@@ -867,42 +848,24 @@ export function CombatArena() {
   );
 
   const selectFrame = (nextFrameId: string) => {
-    const nextFrame = getTopFrameDef(nextFrameId);
-    const nextDriveTags = getDriveCoreDef(nextFrame.startingDriveId).tags;
-    const nextRuneSlots = runeSlots.map((runeId) => {
-      if (!runeId) {
-        return null;
-      }
-      const rune = tuningRunes.find((entry) => entry.id === runeId);
-      return rune && isRuneCompatible(rune, nextDriveTags) ? runeId : null;
-    }) as RuneSlotState;
-    const compatibleRunes = compactRuneSlots(nextRuneSlots);
-    const nextDoctrineId = doctrineForFrame(nextFrameId).some((doctrine) => doctrine.id === doctrineId) ? doctrineId : null;
-    setFrameId(nextFrameId);
-    setDriveId(nextFrame.startingDriveId);
-    setRuneSlots(nextRuneSlots);
-    setDoctrineId(nextDoctrineId);
-    resetArena(nextFrameId, nextFrame.startingDriveId, arenaId, makeLoadout(equipment, compatibleRunes, talentIds, circuitAtlasNodeIds, nextDoctrineId));
+    const currentState = makeAccountState();
+    const nextState = accountReducer(currentState, { type: "selectFrame", frameId: nextFrameId });
+    applyAccountState(nextState);
+    resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
   };
 
   const selectDrive = (nextDriveId: string) => {
-    const nextDrive = getDriveCoreDef(nextDriveId);
-    const nextRuneSlots = runeSlots.map((runeId) => {
-      if (!runeId) {
-        return null;
-      }
-      const rune = tuningRunes.find((entry) => entry.id === runeId);
-      return rune && isRuneCompatible(rune, nextDrive.tags) ? runeId : null;
-    }) as RuneSlotState;
-    const compatibleRunes = compactRuneSlots(nextRuneSlots);
-    setDriveId(nextDriveId);
-    setRuneSlots(nextRuneSlots);
-    resetArena(frameId, nextDriveId, arenaId, makeLoadout(equipment, compatibleRunes, talentIds));
+    const currentState = makeAccountState();
+    const nextState = accountReducer(currentState, { type: "selectDrive", driveId: nextDriveId });
+    applyAccountState(nextState);
+    resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
   };
 
   const selectArena = (nextArenaId: string) => {
-    setArenaId(nextArenaId);
-    resetArena(frameId, driveId, nextArenaId, makeLoadout(), null);
+    const currentState = makeAccountState();
+    const nextState = accountReducer(currentState, { type: "selectArena", arenaId: nextArenaId });
+    applyAccountState(nextState);
+    resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState), null);
   };
 
   const equipPart = (part: TopPartInstance) => {
@@ -1193,7 +1156,7 @@ export function CombatArena() {
       return;
     }
     lastDuelVictoryRef.current = runtime.seed;
-    setClearedBossGateIds((ids) => (ids.includes(bossProjection.gateId) ? ids : [...ids, bossProjection.gateId]));
+    applyAccountState(accountReducer(makeAccountState(), { type: "markBossGateCleared", gateId: bossProjection.gateId }));
     setLootNotices((current) =>
       [
         {
@@ -1204,7 +1167,7 @@ export function CombatArena() {
         ...current,
       ].slice(0, 8),
     );
-  }, [bossProjection.gateId, runtime.mode, runtime.outcome, runtime.seed]);
+  }, [applyAccountState, bossProjection.gateId, makeAccountState, runtime.mode, runtime.outcome, runtime.seed]);
 
   useEffect(() => {
     if (offlineSettlementAppliedRef.current) {
@@ -1280,32 +1243,16 @@ export function CombatArena() {
       schemaVersion: 4 as const,
       currencies: {
         ...saveShellRef.current.currencies,
-        ash: wallet.ash,
-        glass: wallet.glass,
-        echo: wallet.echo,
+        ash: account.wallet.ash,
+        glass: account.wallet.glass,
+        echo: account.wallet.echo,
       },
-      top: {
-        selectedFrameId: frameId,
-        selectedDriveId: driveId,
-        selectedArenaId: arenaId,
-        equipment,
-        inventory,
-        runeIds,
-        talentIds,
-        circuitAtlasNodeIds,
-        doctrineId,
-        wallet,
-        arenaKeys,
-        clearedBossGateIds,
-        routeClears,
-        totalKills,
-        lastSettledAt: now,
-      },
+      top: accountStateToSaveTop(account, now),
       lastSavedAt: now,
     };
     saveShellRef.current = nextSave;
     writeLocalSave(nextSave);
-  }, [arenaId, arenaKeys, circuitAtlasNodeIds, clearedBossGateIds, doctrineId, driveId, equipment, frameId, inventory, routeClears, runeIds, talentIds, totalKills, wallet]);
+  }, [account]);
 
   useEffect(() => {
     const newParts: TopPartInstance[] = [];

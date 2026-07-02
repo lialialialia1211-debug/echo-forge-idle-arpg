@@ -34,12 +34,12 @@ export type SaveTopLike = {
   runeIds: string[];
   talentIds: string[];
   circuitAtlasNodeIds: string[];
-  doctrineId?: string | null;
+  doctrineId: string | null;
   wallet: AccountWallet;
   arenaKeys: ArenaKey[];
   clearedBossGateIds: string[];
   routeClears: Record<string, number>;
-  totalKills?: number;
+  totalKills: number;
   lastSettledAt: string;
 };
 
