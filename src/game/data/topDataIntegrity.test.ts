@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { arenaKeyAffixes } from "./arenaKeyAffixes";
 import { arenaCircuits } from "./arenaCircuits";
+import { arenaAnomalies } from "./arenaAnomalies";
 import { arenaEvents } from "./arenaEvents";
 import { bossGates } from "./bossGates";
 import { circuitAtlasNodes } from "./circuitAtlasNodes";
+import { circuitNetworkNodes } from "./circuitNetwork";
+import { doctrines } from "./doctrines";
 import { driveCores } from "./driveCores";
 import { enemyModifiers } from "./enemyModifiers";
 import { topEngravings } from "./engravings";
@@ -50,12 +53,16 @@ describe("top ARPG data integrity", () => {
     expectUnique(topPartBases.map((entry) => entry.id));
     expectUnique(topEngravings.map((entry) => entry.id));
     expectUnique(arenaCircuits.map((entry) => entry.id));
+    expectUnique(arenaAnomalies.map((entry) => entry.id));
     expectUnique(arenaKeyAffixes.map((entry) => entry.id));
     expectUnique(arenaEvents.map((entry) => entry.id));
     expectUnique(enemyModifiers.map((entry) => entry.id));
     expectUnique(bossGates.map((entry) => entry.id));
     expectUnique(talentNodes.map((entry) => entry.id));
     expectUnique(circuitAtlasNodes.map((entry) => entry.id));
+    expectUnique(doctrines.map((entry) => entry.id));
+    expectUnique(doctrines.flatMap((entry) => entry.nodes.map((node) => node.id)));
+    expectUnique(circuitNetworkNodes.map((entry) => entry.id));
   });
 
   it("has enough content for the first vertical slice", () => {
@@ -66,6 +73,9 @@ describe("top ARPG data integrity", () => {
     expect(enemyModifiers.length).toBeGreaterThanOrEqual(5);
     expect(arenaEvents.length).toBeGreaterThanOrEqual(3);
     expect(circuitAtlasNodes.length).toBeGreaterThanOrEqual(12);
+    expect(talentNodes.length).toBeGreaterThanOrEqual(60);
+    expect(doctrines.length).toBeGreaterThanOrEqual(6);
+    expect(arenaAnomalies.length).toBeGreaterThanOrEqual(1);
   });
 
   it("keeps frame, drive, rune, and tag references valid", () => {
@@ -101,6 +111,10 @@ describe("top ARPG data integrity", () => {
 
   it("keeps part bases and engravings legal through generation", () => {
     for (const base of topPartBases) {
+      if (base.slot === "launcher") {
+        expect(base.launcherProfile?.initialSpeedScalar).toBeGreaterThan(0);
+        expect(base.launcherProfile?.initialEnergyBonus ?? 0).toBeGreaterThanOrEqual(0);
+      }
       const part = generateTopPart({
         baseId: base.id,
         rarity: "relic",
@@ -167,12 +181,83 @@ describe("top ARPG data integrity", () => {
     }
   });
 
-  it("keeps talent prerequisites resolvable", () => {
+  it("keeps talent prerequisites, layout, and modifiers legal", () => {
     const talentIds = new Set(talentNodes.map((entry) => entry.id));
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const visit = (nodeId: string): boolean => {
+      if (visited.has(nodeId)) {
+        return false;
+      }
+      if (visiting.has(nodeId)) {
+        return true;
+      }
+      visiting.add(nodeId);
+      const node = talentNodes.find((entry) => entry.id === nodeId);
+      const hasCycle = (node?.requiredNodeIds ?? []).some(visit);
+      visiting.delete(nodeId);
+      visited.add(nodeId);
+      return hasCycle;
+    };
 
     for (const talent of talentNodes) {
+      expect(["minor", "notable", "keystone"]).toContain(talent.kind);
+      expect(talent.position.x).toBeGreaterThanOrEqual(0);
+      expect(talent.position.x).toBeLessThanOrEqual(100);
+      expect(talent.position.y).toBeGreaterThanOrEqual(0);
+      expect(talent.position.y).toBeLessThanOrEqual(100);
       for (const requiredId of talent.requiredNodeIds ?? []) {
         expect(talentIds.has(requiredId)).toBe(true);
+      }
+      expect((talent.modifiers ?? []).every((modifier) => !modifier.tags || modifier.tags.every((tag) => validDriveTags.includes(tag)))).toBe(true);
+    }
+    expect(talentNodes.filter((node) => node.kind === "keystone").length).toBeGreaterThanOrEqual(3);
+    expect(talentNodes.some((node) => visit(node.id))).toBe(false);
+  });
+
+  it("keeps doctrines tied to valid frames with legal nodes", () => {
+    const frameIds = new Set(topFrames.map((entry) => entry.id));
+
+    for (const frame of topFrames) {
+      expect(doctrines.filter((doctrine) => doctrine.frameId === frame.id)).toHaveLength(2);
+    }
+
+    for (const doctrine of doctrines) {
+      expect(frameIds.has(doctrine.frameId)).toBe(true);
+      expect(doctrine.nodes.length).toBeGreaterThanOrEqual(3);
+      expect(doctrine.nodes.length).toBeLessThanOrEqual(4);
+      for (const node of doctrine.nodes) {
+        expect((node.modifiers ?? []).every((modifier) => !modifier.tags || modifier.tags.every((tag) => validDriveTags.includes(tag)))).toBe(true);
+      }
+    }
+  });
+
+  it("keeps circuit network and anomaly references valid", () => {
+    const arenaIds = new Set(arenaCircuits.map((entry) => entry.id));
+    const bossGateIds = new Set(bossGates.map((entry) => entry.id));
+    const anomalyIds = new Set(arenaAnomalies.map((entry) => entry.id));
+    const networkIds = new Set(circuitNetworkNodes.map((entry) => entry.id));
+
+    for (const anomaly of arenaAnomalies) {
+      expect(anomaly.enemyIntegrityMultiplier).toBeGreaterThan(0);
+      expect(anomaly.enemyImpactMultiplier).toBeGreaterThan(0);
+      expect(anomaly.rewardQuantity).toBeGreaterThanOrEqual(0);
+      expect(anomaly.rewardRarity).toBeGreaterThanOrEqual(0);
+      if (anomaly.requiredBossGateId) {
+        expect(bossGateIds.has(anomaly.requiredBossGateId)).toBe(true);
+      }
+    }
+
+    for (const node of circuitNetworkNodes) {
+      expect(arenaIds.has(node.arenaId)).toBe(true);
+      if (node.requiredBossGateId) {
+        expect(bossGateIds.has(node.requiredBossGateId)).toBe(true);
+      }
+      if (node.anomalyId) {
+        expect(anomalyIds.has(node.anomalyId)).toBe(true);
+      }
+      for (const requiredId of node.requiredNodeIds ?? []) {
+        expect(networkIds.has(requiredId)).toBe(true);
       }
     }
   });

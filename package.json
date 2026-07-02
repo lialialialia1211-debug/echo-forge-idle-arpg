@@ -10,6 +10,7 @@
     "build:pages": "tsc -b && vite build --mode github-pages",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:balance": "vitest run src/game/engine/__soak__/balanceSoak.test.ts",
     "test:watch": "vitest",
     "typecheck": "tsc -b"
   },
@@ -18,8 +19,7 @@
     "phaser": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "zod": "^3.23.8",
-    "zustand": "^4.5.5"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",

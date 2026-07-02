@@ -1,5 +1,5 @@
 import { clamp } from "./math";
-import type { DamagePacket, DriveCoreDef, TopDamageType, TopModifierDef, TopRuntimeStats } from "./topTypes";
+import type { DamagePacket, DriveCoreDef, ScalingRule, TopDamageType, TopModifierDef, TopRuntimeStats } from "./topTypes";
 import { emptyDamagePacket } from "./topTypes";
 import { evaluateCombatCondition, type CombatContext } from "./conditionEval";
 
@@ -10,6 +10,10 @@ export type TopHitInput = {
   drive: DriveCoreDef;
   sourceTags: string[];
   context?: CombatContext;
+  hitFlags?: {
+    usesTracking: boolean;
+    canCrit: boolean;
+  };
 };
 
 export type TopHitResult = {
@@ -30,6 +34,39 @@ function modifierApplies(modifier: TopModifierDef, tags: string[], context?: Com
 
 function getModifiers(attacker: TopRuntimeStats, drive: DriveCoreDef, tags: string[], context?: CombatContext): TopModifierDef[] {
   return [...attacker.modifiers, ...drive.modifiers].filter((modifier) => modifierApplies(modifier, tags, context));
+}
+
+function scalingApplies(rule: ScalingRule, tags: string[]): boolean {
+  return !rule.tags || rule.tags.length === 0 || rule.tags.some((tag) => tags.includes(tag));
+}
+
+function scalingStatValue(stats: TopRuntimeStats, packet: DamagePacket, stat: ScalingRule["stat"]): number {
+  if (stat === "damage") {
+    return Object.values(packet).reduce((sum, value) => sum + value, 0);
+  }
+  return (stats as unknown as Record<string, number>)[stat] ?? 0;
+}
+
+export function applyScaling(baseDamage: DamagePacket, stats: TopRuntimeStats, scaling: ScalingRule[] = [], tags: string[] = [], preferredDamageTypes: TopDamageType[] = []): DamagePacket {
+  const packet = { ...baseDamage };
+  const positiveDamageTypes = (Object.keys(packet) as TopDamageType[]).filter((type) => packet[type] > 0);
+  const targetDamageTypes = positiveDamageTypes.length > 0 ? positiveDamageTypes : preferredDamageTypes;
+  if (targetDamageTypes.length === 0) {
+    return packet;
+  }
+
+  for (const rule of scaling) {
+    if (!scalingApplies(rule, tags)) {
+      continue;
+    }
+    const addedDamage = Math.max(0, scalingStatValue(stats, baseDamage, rule.stat) * rule.coefficient);
+    const perTypeDamage = addedDamage / targetDamageTypes.length;
+    for (const type of targetDamageTypes) {
+      packet[type] += perTypeDamage;
+    }
+  }
+
+  return packet;
 }
 
 function statModifierValue(modifiers: TopModifierDef[], stat: string, type: TopModifierDef["type"]): number {
@@ -103,17 +140,21 @@ function mitigateDamageType(type: TopDamageType, value: number, defender: TopRun
   return value * (1 - resistance);
 }
 
-export function resolveTopHit({ baseDamage, attacker, defender, drive, sourceTags, context }: TopHitInput): TopHitResult {
+export function resolveTopHit({ baseDamage, attacker, defender, drive, sourceTags, context, hitFlags }: TopHitInput): TopHitResult {
   const tags = [...drive.tags, ...sourceTags];
   const modifiers = getModifiers(attacker, drive, tags, context);
-  const converted = applyConversion(baseDamage, modifiers);
+  const scaledBaseDamage = applyScaling(baseDamage, attacker, drive.scaling, tags, drive.damageTypes);
+  const converted = applyConversion(scaledBaseDamage, modifiers);
   const withExtra = applyExtraAs(converted, modifiers);
   const rawDamage = emptyDamagePacket();
   const mitigatedDamage = emptyDamagePacket();
-  const hitChance = clamp(attacker.tracking / (attacker.tracking + defender.drift * 0.85), 0.05, 0.95);
+  const resolvedHitFlags = hitFlags ?? drive.hit;
+  const usesTracking = resolvedHitFlags?.usesTracking ?? true;
+  const canCrit = resolvedHitFlags?.canCrit ?? true;
+  const hitChance = usesTracking ? clamp(attacker.tracking / (attacker.tracking + defender.drift * 0.85), 0.05, 0.95) : 1;
   const edge = statModifierValue(modifiers, "edge", "flat");
-  const critChance = clamp(attacker.edge + edge, 0, 0.85);
-  const expectedCritMultiplier = 1 + critChance * (attacker.fracture - 1);
+  const critChance = canCrit ? clamp(attacker.edge + edge, 0, 0.85) : 0;
+  const expectedCritMultiplier = canCrit ? 1 + critChance * (attacker.fracture - 1) : 1;
 
   for (const type of Object.keys(rawDamage) as TopDamageType[]) {
     rawDamage[type] = scaleDamageType(type, withExtra[type], modifiers);

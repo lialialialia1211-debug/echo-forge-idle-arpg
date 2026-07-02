@@ -2,6 +2,7 @@ import { createNewAccountSave, type AccountSave } from "./schema";
 import { migrateUnknownSave } from "./migrations";
 
 const SAVE_KEY = "echo_forge_account_save_v1";
+export const CORRUPT_SAVE_BACKUP_KEY = "echo_forge_account_save_v1_corrupt_backup";
 
 export function loadLocalSave(): AccountSave {
   const raw = window.localStorage.getItem(SAVE_KEY);
@@ -12,6 +13,7 @@ export function loadLocalSave(): AccountSave {
   try {
     return migrateUnknownSave(JSON.parse(raw));
   } catch {
+    window.localStorage.setItem(CORRUPT_SAVE_BACKUP_KEY, raw);
     return createNewAccountSave();
   }
 }

@@ -15,13 +15,45 @@ export type TopForgeWallet = {
   echo: number;
 };
 
+export type TopCraftAction = "upgrade" | "rerollAffixes" | "rerollValues" | "add" | "remove";
+
 export type TopCraftResult = {
   part: TopPartInstance;
   spent: TopForgeWallet;
 };
 
 const zeroWallet: TopForgeWallet = { ash: 0, glass: 0, echo: 0 };
+const forgeActionCosts: Record<TopCraftAction, TopForgeWallet> = {
+  upgrade: { ash: 6, glass: 1, echo: 0 },
+  rerollAffixes: { ash: 3, glass: 2, echo: 0 },
+  rerollValues: { ash: 0, glass: 2, echo: 0 },
+  add: { ash: 8, glass: 0, echo: 0 },
+  remove: { ash: 0, glass: 0, echo: 1 },
+};
 const rarityOrder: TopPartRarity[] = ["common", "tuned", "engraved", "relic"];
+
+export function forgeActionCost(action: TopCraftAction, part: TopPartInstance | null | undefined): TopForgeWallet {
+  if (action === "upgrade" && part?.rarity === "engraved") {
+    return { ash: 18, glass: 5, echo: 1 };
+  }
+  return forgeActionCosts[action];
+}
+
+export function canApplyForgeAction(action: TopCraftAction, part: TopPartInstance | null | undefined): boolean {
+  if (!part) {
+    return false;
+  }
+  if (action === "upgrade") {
+    return part.rarity !== "relic";
+  }
+  if (action === "add") {
+    return (part.affixes ?? []).length < 6;
+  }
+  if (action === "remove") {
+    return (part.affixes ?? []).length > 0;
+  }
+  return true;
+}
 
 function craftProvenance(part: TopPartInstance, seed: string): TopPartGeneratedBy {
   return {
@@ -33,9 +65,13 @@ function craftProvenance(part: TopPartInstance, seed: string): TopPartGeneratedB
   };
 }
 
+function nextRevision(part: TopPartInstance): number {
+  return (part.revision ?? 0) + 1;
+}
+
 function withAffixes(part: TopPartInstance, affixes: TopRolledEngraving[], seed: string): TopPartInstance {
-  return assembleTopPartFromAffixes({
-    id: `${part.id}_${seed}`,
+  const next = assembleTopPartFromAffixes({
+    id: part.id,
     base: getTopPartBaseDef(part.baseId),
     rarity: part.rarity,
     itemLevel: part.itemLevel,
@@ -44,6 +80,7 @@ function withAffixes(part: TopPartInstance, affixes: TopRolledEngraving[], seed:
     locked: part.locked,
     sourceDropId: part.sourceDropId,
   });
+  return { ...next, revision: nextRevision(part) };
 }
 
 function nextRarity(rarity: TopPartRarity): TopPartRarity {
@@ -75,8 +112,9 @@ export function upgradeTopPartRarity(part: TopPartInstance, seed: string): TopCr
   const rarity = nextRarity(part.rarity);
   return {
     spent: { ash: rarity === "relic" ? 18 : 6, glass: rarity === "relic" ? 5 : 1, echo: rarity === "relic" ? 1 : 0 },
-    part: generateTopPart({
-      id: `${part.id}_upgrade_${seed}`,
+    part: {
+      ...generateTopPart({
+      id: part.id,
       baseId: part.baseId,
       rarity,
       itemLevel: part.itemLevel,
@@ -85,15 +123,18 @@ export function upgradeTopPartRarity(part: TopPartInstance, seed: string): TopCr
       enemyLevel: part.generatedBy?.enemyLevel ?? part.itemLevel,
       source: "craft",
       locked: part.locked,
-    }),
+      }),
+      revision: nextRevision(part),
+    },
   };
 }
 
 export function rerollTopPartAffixes(part: TopPartInstance, seed: string): TopCraftResult {
   return {
     spent: { ash: 3, glass: 2, echo: 0 },
-    part: generateTopPart({
-      id: `${part.id}_reroll_${seed}`,
+    part: {
+      ...generateTopPart({
+      id: part.id,
       baseId: part.baseId,
       rarity: part.rarity,
       itemLevel: part.itemLevel,
@@ -102,15 +143,18 @@ export function rerollTopPartAffixes(part: TopPartInstance, seed: string): TopCr
       enemyLevel: part.generatedBy?.enemyLevel ?? part.itemLevel,
       source: "craft",
       locked: part.locked,
-    }),
+      }),
+      revision: nextRevision(part),
+    },
   };
 }
 
 export function rerollTopPartValues(part: TopPartInstance, seed: string): TopCraftResult {
   return {
     spent: { ash: 0, glass: 2, echo: 0 },
-    part: generateTopPart({
-      id: `${part.id}_values_${seed}`,
+    part: {
+      ...generateTopPart({
+      id: part.id,
       baseId: part.baseId,
       rarity: part.rarity,
       itemLevel: part.itemLevel,
@@ -121,7 +165,9 @@ export function rerollTopPartValues(part: TopPartInstance, seed: string): TopCra
       locked: part.locked,
       affixIds: (part.affixes ?? []).map((affix) => affix.engravingId),
       exactAffixIds: true,
-    }),
+      }),
+      revision: nextRevision(part),
+    },
   };
 }
 
@@ -152,7 +198,7 @@ export function addRandomEngraving(part: TopPartInstance, seed: string): TopCraf
   const rng = createRng(seed);
   const added = rng.weighted(candidates, (engraving) => engraving.weight);
   const next = generateTopPart({
-    id: `${part.id}_add_${seed}`,
+    id: part.id,
     baseId: part.baseId,
     rarity: part.rarity,
     itemLevel: part.itemLevel,
@@ -167,7 +213,7 @@ export function addRandomEngraving(part: TopPartInstance, seed: string): TopCraf
 
   return {
     spent: { ash: 8, glass: 0, echo: 0 },
-    part: next,
+    part: { ...next, revision: nextRevision(part) },
   };
 }
 

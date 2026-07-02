@@ -23,7 +23,10 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { arenaCircuits, getArenaCircuitDef } from "../../data/arenaCircuits";
+import { getArenaAnomalyDef } from "../../data/arenaAnomalies";
 import { circuitAtlasNodes, getCircuitAtlasNodeDef } from "../../data/circuitAtlasNodes";
+import { circuitNetworkNodes } from "../../data/circuitNetwork";
+import { doctrineForFrame, getDoctrineDef } from "../../data/doctrines";
 import { driveCores, getDriveCoreDef } from "../../data/driveCores";
 import { talentNodes, getTalentNodeDef } from "../../data/talentNodes";
 import { getTopFrameDef, topFrames } from "../../data/topFrames";
@@ -36,19 +39,35 @@ import {
   partSlotOrder,
 } from "../../data/topParts";
 import { isRuneCompatible, tuningRunes } from "../../data/tuningRunes";
+import {
+  accountReducer,
+  addWallet,
+  atlasPointTotal,
+  availableAtlasPoints as resolveAvailableAtlasPoints,
+  availableTalentPoints as resolveAvailableTalentPoints,
+  canSpend,
+  keyForgeCost,
+  mergeInventoryParts,
+  talentPointTotal,
+  inventoryCapacity,
+} from "../../engine/accountReducer";
+import { compactRuneSlots, toRuneSlots, type AccountRuntimeState, type AccountWallet, type RuneSlotState } from "../../engine/accountState";
 import { createTopArenaRuntime, defaultArenaTuning, stepTopArenaRuntime } from "../../engine/arenaRuntime";
 import { generateArenaKey, summarizeArenaKeyRiskReward } from "../../engine/arenaKeys";
 import { projectBossGateAttempt } from "../../engine/bossGate";
 import { validateRuneLoadout } from "../../engine/driveRuneValidation";
 import { clamp, formatNumber, formatPercent, round } from "../../engine/math";
+import { resolveOfflineSettlement, type OfflineSettlementResult } from "../../engine/offlineSettlement";
 import { resolveTopRuntimeStats } from "../../engine/topAssembly";
 import {
   addRandomEngraving,
+  canApplyForgeAction,
+  forgeActionCost,
   removeRandomEngraving,
   rerollTopPartAffixes,
   rerollTopPartValues,
-  salvageTopPart,
   upgradeTopPartRarity,
+  type TopCraftAction,
   type TopCraftResult,
 } from "../../engine/topCrafting";
 import { loadLocalSave, writeLocalSave } from "../../save/localStore";
@@ -58,6 +77,7 @@ import type {
   ArenaTuningConfig,
   CombatEvent,
   CircuitAtlasNodeDef,
+  DoctrineDef,
   TalentNodeDef,
   TopArenaRuntime,
   TopArenaDefeatCause,
@@ -81,17 +101,15 @@ type ArenaScreen = "combat" | "map" | "workbench";
 
 type ActivePanel = "loadout" | "inventory" | "skills" | "forge" | "route" | "talents";
 
-type CurrencyWallet = {
-  ash: number;
-  glass: number;
-  echo: number;
-};
-
 type LootNotice = {
   id: string;
   tone: "drop" | "salvage" | "reward";
   text: string;
   rarity?: TopPartRarity;
+};
+
+type OfflineReport = OfflineSettlementResult & {
+  elapsedSeconds: number;
 };
 
 const initialRendererMetrics: ArenaRendererMetrics = {
@@ -161,8 +179,6 @@ type NextActionPrompt = {
 
 type ObjectiveSegmentState = "cleared" | "active" | "pending" | "boss";
 
-type RuneSlotState = [string | null, string | null, string | null];
-
 const rarityTone: Record<TopPartRarity, "neutral" | "good" | "rare" | "warn"> = {
   common: "neutral",
   tuned: "good",
@@ -193,50 +209,6 @@ const statLabels: Record<keyof TopStatBlock, string> = {
 };
 
 const trackedStats: Array<keyof TopStatBlock> = ["spinIntegrity", "impact", "rpm", "guard", "tracking", "edge", "resonance", "partQuantity", "partRarity"];
-
-const inventoryCapacity = 48;
-const keyForgeCost: CurrencyWallet = { ash: 6, glass: 1, echo: 0 };
-const forgeActionCosts: Record<"upgrade" | "rerollAffixes" | "rerollValues" | "add" | "remove", CurrencyWallet> = {
-  upgrade: { ash: 6, glass: 1, echo: 0 },
-  rerollAffixes: { ash: 3, glass: 2, echo: 0 },
-  rerollValues: { ash: 0, glass: 2, echo: 0 },
-  add: { ash: 8, glass: 0, echo: 0 },
-  remove: { ash: 0, glass: 0, echo: 1 },
-};
-type ForgeAction = keyof typeof forgeActionCosts;
-
-function forgeActionCost(action: ForgeAction, part: TopPartInstance | null | undefined): CurrencyWallet {
-  if (action === "upgrade" && part?.rarity === "engraved") {
-    return { ash: 18, glass: 5, echo: 1 };
-  }
-  return forgeActionCosts[action];
-}
-
-function canApplyForgeAction(action: ForgeAction, part: TopPartInstance | null | undefined): boolean {
-  if (!part) {
-    return false;
-  }
-  if (action === "upgrade") {
-    return part.rarity !== "relic";
-  }
-  if (action === "add") {
-    return (part.affixes ?? []).length < 6;
-  }
-  if (action === "remove") {
-    return (part.affixes ?? []).length > 0;
-  }
-  return true;
-}
-
-const talentNodePositions: Record<string, { x: number; y: number }> = {
-  talent_iron_rotation: { x: 50, y: 52 },
-  talent_razor_geometry: { x: 30, y: 39 },
-  talent_live_bearing: { x: 70, y: 39 },
-  talent_furnace_scoring: { x: 68, y: 16 },
-  talent_storm_lattice: { x: 82, y: 59 },
-  talent_salvage_rites: { x: 18, y: 59 },
-  talent_last_rotation: { x: 50, y: 11 },
-};
 
 const atlasNodePositions: Record<string, { x: number; y: number }> = {
   atlas_breach_calibrator: { x: 50, y: 84 },
@@ -446,25 +418,13 @@ function formatAtlasLines(node: CircuitAtlasNodeDef): string[] {
   ].filter((line): line is string => Boolean(line));
 }
 
-function salvageValue(part: TopPartInstance): CurrencyWallet {
-  if (part.rarity === "relic") {
-    return { ash: 16, glass: 4, echo: 1 };
-  }
-  if (part.rarity === "engraved") {
-    return { ash: 8, glass: 2, echo: 0 };
-  }
-  if (part.rarity === "tuned") {
-    return { ash: 4, glass: 1, echo: 0 };
-  }
-  return { ash: 2, glass: 0, echo: 0 };
-}
-
-function addWallet(left: CurrencyWallet, right: CurrencyWallet): CurrencyWallet {
-  return {
-    ash: left.ash + right.ash,
-    glass: left.glass + right.glass,
-    echo: left.echo + right.echo,
-  };
+function formatDoctrineLines(doctrine: DoctrineDef): string[] {
+  return doctrine.nodes.flatMap((node) => [
+    node.rule ? `${node.displayName}: ${node.rule}` : node.displayName,
+    ...formatStatLines(node.statBonuses),
+    ...formatResistanceLines(node.resistanceBonuses),
+    ...(node.modifiers ?? []).map(formatModifierLine),
+  ]);
 }
 
 function distanceBetween(left: Pick<TopRuntimeEntity, "x" | "y">, right: Pick<TopRuntimeEntity, "x" | "y">): number {
@@ -550,38 +510,6 @@ function objectiveSegmentState(index: number, routeProgress: number): ObjectiveS
   return "pending";
 }
 
-function salvageParts(parts: TopPartInstance[]): CurrencyWallet {
-  return parts.reduce((wallet, part) => addWallet(wallet, salvageValue(part)), { ash: 0, glass: 0, echo: 0 });
-}
-
-function mergeInventoryParts(incoming: TopPartInstance[], current: TopPartInstance[], capacity: number): { items: TopPartInstance[]; overflow: TopPartInstance[] } {
-  const items = [...incoming, ...current];
-  const overflow: TopPartInstance[] = [];
-
-  while (items.length > capacity) {
-    let overflowIndex = -1;
-    for (let index = items.length - 1; index >= 0; index -= 1) {
-      if (!items[index].locked) {
-        overflowIndex = index;
-        break;
-      }
-    }
-
-    const [removed] = items.splice(overflowIndex >= 0 ? overflowIndex : items.length - 1, 1);
-    overflow.push(removed);
-  }
-
-  return { items, overflow };
-}
-
-function compactRuneSlots(slots: RuneSlotState): string[] {
-  return slots.filter((runeId): runeId is string => Boolean(runeId));
-}
-
-function toRuneSlots(runeIds: string[]): RuneSlotState {
-  return [runeIds[0] ?? null, runeIds[1] ?? null, runeIds[2] ?? null];
-}
-
 function completeEquipment(
   saved: Partial<Record<TopPartSlotId, TopPartInstance | null>> | undefined,
   fallback: Record<TopPartSlotId, TopPartInstance>,
@@ -595,19 +523,17 @@ function completeEquipment(
   );
 }
 
-function canSpend(wallet: CurrencyWallet, cost: CurrencyWallet): boolean {
-  return wallet.ash >= cost.ash && wallet.glass >= cost.glass && wallet.echo >= cost.echo;
-}
-
-function spendWallet(wallet: CurrencyWallet, cost: CurrencyWallet): CurrencyWallet {
+function loadoutFromAccountState(state: AccountRuntimeState): TopLoadoutConfig {
   return {
-    ash: wallet.ash - cost.ash,
-    glass: wallet.glass - cost.glass,
-    echo: wallet.echo - cost.echo,
+    equipment: state.equipment,
+    runeIds: compactRuneSlots(state.runeSlots),
+    talentIds: state.talentIds,
+    circuitAtlasNodeIds: state.circuitAtlasNodeIds,
+    doctrineId: state.doctrineId,
   };
 }
 
-function formatCost(cost: CurrencyWallet): string {
+function formatCost(cost: AccountWallet): string {
   return [`Ash ${cost.ash}`, `Glass ${cost.glass}`, `Echo ${cost.echo}`].join(" / ");
 }
 
@@ -706,8 +632,9 @@ export function CombatArena() {
       runeIds: compactRuneSlots(initialRuneSlots),
       talentIds: initialSave.top.talentIds,
       circuitAtlasNodeIds: initialSave.top.circuitAtlasNodeIds ?? [],
+      doctrineId: initialSave.top.doctrineId ?? null,
     }),
-    [initialEquipment, initialRuneSlots, initialSave.top.circuitAtlasNodeIds, initialSave.top.talentIds],
+    [initialEquipment, initialRuneSlots, initialSave.top.circuitAtlasNodeIds, initialSave.top.doctrineId, initialSave.top.talentIds],
   );
   const saveShellRef = useRef(initialSave);
   const [frameId, setFrameId] = useState(initialSave.top.selectedFrameId);
@@ -731,18 +658,23 @@ export function CombatArena() {
   const [selectedTalentId, setSelectedTalentId] = useState(talentNodes[0].id);
   const [circuitAtlasNodeIds, setCircuitAtlasNodeIds] = useState<string[]>(initialSave.top.circuitAtlasNodeIds ?? []);
   const [selectedAtlasNodeId, setSelectedAtlasNodeId] = useState(circuitAtlasNodes[0].id);
-  const [wallet, setWallet] = useState<CurrencyWallet>(initialSave.top.wallet);
+  const [doctrineId, setDoctrineId] = useState<string | null>(initialSave.top.doctrineId ?? null);
+  const [wallet, setWallet] = useState<AccountWallet>(initialSave.top.wallet);
   const [arenaKeys, setArenaKeys] = useState<ArenaKey[]>(initialSave.top.arenaKeys as ArenaKey[]);
   const [selectedArenaKeyId, setSelectedArenaKeyId] = useState<string | null>((initialSave.top.arenaKeys as ArenaKey[])[0]?.id ?? null);
   const [currentArenaKey, setCurrentArenaKey] = useState<ArenaKey | null>(null);
+  const [activeAnomalyId, setActiveAnomalyId] = useState<string | null>(null);
   const [clearedBossGateIds, setClearedBossGateIds] = useState<string[]>(initialSave.top.clearedBossGateIds);
   const [routeClears, setRouteClears] = useState<Record<string, number>>(initialSave.top.routeClears);
-  const [totalKills, setTotalKills] = useState(0);
+  const [totalKills, setTotalKills] = useState(initialSave.top.totalKills ?? 0);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [lootNotices, setLootNotices] = useState<LootNotice[]>([]);
+  const [offlineReport, setOfflineReport] = useState<OfflineReport | null>(null);
   const seenDropIdsRef = useRef(new Set<string>());
   const lastKillRef = useRef({ seed: "", kills: 0 });
   const lastRouteClearRef = useRef({ seed: "", routeClears: 0 });
+  const lastDuelVictoryRef = useRef("");
+  const offlineSettlementAppliedRef = useRef(false);
   const runeIds = useMemo(() => compactRuneSlots(runeSlots), [runeSlots]);
 
   const openPanel = useCallback((panel: ActivePanel) => {
@@ -756,14 +688,60 @@ export function CombatArena() {
   }, []);
 
   const makeLoadout = useCallback(
-    (nextEquipment: TopEquipment = equipment, nextRuneIds = runeIds, nextTalentIds = talentIds, nextCircuitAtlasNodeIds = circuitAtlasNodeIds): TopLoadoutConfig => ({
+    (
+      nextEquipment: TopEquipment = equipment,
+      nextRuneIds = runeIds,
+      nextTalentIds = talentIds,
+      nextCircuitAtlasNodeIds = circuitAtlasNodeIds,
+      nextDoctrineId: string | null = doctrineId,
+      nextAnomalyId: string | null = activeAnomalyId,
+    ): TopLoadoutConfig => ({
       equipment: nextEquipment,
       runeIds: nextRuneIds,
       talentIds: nextTalentIds,
       circuitAtlasNodeIds: nextCircuitAtlasNodeIds,
+      doctrineId: nextDoctrineId,
+      anomalyId: nextAnomalyId,
     }),
-    [circuitAtlasNodeIds, equipment, runeIds, talentIds],
+    [activeAnomalyId, circuitAtlasNodeIds, doctrineId, equipment, runeIds, talentIds],
   );
+
+  const makeAccountState = useCallback(
+    (): AccountRuntimeState => ({
+      frameId,
+      driveId,
+      arenaId,
+      equipment,
+      inventory,
+      runeSlots,
+      talentIds,
+      circuitAtlasNodeIds,
+      doctrineId,
+      wallet,
+      arenaKeys,
+      clearedBossGateIds,
+      routeClears,
+      totalKills,
+    }),
+    [arenaId, arenaKeys, circuitAtlasNodeIds, clearedBossGateIds, doctrineId, driveId, equipment, frameId, inventory, routeClears, runeSlots, talentIds, totalKills, wallet],
+  );
+
+  const applyAccountState = useCallback((nextState: AccountRuntimeState) => {
+    setFrameId(nextState.frameId);
+    setDriveId(nextState.driveId);
+    setArenaId(nextState.arenaId);
+    setEquipment(nextState.equipment);
+    setInventory(nextState.inventory);
+    setRuneSlots(nextState.runeSlots);
+    setTalentIds(nextState.talentIds);
+    setCircuitAtlasNodeIds(nextState.circuitAtlasNodeIds);
+    setDoctrineId(nextState.doctrineId);
+    setWallet(nextState.wallet);
+    setArenaKeys(nextState.arenaKeys);
+    setClearedBossGateIds(nextState.clearedBossGateIds);
+    setRouteClears(nextState.routeClears);
+    setTotalKills(nextState.totalKills);
+  }, []);
 
   const [runtime, setRuntime] = useState(() =>
     createTopArenaRuntime({
@@ -857,16 +835,20 @@ export function CombatArena() {
   }, [playerIntegrity, runtime.effects, runtime.enemies, runtime.player]);
   const lastCollision = runtime.lastCollision;
   const collisionDebugClass = lastCollision ? `collision-debug collision-debug-${lastCollision.kind}` : "collision-debug collision-debug-idle";
-  const spentTalentPoints = useMemo(() => talentIds.reduce((total, id) => total + getTalentNodeDef(id).cost, 0), [talentIds]);
-  const talentPoints = 3 + Math.floor(totalKills / 5);
-  const availableTalentPoints = talentPoints - spentTalentPoints;
-  const totalRouteClears = useMemo(() => Object.values(routeClears).reduce((total, clears) => total + clears, 0), [routeClears]);
-  const spentAtlasPoints = useMemo(() => circuitAtlasNodeIds.reduce((total, id) => total + getCircuitAtlasNodeDef(id).cost, 0), [circuitAtlasNodeIds]);
-  const atlasPoints = 2 + Math.floor(totalKills / 28) + totalRouteClears;
-  const availableAtlasPoints = atlasPoints - spentAtlasPoints;
+  const talentPoints = talentPointTotal(totalKills);
+  const availableTalentPoints = resolveAvailableTalentPoints({ talentIds, totalKills });
+  const atlasPoints = atlasPointTotal(totalKills, routeClears);
+  const availableAtlasPoints = resolveAvailableAtlasPoints({ circuitAtlasNodeIds, routeClears, totalKills });
 
   const resetArena = useCallback(
-    (nextFrameId = frameId, nextDriveId = driveId, nextArenaId = arenaId, nextLoadout = makeLoadout(), nextArenaKey: ArenaKey | null = currentArenaKey) => {
+    (
+      nextFrameId = frameId,
+      nextDriveId = driveId,
+      nextArenaId = arenaId,
+      nextLoadout = makeLoadout(),
+      nextArenaKey: ArenaKey | null = currentArenaKey,
+      nextMode: TopArenaRuntime["mode"] = runtimeRef.current.mode,
+    ) => {
       setRuntimeError(null);
       setCurrentArenaKey(nextArenaKey);
       publishRuntime(
@@ -876,7 +858,8 @@ export function CombatArena() {
           driveId: nextDriveId,
           loadout: nextLoadout,
           arenaKey: nextArenaKey ?? undefined,
-          seed: `arena_${nextFrameId}_${nextDriveId}_${nextArenaId}_${Date.now()}`,
+          mode: nextMode,
+          seed: `arena_${nextMode}_${nextFrameId}_${nextDriveId}_${nextArenaId}_${Date.now()}`,
         }),
       );
     },
@@ -894,10 +877,12 @@ export function CombatArena() {
       return rune && isRuneCompatible(rune, nextDriveTags) ? runeId : null;
     }) as RuneSlotState;
     const compatibleRunes = compactRuneSlots(nextRuneSlots);
+    const nextDoctrineId = doctrineForFrame(nextFrameId).some((doctrine) => doctrine.id === doctrineId) ? doctrineId : null;
     setFrameId(nextFrameId);
     setDriveId(nextFrame.startingDriveId);
     setRuneSlots(nextRuneSlots);
-    resetArena(nextFrameId, nextFrame.startingDriveId, arenaId, makeLoadout(equipment, compatibleRunes, talentIds));
+    setDoctrineId(nextDoctrineId);
+    resetArena(nextFrameId, nextFrame.startingDriveId, arenaId, makeLoadout(equipment, compatibleRunes, talentIds, circuitAtlasNodeIds, nextDoctrineId));
   };
 
   const selectDrive = (nextDriveId: string) => {
@@ -921,54 +906,39 @@ export function CombatArena() {
   };
 
   const equipPart = (part: TopPartInstance) => {
-    const replaced = equipment[part.slot];
-    const nextEquipment = { ...equipment, [part.slot]: part };
-    setEquipment(nextEquipment);
-    setInventory((items) => {
-      const withoutEquipped = items.filter((item) => item.id !== part.id);
-      return replaced && replaced.id !== part.id ? [replaced, ...withoutEquipped].slice(0, inventoryCapacity) : withoutEquipped;
-    });
+    const nextState = accountReducer(makeAccountState(), { type: "equipPart", part });
+    applyAccountState(nextState);
     setSelectedPartId(part.id);
-    resetArena(frameId, driveId, arenaId, makeLoadout(nextEquipment, runeIds, talentIds));
+    resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
   };
 
   const toggleLock = (partId: string) => {
-    setInventory((items) => items.map((item) => (item.id === partId ? { ...item, locked: !item.locked } : item)));
+    applyAccountState(accountReducer(makeAccountState(), { type: "toggleLock", partId }));
   };
 
   const salvagePart = (part: TopPartInstance) => {
-    if (part.locked) {
+    const currentState = makeAccountState();
+    const nextState = accountReducer(currentState, { type: "salvagePart", partId: part.id });
+    if (nextState === currentState) {
       return;
     }
-    const value = salvageTopPart(part);
-    setWallet((current) => ({
-      ash: current.ash + value.ash,
-      glass: current.glass + value.glass,
-      echo: current.echo + value.echo,
-    }));
-    setInventory((items) => items.filter((item) => item.id !== part.id));
+    applyAccountState(nextState);
     if (selectedPartId === part.id) {
-      setSelectedPartId(inventory.find((item) => item.id !== part.id)?.id ?? equipment.core.id);
-    }
-  };
-
-  const replacePartEverywhere = (previous: TopPartInstance, next: TopPartInstance) => {
-    const equipped = equipment[previous.slot]?.id === previous.id;
-    const nextEquipment = equipped ? { ...equipment, [previous.slot]: next } : equipment;
-    setEquipment(nextEquipment);
-    setInventory((items) => items.map((item) => (item.id === previous.id ? next : item)));
-    setSelectedPartId(next.id);
-    if (equipped) {
-      resetArena(frameId, driveId, arenaId, makeLoadout(nextEquipment, runeIds, talentIds), currentArenaKey);
+      setSelectedPartId(nextState.inventory[0]?.id ?? nextState.equipment.core.id);
     }
   };
 
   const applyCraftResult = (sourcePart: TopPartInstance, result: TopCraftResult) => {
-    if (!canSpend(wallet, result.spent)) {
+    const currentState = makeAccountState();
+    const nextState = accountReducer(currentState, { type: "applyCraft", sourcePartId: sourcePart.id, result });
+    if (nextState === currentState) {
       return;
     }
-    setWallet((current) => spendWallet(current, result.spent));
-    replacePartEverywhere(sourcePart, result.part);
+    applyAccountState(nextState);
+    setSelectedPartId(result.part.id);
+    if (currentState.equipment[sourcePart.slot]?.id === sourcePart.id) {
+      resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState), currentArenaKey);
+    }
     setLootNotices((current) => [
       {
         id: `craft_${result.part.id}`,
@@ -979,7 +949,7 @@ export function CombatArena() {
     ].slice(0, 8));
   };
 
-  const craftSelectedPart = (action: "upgrade" | "rerollAffixes" | "rerollValues" | "add" | "remove") => {
+  const craftSelectedPart = (action: TopCraftAction) => {
     if (!selectedPart) {
       return;
     }
@@ -999,9 +969,6 @@ export function CombatArena() {
   };
 
   const forgeArenaKey = () => {
-    if (!canSpend(wallet, keyForgeCost)) {
-      return;
-    }
     const key = generateArenaKey({
       arenaBaseId: arenaId,
       tier: arena.tier,
@@ -1010,8 +977,12 @@ export function CombatArena() {
       seed: `manual_key_${arenaId}_${Date.now()}`,
       bossGateId: arena.tier >= 3 ? "boss_gate_brass_judicator" : undefined,
     });
-    setWallet((current) => spendWallet(current, keyForgeCost));
-    setArenaKeys((keys) => [key, ...keys].slice(0, 24));
+    const currentState = makeAccountState();
+    const nextState = accountReducer(currentState, { type: "forgeArenaKey", key, cost: keyForgeCost });
+    if (nextState === currentState) {
+      return;
+    }
+    applyAccountState(nextState);
     setSelectedArenaKeyId(key.id);
     setLootNotices((current) => [{ id: `manual_key_${key.id}`, tone: "reward" as const, text: `Forged route key: ${formatKeyTitle(key)}` }, ...current].slice(0, 8));
   };
@@ -1020,103 +991,105 @@ export function CombatArena() {
     if (!selectedArenaKey) {
       return;
     }
-    const remainingKeys = arenaKeys.filter((key) => key.id !== selectedArenaKey.id);
-    setArenaKeys(remainingKeys);
-    setSelectedArenaKeyId(remainingKeys[0]?.id ?? null);
-    setArenaId(selectedArenaKey.arenaBaseId);
-    resetArena(frameId, driveId, selectedArenaKey.arenaBaseId, makeLoadout(), selectedArenaKey);
+    const nextState = accountReducer(makeAccountState(), { type: "runArenaKey", keyId: selectedArenaKey.id });
+    applyAccountState(nextState);
+    setSelectedArenaKeyId(nextState.arenaKeys[0]?.id ?? null);
+    resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState), selectedArenaKey, "route");
   };
 
   const attemptBossGate = () => {
-    const passed = bossProjection.successChance >= 0.5;
-    const tone: LootNotice["tone"] = passed ? "reward" : "salvage";
-    if (passed) {
-      setClearedBossGateIds((ids) => (ids.includes(bossProjection.gateId) ? ids : [...ids, bossProjection.gateId]));
-    }
+    setRunning(false);
+    setScreen("combat");
+    resetArena(frameId, driveId, arenaId, loadout, currentArenaKey, "duel");
     setLootNotices((current) => [
       {
-        id: `boss_attempt_${Date.now()}`,
-        tone,
-        text: passed ? "Brass Judicator gate cleared" : `Boss gate failed: ${bossProjection.failureReasons.join(" / ") || "unstable build"}`,
+        id: `boss_duel_${Date.now()}`,
+        tone: "reward" as const,
+        text: `Duel Gate opened: ${formatPercent(bossProjection.successChance, 0)} projected`,
       },
       ...current,
     ].slice(0, 8));
   };
 
+  const startAnomalyRoute = (anomalyId: string) => {
+    const anomaly = getArenaAnomalyDef(anomalyId);
+    setRunning(false);
+    setActiveAnomalyId(anomalyId);
+    setScreen("combat");
+    resetArena(frameId, driveId, arenaId, { ...loadout, anomalyId }, currentArenaKey, "route");
+    setLootNotices((current) =>
+      [
+        {
+          id: `anomaly_${anomalyId}_${Date.now()}`,
+          tone: "reward" as const,
+          text: `${anomaly.displayName} anomaly route opened`,
+        },
+        ...current,
+      ].slice(0, 8),
+    );
+  };
+
   const assignRuneToSocket = (runeId: string, socketIndex = selectedRuneSocket) => {
-    const rune = tuningRunes.find((entry) => entry.id === runeId);
-    if (!rune || !isRuneCompatible(rune, drive.tags)) {
+    const nextSocketIndex = Math.max(0, Math.min(2, socketIndex));
+    const currentState = makeAccountState();
+    const nextState = accountReducer(currentState, { type: "assignRune", runeId, socketIndex: nextSocketIndex });
+    if (nextState === currentState) {
       return;
     }
-    const nextSocketIndex = Math.max(0, Math.min(2, socketIndex));
-    const nextRuneSlots = runeSlots.map((currentRuneId) => (currentRuneId === runeId ? null : currentRuneId)) as RuneSlotState;
-    nextRuneSlots[nextSocketIndex] = runeId;
-    const nextRuneIds = compactRuneSlots(nextRuneSlots);
     setSelectedRuneSocket(nextSocketIndex);
-    setRuneSlots(nextRuneSlots);
-    resetArena(frameId, driveId, arenaId, makeLoadout(equipment, nextRuneIds, talentIds));
+    applyAccountState(nextState);
+    resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
   };
 
   const clearRuneSocket = (socketIndex = selectedRuneSocket) => {
     const nextSocketIndex = Math.max(0, Math.min(2, socketIndex));
-    const nextRuneSlots = [...runeSlots] as RuneSlotState;
-    if (!nextRuneSlots[nextSocketIndex]) {
+    const currentState = makeAccountState();
+    const nextState = accountReducer(currentState, { type: "clearRuneSocket", socketIndex: nextSocketIndex });
+    if (nextState === currentState) {
       setSelectedRuneSocket(nextSocketIndex);
       return;
     }
-    nextRuneSlots[nextSocketIndex] = null;
-    const nextRuneIds = compactRuneSlots(nextRuneSlots);
     setSelectedRuneSocket(nextSocketIndex);
-    setRuneSlots(nextRuneSlots);
-    resetArena(frameId, driveId, arenaId, makeLoadout(equipment, nextRuneIds, talentIds));
+    applyAccountState(nextState);
+    resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
   };
 
-  const canRefundTalent = (talentId: string): boolean =>
-    !talentNodes.some((node) => talentIds.includes(node.id) && (node.requiredNodeIds ?? []).includes(talentId));
+  const canRefundTalent = (talentId: string): boolean => accountReducer(makeAccountState(), { type: "refundTalent", talentId }).talentIds !== talentIds;
 
-  const canAllocateTalent = (talentId: string): boolean => {
-    const node = getTalentNodeDef(talentId);
-    const requirementsMet = (node.requiredNodeIds ?? []).every((requiredId) => talentIds.includes(requiredId));
-    return requirementsMet && availableTalentPoints >= node.cost;
-  };
+  const canAllocateTalent = (talentId: string): boolean => accountReducer(makeAccountState(), { type: "allocateTalent", talentId }).talentIds !== talentIds;
 
   const toggleTalent = (talentId: string) => {
-    const nextTalentIds = talentIds.includes(talentId)
-      ? canRefundTalent(talentId)
-        ? talentIds.filter((id) => id !== talentId)
-        : talentIds
-      : canAllocateTalent(talentId)
-        ? [...talentIds, talentId]
-        : talentIds;
-    if (nextTalentIds === talentIds) {
+    const currentState = makeAccountState();
+    const nextState = accountReducer(currentState, talentIds.includes(talentId) ? { type: "refundTalent", talentId } : { type: "allocateTalent", talentId });
+    if (nextState === currentState) {
       return;
     }
-    setTalentIds(nextTalentIds);
-    resetArena(frameId, driveId, arenaId, makeLoadout(equipment, runeIds, nextTalentIds));
+    applyAccountState(nextState);
+    resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
   };
 
-  const canRefundAtlasNode = (nodeId: string): boolean =>
-    !circuitAtlasNodes.some((node) => circuitAtlasNodeIds.includes(node.id) && (node.requiredNodeIds ?? []).includes(nodeId));
+  const canRefundAtlasNode = (nodeId: string): boolean => accountReducer(makeAccountState(), { type: "refundAtlasNode", nodeId }).circuitAtlasNodeIds !== circuitAtlasNodeIds;
 
-  const canAllocateAtlasNode = (nodeId: string): boolean => {
-    const node = getCircuitAtlasNodeDef(nodeId);
-    const requirementsMet = (node.requiredNodeIds ?? []).every((requiredId) => circuitAtlasNodeIds.includes(requiredId));
-    return requirementsMet && availableAtlasPoints >= node.cost;
-  };
+  const canAllocateAtlasNode = (nodeId: string): boolean => accountReducer(makeAccountState(), { type: "allocateAtlasNode", nodeId }).circuitAtlasNodeIds !== circuitAtlasNodeIds;
 
   const toggleAtlasNode = (nodeId: string) => {
-    const nextAtlasNodeIds = circuitAtlasNodeIds.includes(nodeId)
-      ? canRefundAtlasNode(nodeId)
-        ? circuitAtlasNodeIds.filter((id) => id !== nodeId)
-        : circuitAtlasNodeIds
-      : canAllocateAtlasNode(nodeId)
-        ? [...circuitAtlasNodeIds, nodeId]
-        : circuitAtlasNodeIds;
-    if (nextAtlasNodeIds === circuitAtlasNodeIds) {
+    const currentState = makeAccountState();
+    const nextState = accountReducer(currentState, circuitAtlasNodeIds.includes(nodeId) ? { type: "refundAtlasNode", nodeId } : { type: "allocateAtlasNode", nodeId });
+    if (nextState === currentState) {
       return;
     }
-    setCircuitAtlasNodeIds(nextAtlasNodeIds);
-    resetArena(frameId, driveId, arenaId, makeLoadout(equipment, runeIds, talentIds, nextAtlasNodeIds));
+    applyAccountState(nextState);
+    resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
+  };
+
+  const selectDoctrine = (nextDoctrineId: string | null) => {
+    const currentState = makeAccountState();
+    const nextState = accountReducer(currentState, { type: "selectDoctrine", doctrineId: nextDoctrineId });
+    if (nextState === currentState) {
+      return;
+    }
+    applyAccountState(nextState);
+    resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
   };
 
   const updateArenaTuning = (key: ArenaTuningKey, value: number) => {
@@ -1180,10 +1153,10 @@ export function CombatArena() {
       return;
     }
     if (runtime.kills > last.kills) {
-      setTotalKills((value) => value + runtime.kills - last.kills);
+      applyAccountState(accountReducer(makeAccountState(), { type: "addKills", amount: runtime.kills - last.kills }));
       lastKillRef.current = { seed: runtime.seed, kills: runtime.kills };
     }
-  }, [runtime.kills, runtime.seed]);
+  }, [applyAccountState, makeAccountState, runtime.kills, runtime.seed]);
 
   useEffect(() => {
     const last = lastRouteClearRef.current;
@@ -1204,22 +1177,107 @@ export function CombatArena() {
           bossGateId: arena.tier >= 3 ? "boss_gate_brass_judicator" : undefined,
         }),
       );
-      setArenaKeys((keys) => [...newKeys, ...keys].slice(0, 24));
+      const nextState = accountReducer(makeAccountState(), { type: "addRouteClear", arenaId, keys: newKeys });
+      applyAccountState(nextState);
       setSelectedArenaKeyId(newKeys[0]?.id ?? selectedArenaKeyId);
-      setRouteClears((current) => ({ ...current, [arenaId]: (current[arenaId] ?? 0) + gained }));
       setLootNotices((current) => [
         ...newKeys.map((key) => ({ id: `key_${key.id}`, tone: "reward" as const, text: `Forged route key: ${formatKeyTitle(key)}` })),
         ...current,
       ].slice(0, 8));
       lastRouteClearRef.current = { seed: runtime.seed, routeClears: runtime.routeClears };
     }
-  }, [arena.tier, arenaId, runtime.routeClears, runtime.seed, selectedArenaKeyId]);
+  }, [applyAccountState, arena.tier, arenaId, makeAccountState, runtime.routeClears, runtime.seed, selectedArenaKeyId]);
+
+  useEffect(() => {
+    if (runtime.mode !== "duel" || runtime.outcome !== "victory" || lastDuelVictoryRef.current === runtime.seed) {
+      return;
+    }
+    lastDuelVictoryRef.current = runtime.seed;
+    setClearedBossGateIds((ids) => (ids.includes(bossProjection.gateId) ? ids : [...ids, bossProjection.gateId]));
+    setLootNotices((current) =>
+      [
+        {
+          id: `boss_duel_clear_${runtime.seed}`,
+          tone: "reward" as const,
+          text: "Brass Judicator duel gate cleared",
+        },
+        ...current,
+      ].slice(0, 8),
+    );
+  }, [bossProjection.gateId, runtime.mode, runtime.outcome, runtime.seed]);
+
+  useEffect(() => {
+    if (offlineSettlementAppliedRef.current) {
+      return;
+    }
+    offlineSettlementAppliedRef.current = true;
+
+    const lastSettledMs = Date.parse(initialSave.top.lastSettledAt);
+    const elapsedSeconds = Number.isFinite(lastSettledMs) ? (Date.now() - lastSettledMs) / 1000 : 0;
+    if (elapsedSeconds < 60) {
+      return;
+    }
+
+    const settlement = resolveOfflineSettlement({
+      frameId,
+      driveId,
+      arenaId,
+      loadout,
+      elapsedSeconds,
+      arenaTier: arena.tier,
+      seed: `offline_${initialSave.top.lastSettledAt}_${initialSave.lastSavedAt}`,
+      partQuantity: currentStats.partQuantity,
+      partRarity: currentStats.partRarity,
+    });
+    const hasRewards = settlement.kills > 0 || settlement.parts.length > 0 || settlement.wallet.ash > 0 || settlement.wallet.glass > 0 || settlement.wallet.echo > 0;
+    if (!hasRewards) {
+      return;
+    }
+
+    let nextState = accountReducer(makeAccountState(), { type: "addKills", amount: settlement.kills });
+    nextState = accountReducer(nextState, { type: "ingestDrops", parts: settlement.parts, capacity: inventoryCapacity });
+    nextState = { ...nextState, wallet: addWallet(nextState.wallet, settlement.wallet) };
+    const firstKeptPart = nextState.inventory.find((part) => settlement.parts.some((drop) => drop.id === part.id));
+    applyAccountState(nextState);
+    if (firstKeptPart) {
+      setSelectedPartId(firstKeptPart.id);
+    }
+    setOfflineReport({ ...settlement, elapsedSeconds });
+    setLootNotices((current) =>
+      [
+        {
+          id: `offline_${initialSave.top.lastSettledAt}`,
+          tone: "reward" as const,
+          text: `Offline run: ${formatNumber(settlement.kills, 0)} kills / ${settlement.parts.length} drops`,
+        },
+        ...settlement.parts.slice(0, 3).map((part) => ({
+          id: `offline_part_${part.id}`,
+          tone: "drop" as const,
+          rarity: part.rarity,
+          text: `Recovered ${part.rarity} ${part.displayName}`,
+        })),
+        ...current,
+      ].slice(0, 8),
+    );
+  }, [
+    applyAccountState,
+    arena.tier,
+    arenaId,
+    currentStats.partQuantity,
+    currentStats.partRarity,
+    driveId,
+    frameId,
+    initialSave.lastSavedAt,
+    initialSave.top.lastSettledAt,
+    loadout,
+    makeAccountState,
+  ]);
 
   useEffect(() => {
     const now = new Date().toISOString();
     const nextSave = {
       ...saveShellRef.current,
-      schemaVersion: 2 as const,
+      schemaVersion: 4 as const,
       currencies: {
         ...saveShellRef.current.currencies,
         ash: wallet.ash,
@@ -1235,17 +1293,19 @@ export function CombatArena() {
         runeIds,
         talentIds,
         circuitAtlasNodeIds,
+        doctrineId,
         wallet,
         arenaKeys,
         clearedBossGateIds,
         routeClears,
+        totalKills,
         lastSettledAt: now,
       },
       lastSavedAt: now,
     };
     saveShellRef.current = nextSave;
     writeLocalSave(nextSave);
-  }, [arenaId, arenaKeys, circuitAtlasNodeIds, clearedBossGateIds, driveId, equipment, frameId, inventory, routeClears, runeIds, talentIds, wallet]);
+  }, [arenaId, arenaKeys, circuitAtlasNodeIds, clearedBossGateIds, doctrineId, driveId, equipment, frameId, inventory, routeClears, runeIds, talentIds, totalKills, wallet]);
 
   useEffect(() => {
     const newParts: TopPartInstance[] = [];
@@ -1259,26 +1319,24 @@ export function CombatArena() {
     }
 
     if (newParts.length > 0) {
+      const currentState = makeAccountState();
+      const nextState = accountReducer(currentState, { type: "ingestDrops", parts: newParts, capacity: inventoryCapacity });
       const merged = mergeInventoryParts(newParts, inventory, inventoryCapacity);
       const keptDrop = newParts.find((part) => merged.items.some((item) => item.id === part.id));
       const notices: LootNotice[] = [
         ...newParts.map((part) => ({ id: `loot_${part.id}`, tone: "drop" as const, rarity: part.rarity, text: `Picked ${part.rarity} ${part.displayName}` })),
         ...merged.overflow.map((part) => ({ id: `salvage_${part.id}`, tone: "salvage" as const, text: `Auto-salvaged ${part.displayName}` })),
       ];
-      const overflowValue = salvageParts(merged.overflow);
-      setInventory(merged.items);
+      applyAccountState(nextState);
       if (keptDrop) {
         setSelectedPartId(keptDrop.id);
-      }
-      if (merged.overflow.length > 0) {
-        setWallet((current) => addWallet(current, overflowValue));
       }
       setLootNotices((current) => [...notices, ...current].slice(0, 8));
       if (!running) {
         openPanel("inventory");
       }
     }
-  }, [arena.tier, inventory, openPanel, running, runtime.drops, runtime.seed, runtime.wave]);
+  }, [applyAccountState, arena.tier, inventory, makeAccountState, openPanel, running, runtime.drops, runtime.seed, runtime.wave]);
 
   const selectedPartInInventory = selectedPart ? inventory.some((part) => part.id === selectedPart.id) : false;
   const selectedPartEquipped = selectedPart ? selectedCurrentPart?.id === selectedPart.id : false;
@@ -1684,7 +1742,7 @@ export function CombatArena() {
             ["add", "Add", "One engraving"],
             ["remove", "Remove", "One engraving"],
           ].map(([action, label, detail]) => {
-            const key = action as ForgeAction;
+            const key = action as TopCraftAction;
             const cost = forgeActionCost(key, selectedPart);
             const disabled = !canApplyForgeAction(key, selectedPart) || !canSpend(wallet, cost);
             return (
@@ -1907,13 +1965,39 @@ export function CombatArena() {
           {bossProjection.failureReasons.length > 0 ? (
             bossProjection.failureReasons.map((reason) => <span key={reason}>{reason}: target {formatNumber(bossProjection.recommendedStats[reason] ?? 0, 1)}</span>)
           ) : (
-            <span>Gate pressure stable</span>
+            <span>Duel projection stable</span>
           )}
         </div>
         <button className="arena-button" onClick={attemptBossGate} type="button">
           <Swords size={15} aria-hidden />
-          Attempt Gate
+          Start Duel
         </button>
+      </section>
+
+      <section className="workbench-section">
+        <div className="section-title">
+          <MapIcon size={17} aria-hidden />
+          <h2>Circuit Network</h2>
+          <span className="section-counter">{activeAnomalyId ? "anomaly" : "route"}</span>
+        </div>
+        <div className="route-clear-list">
+          {circuitNetworkNodes.map((node) => {
+            const unlocked = !node.requiredBossGateId || clearedBossGateIds.includes(node.requiredBossGateId);
+            const anomaly = node.anomalyId ? getArenaAnomalyDef(node.anomalyId) : null;
+            return (
+              <div className="route-clear-line" key={node.id}>
+                <span>{node.displayName}</span>
+                {anomaly ? (
+                  <button className="arena-button" disabled={!unlocked} onClick={() => startAnomalyRoute(anomaly.id)} type="button">
+                    {unlocked ? anomaly.displayName : "Locked"}
+                  </button>
+                ) : (
+                  <strong>{unlocked ? "open" : "locked"}</strong>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </section>
 
       <section className="workbench-section">
@@ -1938,6 +2022,8 @@ export function CombatArena() {
     const selectedTalentActive = talentIds.includes(selectedTalent.id);
     const selectedTalentAvailable = selectedTalentActive ? canRefundTalent(selectedTalent.id) : canAllocateTalent(selectedTalent.id);
     const selectedTalentStatus = selectedTalentActive ? "Active" : selectedTalentAvailable ? "Available" : "Locked";
+    const frameDoctrines = doctrineForFrame(frameId);
+    const selectedDoctrine = doctrineId ? getDoctrineDef(doctrineId) : null;
     const requirementText =
       selectedTalent.requiredNodeIds && selectedTalent.requiredNodeIds.length > 0
         ? selectedTalent.requiredNodeIds.map((requiredId) => getTalentNodeDef(requiredId).displayName).join(" / ")
@@ -1950,12 +2036,34 @@ export function CombatArena() {
           <h2>Talents</h2>
           <span className="section-counter">{availableTalentPoints}/{talentPoints}</span>
         </div>
+        <div className="doctrine-grid" aria-label="Doctrine paths">
+          {frameDoctrines.map((doctrine) => {
+            const active = doctrine.id === doctrineId;
+            return (
+              <button className={active ? "doctrine-card doctrine-card-active" : "doctrine-card"} key={doctrine.id} onClick={() => selectDoctrine(active ? null : doctrine.id)} type="button">
+                <small>{active ? "Doctrine active" : frame.displayName}</small>
+                <strong>{doctrine.displayName}</strong>
+                <span>{doctrine.description}</span>
+              </button>
+            );
+          })}
+        </div>
+        {selectedDoctrine ? (
+          <div className="doctrine-detail">
+            <strong>{selectedDoctrine.displayName}</strong>
+            <div className="talent-detail-lines">
+              {formatDoctrineLines(selectedDoctrine).map((line) => (
+                <span key={line}>{line}</span>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <div className="talent-board" aria-label="Talent board">
           <svg className="talent-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
             {talentNodes.flatMap((node) =>
               (node.requiredNodeIds ?? []).map((requiredId) => {
-                const from = talentNodePositions[requiredId];
-                const to = talentNodePositions[node.id];
+                const from = getTalentNodeDef(requiredId).position;
+                const to = node.position;
                 const active = talentIds.includes(requiredId) && talentIds.includes(node.id);
                 return from && to ? <line className={active ? "talent-link talent-link-active" : "talent-link"} key={`${requiredId}-${node.id}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} /> : null;
               }),
@@ -1965,8 +2073,8 @@ export function CombatArena() {
             const active = talentIds.includes(node.id);
             const available = active ? canRefundTalent(node.id) : canAllocateTalent(node.id);
             const selected = selectedTalentId === node.id;
-            const position = talentNodePositions[node.id] ?? { x: 50, y: 50 };
-            const talentClass = ["talent-node", active ? "talent-node-active" : "", selected ? "talent-node-selected" : "", !active && !available ? "talent-node-locked" : ""]
+            const position = node.position;
+            const talentClass = ["talent-node", `talent-node-${node.kind}`, active ? "talent-node-active" : "", selected ? "talent-node-selected" : "", !active && !available ? "talent-node-locked" : ""]
               .filter(Boolean)
               .join(" ");
             return (
@@ -1988,7 +2096,7 @@ export function CombatArena() {
         <div className="talent-detail-panel">
           <div className="talent-detail-header">
             <div>
-              <small>{selectedTalentStatus} / {requirementText}</small>
+              <small>{selectedTalent.kind} / {selectedTalentStatus} / {requirementText}</small>
               <strong>{selectedTalent.displayName}</strong>
             </div>
             <span>{selectedTalent.cost} pt</span>
@@ -2381,6 +2489,33 @@ export function CombatArena() {
 
           <div className="canvas-wrap">
             <ArenaPhaserView onMetrics={showDebugHud ? setRendererMetrics : undefined} runtime={runtime} runtimeRef={runtimeRef} tuning={arenaTuning} />
+            {offlineReport ? (
+              <div className="offline-report-overlay" role="dialog" aria-label="Offline run report">
+                <small>Offline run</small>
+                <strong>{formatNumber(offlineReport.kills, 0)} kills banked</strong>
+                <span>
+                  {formatNumber(offlineReport.effectiveSeconds / 60, 0)} minutes simulated
+                  {offlineReport.cappedByTime ? " / capped" : ""}
+                </span>
+                <div className="offline-report-grid">
+                  <span>
+                    Drops <strong>{offlineReport.parts.length}</strong>
+                  </span>
+                  <span>
+                    Ash <strong>{offlineReport.wallet.ash}</strong>
+                  </span>
+                  <span>
+                    Glass <strong>{offlineReport.wallet.glass}</strong>
+                  </span>
+                  <span>
+                    Echo <strong>{offlineReport.wallet.echo}</strong>
+                  </span>
+                </div>
+                <button className="arena-button" onClick={() => setOfflineReport(null)} type="button">
+                  Collect
+                </button>
+              </div>
+            ) : null}
             {dangerCue ? (
               <div className={`danger-cue danger-cue-${dangerCue.tone} ${showDebugHud ? "danger-cue-debug-offset" : ""}`} aria-live="polite">
                 <AlertTriangle size={15} aria-hidden />

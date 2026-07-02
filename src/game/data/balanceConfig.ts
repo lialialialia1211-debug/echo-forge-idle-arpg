@@ -21,6 +21,11 @@ export const balanceConfig = {
     energySustainConversionPerSecond: 6,
     lowThresholdRatio: 0.15,
   },
+  offline: {
+    efficiency: 0.4,
+    capSeconds: 8 * 3600,
+    dropCap: 30,
+  },
   energy: {
     frictionLossPerMassPerSecond: 8,
     collisionLossScalar: 0.6,

@@ -105,6 +105,7 @@ export const topPartBases: TopPartBaseDef[] = [
     baseWeight: 100,
     tags: ["speed", "fire"],
     implicitStats: { rpm: 0.35, resonance: 0.06 },
+    launcherProfile: { initialSpeedScalar: 1.22, initialEnergyBonus: 0.08, entrySkillId: "redline_snap" },
   },
   {
     id: "part_launcher_coil",
@@ -115,6 +116,7 @@ export const topPartBases: TopPartBaseDef[] = [
     baseWeight: 92,
     tags: ["spell", "lightning"],
     implicitStats: { tracking: 55, resonance: 0.1 },
+    launcherProfile: { initialSpeedScalar: 0.92, initialEnergyBonus: 0.2, entrySkillId: "echo_charge" },
   },
   {
     id: "part_seal_storm",
@@ -276,6 +278,7 @@ export const topPartBases: TopPartBaseDef[] = [
     tags: ["attack", "projectile"],
     implicitStats: { tracking: 48, cooldownRecovery: 0.06 },
     implicitModifiers: [{ id: "splinter_winch_projectile", stat: "impact", type: "increased", value: 0.08, tags: ["projectile"] }],
+    launcherProfile: { initialSpeedScalar: 1.12, initialEnergyBonus: 0.12, entrySkillId: "splinter_snap" },
   },
   {
     id: "part_launcher_tempest_yoke",
@@ -287,6 +290,7 @@ export const topPartBases: TopPartBaseDef[] = [
     tags: ["spell", "lightning", "risk"],
     implicitStats: { tracking: 64, resonance: 0.12 },
     implicitResistances: { static: 0.06 },
+    launcherProfile: { initialSpeedScalar: 1.04, initialEnergyBonus: 0.18, entrySkillId: "tempest_charge" },
   },
   {
     id: "part_seal_ember_oath",

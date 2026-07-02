@@ -1,10 +1,13 @@
 import { getArenaCircuitDef } from "../data/arenaCircuits";
+import { getArenaAnomalyDef } from "../data/arenaAnomalies";
 import { arenaEvents } from "../data/arenaEvents";
 import { balanceConfig } from "../data/balanceConfig";
 import { resolveCircuitAtlasBonuses } from "../data/circuitAtlasNodes";
+import { resolveDoctrineBonuses } from "../data/doctrines";
 import { getDriveCoreDef } from "../data/driveCores";
 import { enemyModifiers } from "../data/enemyModifiers";
 import { getTopFrameDef } from "../data/topFrames";
+import { getTopPartBaseDef } from "../data/topParts";
 import { getTuningRuneDef } from "../data/tuningRunes";
 import { summarizeArenaKeyRiskReward } from "./arenaKeys";
 import { evaluateCombatCondition, type CombatContext } from "./conditionEval";
@@ -15,22 +18,22 @@ import { collisionImpactSeedFromMass, effectiveCooldownFromOmega, resolveStatsPh
 import { createRng } from "./rng";
 import { resolveTopRuntimeStats } from "./topAssembly";
 import { resolveTopHit } from "./topDamage";
+import { rollDropOutcome } from "./topDropRolls";
 import type {
-  ArenaDrop,
+  AilmentState,
   ArenaEffect,
   ArenaEventState,
   ArenaKey,
   ArenaLogEvent,
   ArenaTuningConfig,
-  ArenaRewardBias,
   CombatEvent,
   EnemyBehaviorId,
   EnemyModifierDef,
   TopArenaDefeatCause,
   TopArenaRuntime,
   TopCollisionEvent,
+  TopDamageType,
   TopLoadoutConfig,
-  TopPartSlotId,
   TopRuntimeEntity,
   TopRuntimeStats,
   TuningRuneDef,
@@ -83,6 +86,10 @@ function hasEquippedBase(runtime: Pick<TopArenaRuntime, "loadout">, baseId: stri
   return Object.values(runtime.loadout.equipment ?? {}).some((part) => part?.baseId === baseId);
 }
 
+function hasDoctrineRule(runtime: Pick<TopArenaRuntime, "loadout">, rule: ReturnType<typeof resolveDoctrineBonuses>["rules"][number]): boolean {
+  return resolveDoctrineBonuses(runtime.loadout.doctrineId).rules.includes(rule);
+}
+
 function normalizeArenaTuning(tuning?: Partial<ArenaTuningConfig>): ArenaTuningConfig {
   return {
     basinPullMultiplier: clamp(tuning?.basinPullMultiplier ?? defaultArenaTuning.basinPullMultiplier, 0.4, 2.8),
@@ -93,31 +100,6 @@ function normalizeArenaTuning(tuning?: Partial<ArenaTuningConfig>): ArenaTuningC
     hitStopMultiplier: clamp(tuning?.hitStopMultiplier ?? defaultArenaTuning.hitStopMultiplier, 0.2, 2.2),
   };
 }
-
-type DropLabelOption = { label: string; target: TopPartSlotId; weight: number };
-
-const dropLabelOptions: DropLabelOption[] = [
-  { label: "Ash Core", target: "core", weight: 1 },
-  { label: "Static Core", target: "core", weight: 0.86 },
-  { label: "Void Core", target: "core", weight: 0.42 },
-  { label: "Attack Ring", target: "attackRing", weight: 1 },
-  { label: "Razor Ring", target: "attackRing", weight: 0.82 },
-  { label: "Furnace Ring", target: "attackRing", weight: 0.7 },
-  { label: "Weight Disk", target: "weightDisk", weight: 1 },
-  { label: "Orbit Disk", target: "weightDisk", weight: 0.76 },
-  { label: "Judicator Disk", target: "weightDisk", weight: 0.46 },
-  { label: "Needle Tip", target: "tip", weight: 1 },
-  { label: "Anchor Tip", target: "tip", weight: 0.78 },
-  { label: "Molten Tip", target: "tip", weight: 0.68 },
-  { label: "Launcher", target: "launcher", weight: 1 },
-  { label: "Tempest Launcher", target: "launcher", weight: 0.7 },
-  { label: "Storm Seal", target: "seal", weight: 0.92 },
-  { label: "Ember Seal", target: "seal", weight: 0.72 },
-  { label: "Null Seal", target: "seal", weight: 0.46 },
-  { label: "Circuit Chip", target: "circuitChip", weight: 1 },
-  { label: "Mapwright Chip", target: "circuitChip", weight: 0.74 },
-  { label: "Omen Chip", target: "circuitChip", weight: 0.56 },
-];
 
 function length(x: number, y: number): number {
   return Math.sqrt(x * x + y * y);
@@ -374,6 +356,7 @@ function createEnemyStats(arenaId: string, rank: TopRuntimeEntity["rank"], wave:
   const arena = getArenaCircuitDef(arenaId);
   const keyRisk = arenaKey ? summarizeArenaKeyRiskReward(arenaKey) : null;
   const atlasBonuses = resolveCircuitAtlasBonuses(loadout.circuitAtlasNodeIds ?? []);
+  const anomaly = loadout.anomalyId ? getArenaAnomalyDef(loadout.anomalyId) : null;
   const earlyWaveEase = wave <= 8 ? 0.86 : 1;
   const rankScalar = rank === "boss" ? 3.2 * earlyWaveEase : rank === "elite" ? 1.45 * earlyWaveEase : 1;
   const waveScalar = 1 + Math.max(0, wave - 1) * 0.045;
@@ -387,7 +370,8 @@ function createEnemyStats(arenaId: string, rank: TopRuntimeEntity["rank"], wave:
       (keyRisk?.enemyIntegrityMultiplier ?? 1) *
       (activeEvent?.enemyIntegrityMultiplier ?? 1) *
       (modifier?.integrityMultiplier ?? 1) *
-      atlasBonuses.enemyIntegrityMultiplier,
+      atlasBonuses.enemyIntegrityMultiplier *
+      (anomaly?.enemyIntegrityMultiplier ?? 1),
     maxFluxGuard: arena.enemyIntegrity * 0.12 * rankScalar,
     guard: arena.enemyGuard * rankScalar * (keyRisk?.enemyGuardMultiplier ?? 1) * (activeEvent?.enemyGuardMultiplier ?? 1) * (modifier?.guardMultiplier ?? 1),
     drift: 260 + arena.tier * 60,
@@ -399,7 +383,8 @@ function createEnemyStats(arenaId: string, rank: TopRuntimeEntity["rank"], wave:
       (keyRisk?.enemyImpactMultiplier ?? 1) *
       (activeEvent?.enemyImpactMultiplier ?? 1) *
       (modifier?.impactMultiplier ?? 1) *
-      atlasBonuses.enemyImpactMultiplier,
+      atlasBonuses.enemyImpactMultiplier *
+      (anomaly?.enemyImpactMultiplier ?? 1),
     rpm: (rank === "boss" ? 4.2 : rank === "elite" ? 5.2 : 5.8) * (keyRisk?.enemyRpmMultiplier ?? 1) * (activeEvent?.enemyRpmMultiplier ?? 1) * (modifier?.rpmMultiplier ?? 1),
     mass: rank === "boss" ? 1.65 : rank === "elite" ? 1.25 : 1,
     grip: rank === "boss" ? 0.78 : rank === "elite" ? 0.58 : 0.42,
@@ -429,6 +414,9 @@ function activeSmallEnemyCount(runtime: TopArenaRuntime): number {
 }
 
 function desiredSmallEnemyCount(runtime: TopArenaRuntime, tuning: ArenaTuningConfig = defaultArenaTuning): number {
+  if (runtime.mode === "duel") {
+    return 0;
+  }
   const arena = getArenaCircuitDef(runtime.arenaId);
   const atlasBonuses = resolveCircuitAtlasBonuses(runtime.loadout.circuitAtlasNodeIds ?? []);
   const breachPressure = runtime.routeMechanic?.active ? (runtime.routeMechanic.stabilized ? 0.18 : 0.1) : 0;
@@ -449,8 +437,13 @@ function difficultyWaveForRuntime(runtime: TopArenaRuntime): number {
   return 1 + runtime.routeClears * 3 + Math.floor(runtime.mapKills / 40);
 }
 
-function spawnEnemy(runtime: TopArenaRuntime, rankOverride?: TopRuntimeEntity["rank"], tuning: ArenaTuningConfig = defaultArenaTuning): TopArenaRuntime {
+function arenaRadiusForRuntime(runtime: Pick<TopArenaRuntime, "arenaId" | "mode">): number {
   const arena = getArenaCircuitDef(runtime.arenaId);
+  return runtime.mode === "duel" ? arena.radius * 0.6 : arena.radius;
+}
+
+function spawnEnemy(runtime: TopArenaRuntime, rankOverride?: TopRuntimeEntity["rank"], tuning: ArenaTuningConfig = defaultArenaTuning): TopArenaRuntime {
+  const arenaRadius = arenaRadiusForRuntime(runtime);
   const spawnIndex = runtime.spawnIndex + 1;
   const rng = createRng(`${runtime.seed}_${runtime.routeClears}_${runtime.mapKills}_${spawnIndex}`);
   const angle = rng.next() * Math.PI * 2;
@@ -471,7 +464,7 @@ function spawnEnemy(runtime: TopArenaRuntime, rankOverride?: TopRuntimeEntity["r
       : baseStats;
   const physics = resolveStatsPhysics(stats);
   const maxFlux = physics.maxFlux;
-  const distance = arena.radius * (rank === "boss" ? 0.5 + rng.next() * 0.08 : 0.72 + rng.next() * 0.19);
+  const distance = arenaRadius * (rank === "boss" ? 0.5 + rng.next() * 0.08 : 0.72 + rng.next() * 0.19);
   const baseName = rank === "boss" ? "Brass Judicator" : rank === "elite" ? "Scored Iron Rival" : "Cinder Runner";
   const enemy: TopRuntimeEntity = {
     id: `enemy_${spawnIndex}_${rank}`,
@@ -552,6 +545,10 @@ function createPlayer(frameId: string, driveId: string, loadout: TopLoadoutConfi
   const stats = activeEvent ? { ...resolvedStats, drift: resolvedStats.drift * activeEvent.playerDriftMultiplier } : resolvedStats;
   const physics = resolveStatsPhysics(stats);
   const maxFlux = physics.maxFlux;
+  const launcherBaseId = loadout.equipment?.launcher?.baseId;
+  const launcherProfile = launcherBaseId ? getTopPartBaseDef(launcherBaseId).launcherProfile : undefined;
+  const initialSpeedScalar = launcherProfile?.initialSpeedScalar ?? 1;
+  const initialEnergyScalar = 1 + (launcherProfile?.initialEnergyBonus ?? 0);
 
   return {
     id: "player_top",
@@ -560,15 +557,15 @@ function createPlayer(frameId: string, driveId: string, loadout: TopLoadoutConfi
     rank: "player",
     x: 0,
     y: 0,
-    vx: 32,
-    vy: -18,
+    vx: 32 * initialSpeedScalar,
+    vy: -18 * initialSpeedScalar,
     radius: 26,
     angle: 0,
     spinIntegrity: stats.maxSpinIntegrity,
     fluxGuard: stats.maxFluxGuard,
-    spinPower: 100,
+    spinPower: 100 * initialEnergyScalar,
     maxSpinEnergy: physics.spinEnergy,
-    spinEnergy: physics.spinEnergy,
+    spinEnergy: physics.spinEnergy * initialEnergyScalar,
     maxFlux,
     flux: maxFlux,
     wobble: 0,
@@ -603,6 +600,7 @@ export function createTopArenaRuntime({
   loadout = {},
   seed = "top_arena",
   arenaKey,
+  mode = "route",
 }: {
   arenaId: string;
   frameId: string;
@@ -610,19 +608,22 @@ export function createTopArenaRuntime({
   loadout?: TopLoadoutConfig;
   seed?: string;
   arenaKey?: ArenaKey;
+  mode?: TopArenaRuntime["mode"];
 }): TopArenaRuntime {
-  const activeEvent = createArenaEventState(arenaId, seed, arenaKey);
-  const routeMechanic = createRouteMechanicState(loadout);
+  const activeEvent = mode === "duel" ? undefined : createArenaEventState(arenaId, seed, arenaKey);
+  const routeMechanic = mode === "duel" ? undefined : createRouteMechanicState(loadout);
   const initialEvents: ArenaLogEvent[] = [
     ...(activeEvent ? [{ id: "top_event_event", tone: "danger" as const, text: `${activeEvent.displayName}: ${activeEvent.logText}` }] : []),
-    { id: "top_event_route", tone: "reward" as const, text: `${routeMechanic.displayName} opened; shatter rivals before it collapses` },
+    ...(routeMechanic ? [{ id: "top_event_route", tone: "reward" as const, text: `${routeMechanic.displayName} opened; shatter rivals before it collapses` }] : []),
+    ...(mode === "duel" ? [{ id: "top_event_duel", tone: "danger" as const, text: "Duel Gate armed; shatter the Brass Judicator" }] : []),
     { id: "top_event_0", tone: "reward" as const, text: "Arena coil is armed" },
   ].slice(0, maxEvents);
-  const mapKillTarget = createMapKillTarget(arenaId, seed, 0, arenaKey);
+  const mapKillTarget = mode === "duel" ? 1 : createMapKillTarget(arenaId, seed, 0, arenaKey);
 
   return {
     seed,
     arenaId,
+    mode,
     arenaKey,
     activeEvent,
     routeMechanic,
@@ -638,7 +639,7 @@ export function createTopArenaRuntime({
     bossSpawned: false,
     spawnIndex: 0,
     routeClears: 0,
-    nextEnemyIn: 0.2,
+    nextEnemyIn: mode === "duel" ? 0 : 0.2,
     routeTransitionCooldown: 0,
     eventIndex: 0,
     player: createPlayer(frameId, driveId, loadout, activeEvent),
@@ -657,7 +658,14 @@ type SteerEntityResult = {
   combatEvent?: CombatEvent;
 };
 
-function steerEntity(entity: TopRuntimeEntity, target: TopRuntimeEntity | null, arenaRadius: number, deltaSeconds: number, tuning: ArenaTuningConfig = defaultArenaTuning): SteerEntityResult {
+function steerEntity(
+  entity: TopRuntimeEntity,
+  target: TopRuntimeEntity | null,
+  arenaRadius: number,
+  deltaSeconds: number,
+  tuning: ArenaTuningConfig = defaultArenaTuning,
+  ringoutGateScalar = 1,
+): SteerEntityResult {
   let desiredX = -entity.x * 0.25;
   let desiredY = -entity.y * 0.25;
 
@@ -726,7 +734,7 @@ function steerEntity(entity: TopRuntimeEntity, target: TopRuntimeEntity | null, 
     const dot = vx * normal.x + vy * normal.y;
     const physics = resolveStatsPhysics(entity.stats, { spinEnergy: currentSpinEnergy(entity) });
     const wallImpact = Math.max(0, dot);
-    const ringoutGate = Math.max(balanceConfig.defeat.ringoutMinImpact, physics.designMass * Math.max(0.2, entity.stats.grip) * balanceConfig.defeat.ringoutGripMassScalar);
+    const ringoutGate = Math.max(balanceConfig.defeat.ringoutMinImpact * ringoutGateScalar, physics.designMass * Math.max(0.2, entity.stats.grip) * balanceConfig.defeat.ringoutGripMassScalar * ringoutGateScalar);
     if (wallImpact >= ringoutGate) {
       combatEvent = {
         kind: "ringout",
@@ -777,17 +785,7 @@ export function createCollisionDamage(attacker: TopRuntimeEntity, defender: TopR
 
 function createSkillDamage(attacker: TopRuntimeEntity, collision?: CollisionDamageContext, behaviors: ActiveRuneBehaviors = {}): ReturnType<typeof emptyDamagePacket> {
   const drive = getDriveCoreDef(attacker.driveId ?? "drive_shard_barrage");
-  const packet = { ...drive.baseDamage };
-
-  if (drive.visual === "emberTrail") {
-    packet.heat += attacker.stats.resonance * 42;
-  }
-  if (drive.visual === "stormArc") {
-    packet.static += attacker.stats.rpm * 7;
-  }
-  if (drive.visual === "sparks") {
-    packet.impact += attacker.stats.impact * 0.4;
-  }
+  const packet = { ...(drive.hit?.damage ?? drive.baseDamage) };
   if (collision && (drive.trigger === "onCollision" || drive.trigger === "onHeavyCollision")) {
     const scrapeBonus = collision.kind === "scrape" ? collision.surfaceShear * 0.28 + Math.abs(collision.tangentImpulse) * 0.34 : 0;
     const smashBonus = collision.kind === "smash" ? collision.normalImpulse * 0.42 : 0;
@@ -831,6 +829,168 @@ function createSkillDamage(attacker: TopRuntimeEntity, collision?: CollisionDama
   }
 
   return packet;
+}
+
+function ailmentKindForDamageType(type: TopDamageType): AilmentState["kind"] {
+  if (type === "heat") {
+    return "burn";
+  }
+  if (type === "static") {
+    return "shock";
+  }
+  if (type === "glass") {
+    return "bleed";
+  }
+  if (type === "void") {
+    return "slow";
+  }
+  return "stagger";
+}
+
+function createAilmentState(
+  kind: AilmentState["kind"],
+  sourceDamageType: TopDamageType,
+  sourceId: string,
+  magnitude: number,
+  duration: number,
+): AilmentState | null {
+  if (magnitude <= 0 || duration <= 0) {
+    return null;
+  }
+  return {
+    id: `${kind}_${sourceId}_${sourceDamageType}`,
+    kind,
+    sourceDamageType,
+    sourceId,
+    magnitude,
+    duration,
+    remainingSeconds: duration,
+  };
+}
+
+function mergeAilments(entity: TopRuntimeEntity, nextAilments: AilmentState[]): TopRuntimeEntity {
+  if (nextAilments.length === 0) {
+    return entity;
+  }
+  const byKind = new Map<AilmentState["kind"], AilmentState>();
+  for (const ailment of entity.ailments ?? []) {
+    byKind.set(ailment.kind, ailment);
+  }
+  for (const ailment of nextAilments) {
+    const current = byKind.get(ailment.kind);
+    byKind.set(
+      ailment.kind,
+      current
+        ? {
+            ...ailment,
+            magnitude: Math.max(current.magnitude, ailment.magnitude),
+            duration: Math.max(current.duration, ailment.duration),
+            remainingSeconds: Math.max(current.remainingSeconds, ailment.remainingSeconds),
+          }
+        : ailment,
+    );
+  }
+  return {
+    ...entity,
+    ailments: Array.from(byKind.values()).sort((left, right) => left.kind.localeCompare(right.kind)),
+  };
+}
+
+function ailmentDamageTakenScalar(entity: TopRuntimeEntity): number {
+  const shock = (entity.ailments ?? []).filter((ailment) => ailment.kind === "shock").reduce((highest, ailment) => Math.max(highest, ailment.magnitude), 0);
+  return 1 + clamp(shock, 0, 0.45);
+}
+
+function buildAilmentsFromHit(
+  attacker: TopRuntimeEntity,
+  defender: TopRuntimeEntity,
+  drive: ReturnType<typeof getDriveCoreDef>,
+  hit: ReturnType<typeof resolveTopHit>,
+  source: "collision" | "skill",
+  damageScalar: number,
+): AilmentState[] {
+  const ailments: AilmentState[] = [];
+  const maxIntegrity = Math.max(1, defender.stats.maxSpinIntegrity);
+  const damageTypes = Object.keys(hit.mitigatedDamage) as TopDamageType[];
+
+  for (const type of damageTypes) {
+    const typeDamage = hit.mitigatedDamage[type];
+    if (typeDamage <= 0) {
+      continue;
+    }
+    const kind = ailmentKindForDamageType(type);
+    const dotProfile = source === "skill" && drive.dot?.damageType === type ? drive.dot : undefined;
+    const duration = dotProfile?.duration ?? (kind === "stagger" ? 1.35 : kind === "shock" ? 2.5 : 2.2);
+    const baseMagnitude =
+      kind === "burn"
+        ? (dotProfile ? dotProfile.baseDps * (1 + attacker.stats.resonance * 0.08) : typeDamage * 0.12) * damageScalar
+        : kind === "shock"
+          ? clamp(typeDamage / maxIntegrity, 0.05, 0.35)
+          : kind === "bleed"
+            ? (typeDamage * 0.18) / duration
+            : kind === "slow"
+              ? clamp(typeDamage / maxIntegrity, 0.06, 0.3)
+              : clamp(typeDamage / maxIntegrity, 0.05, 0.26);
+    const ailment = createAilmentState(kind, type, attacker.id, baseMagnitude, duration);
+    if (ailment) {
+      ailments.push(ailment);
+    }
+  }
+
+  return ailments;
+}
+
+function tickEntityAilments(entity: TopRuntimeEntity, deltaSeconds: number): TopRuntimeEntity {
+  if (!entity.ailments || entity.ailments.length === 0) {
+    return entity;
+  }
+
+  let nextEntity = entity;
+  const nextAilments: AilmentState[] = [];
+  for (const ailment of entity.ailments) {
+    if (ailment.kind === "burn") {
+      nextEntity = {
+        ...nextEntity,
+        spinIntegrity: Math.max(0, nextEntity.spinIntegrity - ailment.magnitude * deltaSeconds),
+      };
+    } else if (ailment.kind === "bleed") {
+      const speedFactor = 1 + clamp(length(nextEntity.vx, nextEntity.vy) / 220, 0, 1.4);
+      nextEntity = {
+        ...nextEntity,
+        spinIntegrity: Math.max(0, nextEntity.spinIntegrity - ailment.magnitude * speedFactor * deltaSeconds),
+      };
+    } else if (ailment.kind === "slow") {
+      const slowScalar = Math.max(0.65, 1 - ailment.magnitude * deltaSeconds);
+      nextEntity = {
+        ...nextEntity,
+        vx: nextEntity.vx * slowScalar,
+        vy: nextEntity.vy * slowScalar,
+      };
+    } else if (ailment.kind === "stagger") {
+      nextEntity = {
+        ...nextEntity,
+        wobble: clamp(nextEntity.wobble + ailment.magnitude * deltaSeconds, 0, 1),
+      };
+    }
+
+    const remainingSeconds = ailment.remainingSeconds - deltaSeconds;
+    if (remainingSeconds > 0) {
+      nextAilments.push({ ...ailment, remainingSeconds });
+    }
+  }
+
+  return {
+    ...nextEntity,
+    ailments: nextAilments,
+  };
+}
+
+function tickAilments(runtime: TopArenaRuntime, deltaSeconds: number): TopArenaRuntime {
+  return {
+    ...runtime,
+    player: tickEntityAilments(runtime.player, deltaSeconds),
+    enemies: runtime.enemies.map((enemy) => tickEntityAilments(enemy, deltaSeconds)),
+  };
 }
 
 function damagePlayer(runtime: TopArenaRuntime, amount: number, impulseX = 0, impulseY = 0): TopArenaRuntime {
@@ -979,11 +1139,13 @@ function dealDamage(
     drive,
     sourceTags: source === "collision" ? ["attack", "melee"] : drive.tags,
     context: createCombatContext(attacker, runtime.combatEvents),
+    hitFlags: source === "skill" && drive.hit ? { usesTracking: drive.hit.usesTracking, canCrit: drive.hit.canCrit } : undefined,
   });
   const defenderPhase = defender.rank === "boss" ? bossPhaseFor(defender) : undefined;
   const phaseDamageScalar = defenderPhase === 3 && source === "collision" && !collision?.heavy ? 0.42 : 1;
   const defenseRune = defender.team === "player" ? defenderDamageTakenScalar(runtime, defender) : { scalar: 1, activated: false };
-  const rawTotalDamage = hit.totalDamage * damageScalar * phaseDamageScalar;
+  const ailmentTakenScalar = ailmentDamageTakenScalar(defender);
+  const rawTotalDamage = hit.totalDamage * damageScalar * phaseDamageScalar * ailmentTakenScalar;
   const totalDamage = rawTotalDamage * defenseRune.scalar;
   const energyDamage = source === "collision" ? totalDamage : 0;
   const integrityDamage = source === "skill" || collision?.heavy ? totalDamage : 0;
@@ -991,15 +1153,18 @@ function dealDamage(
   const impulseDirection = normalize(defender.x - attacker.x, defender.y - attacker.y);
   const skillImpulse = source === "skill" ? Math.min(120, bossGate.appliedDamage / defender.stats.mass) * 0.08 : 0;
   const damagedDefender = energyDamage > 0 ? drainSpinEnergy(defender, energyDamage) : defender;
-  const defenderNext = {
-    ...damagedDefender,
-    spinIntegrity: bossGate.nextSpinIntegrity,
-    vx: damagedDefender.vx + impulseDirection.x * skillImpulse,
-    vy: damagedDefender.vy + impulseDirection.y * skillImpulse,
-    wobble: source === "collision" ? clamp(defender.wobble + bossGate.appliedDamage / Math.max(1, defender.stats.maxSpinIntegrity) * 0.3, 0, 1) : defender.wobble,
-    bossPhase: defender.rank === "boss" ? bossGate.bossPhase : defender.bossPhase,
-    phaseGateCooldown: defender.rank === "boss" ? bossGate.phaseGateCooldown : defender.phaseGateCooldown,
-  };
+  const defenderNext = mergeAilments(
+    {
+      ...damagedDefender,
+      spinIntegrity: bossGate.nextSpinIntegrity,
+      vx: damagedDefender.vx + impulseDirection.x * skillImpulse,
+      vy: damagedDefender.vy + impulseDirection.y * skillImpulse,
+      wobble: source === "collision" ? clamp(defender.wobble + bossGate.appliedDamage / Math.max(1, defender.stats.maxSpinIntegrity) * 0.3, 0, 1) : defender.wobble,
+      bossPhase: defender.rank === "boss" ? bossGate.bossPhase : defender.bossPhase,
+      phaseGateCooldown: defender.rank === "boss" ? bossGate.phaseGateCooldown : defender.phaseGateCooldown,
+    },
+    buildAilmentsFromHit(attacker, defender, drive, hit, source, damageScalar),
+  );
   const midpointX = (attacker.x + defender.x) / 2;
   const midpointY = (attacker.y + defender.y) / 2;
   let nextRuntime = addEffect(runtime, {
@@ -1123,6 +1288,10 @@ function resolveEnemySkills(runtime: TopArenaRuntime): TopArenaRuntime {
 }
 
 function resolveHazards(runtime: TopArenaRuntime, deltaSeconds: number): TopArenaRuntime {
+  if (hasDoctrineRule(runtime, "selfHazardSafe")) {
+    return runtime;
+  }
+
   return runtime.effects
     .filter((effect) => effect.kind === "hazard")
     .reduce((nextRuntime, effect) => {
@@ -1140,20 +1309,6 @@ function resolveHazards(runtime: TopArenaRuntime, deltaSeconds: number): TopAren
       const direction = normalize(nextRuntime.player.x - effect.x, nextRuntime.player.y - effect.y);
       return damagePlayer(nextRuntime, damage, direction.x * 6 * deltaSeconds, direction.y * 6 * deltaSeconds);
     }, runtime);
-}
-
-function biasWeight(target: TopPartSlotId, biases: ArenaRewardBias[]): number {
-  return biases.reduce((weight, bias) => {
-    if (bias.target === target || bias.target === "any") {
-      return weight + bias.weight;
-    }
-    return weight;
-  }, 1);
-}
-
-function chooseDropOption(runtime: TopArenaRuntime, rng: ReturnType<typeof createRng>, keyRisk: ReturnType<typeof summarizeArenaKeyRiskReward> | null): DropLabelOption {
-  const biases = [...(keyRisk?.rewardBias ?? []), ...(runtime.activeEvent?.rewardBias ?? [])];
-  return rng.weighted(dropLabelOptions, (option) => option.weight * biasWeight(option.target, biases));
 }
 
 function routeRewardBonuses(runtime: TopArenaRuntime): { rewardQuantity: number; rewardRarity: number } {
@@ -1233,39 +1388,37 @@ function tickRouteMechanic(runtime: TopArenaRuntime, deltaSeconds: number): TopA
 }
 
 function handleDrops(runtime: TopArenaRuntime, enemy: TopRuntimeEntity): TopArenaRuntime {
-  const arena = getArenaCircuitDef(runtime.arenaId);
   const keyRisk = runtime.arenaKey ? summarizeArenaKeyRiskReward(runtime.arenaKey) : null;
-  const rng = createRng(`${runtime.seed}_drop_${runtime.wave}_${runtime.kills}`);
   const routeRewards = routeRewardBonuses(runtime);
-  const rewardQuantity = (keyRisk?.rewardQuantity ?? 0) + (runtime.activeEvent?.rewardQuantity ?? 0) + (enemy.enemyModifier?.rewardQuantity ?? 0) + routeRewards.rewardQuantity;
-  const rewardRarity = (keyRisk?.rewardRarity ?? 0) + (runtime.activeEvent?.rewardRarity ?? 0) + (enemy.enemyModifier?.rewardRarity ?? 0) + routeRewards.rewardRarity;
-  const dropChance = clamp(0.26 * arena.rewardMultiplier * (1 + rewardQuantity) * (1 + runtime.player.stats.partQuantity), 0.08, 0.95);
+  const anomaly = runtime.loadout.anomalyId ? getArenaAnomalyDef(runtime.loadout.anomalyId) : null;
+  const rewardQuantity = (keyRisk?.rewardQuantity ?? 0) + (runtime.activeEvent?.rewardQuantity ?? 0) + (enemy.enemyModifier?.rewardQuantity ?? 0) + routeRewards.rewardQuantity + (anomaly?.rewardQuantity ?? 0);
+  const rewardRarity = (keyRisk?.rewardRarity ?? 0) + (runtime.activeEvent?.rewardRarity ?? 0) + (enemy.enemyModifier?.rewardRarity ?? 0) + routeRewards.rewardRarity + (anomaly?.rewardRarity ?? 0);
+  const drop = rollDropOutcome({
+    arenaId: runtime.arenaId,
+    seed: `${runtime.seed}_drop_${runtime.wave}_${runtime.kills}`,
+    wave: runtime.wave,
+    killCount: runtime.kills,
+    playerPartQuantity: runtime.player.stats.partQuantity,
+    playerPartRarity: runtime.player.stats.partRarity,
+    rewardQuantity,
+    rewardRarity,
+    rewardBias: [...(keyRisk?.rewardBias ?? []), ...(runtime.activeEvent?.rewardBias ?? [])],
+    x: enemy.x,
+    y: enemy.y,
+  });
 
-  if (rng.next() > dropChance) {
+  if (!drop) {
     return runtime;
   }
 
-  const rarityRoll = rng.next() * (1 + runtime.player.stats.partRarity + arena.tier * 0.05 + rewardRarity);
-  const rarity: ArenaDrop["rarity"] = rarityRoll > 0.98 ? "relic" : rarityRoll > 0.62 ? "engraved" : rarityRoll > 0.28 ? "tuned" : "common";
-  const dropOption = chooseDropOption(runtime, rng, keyRisk);
-  const drop: ArenaDrop = {
-    id: `drop_${runtime.wave}_${runtime.kills}`,
-    label: dropOption.label,
-    slot: dropOption.target,
-    rarity,
-    x: enemy.x,
-    y: enemy.y,
-    age: 0,
-  };
-
   return addEffect(
-    pushEvent({ ...runtime, drops: [drop, ...runtime.drops].slice(0, maxDrops) }, "drop", `${rarity} ${drop.label} dropped`),
+    pushEvent({ ...runtime, drops: [drop, ...runtime.drops].slice(0, maxDrops) }, "drop", `${drop.rarity} ${drop.label} dropped`),
     {
       kind: "drop",
       x: enemy.x,
       y: enemy.y,
       lifetime: 0.9,
-      intensity: rarity === "relic" ? 2 : rarity === "engraved" ? 1.45 : 1,
+      intensity: drop.rarity === "relic" ? 2 : drop.rarity === "engraved" ? 1.45 : 1,
     },
   );
 }
@@ -1282,6 +1435,18 @@ function handleKills(runtime: TopArenaRuntime): TopArenaRuntime {
     }
 
     const routeCleared = enemy.rank === "boss";
+    if (runtime.mode === "duel" && routeCleared) {
+      nextRuntime = handleDrops(pushEvent(nextRuntime, "reward", `${enemy.name} duel gate shattered`), enemy);
+      nextRuntime = {
+        ...nextRuntime,
+        outcome: "victory",
+        kills: nextRuntime.kills + 1,
+        mapKills: 1,
+        routeClears: nextRuntime.routeClears + 1,
+      };
+      continue;
+    }
+
     const nextRouteClears = nextRuntime.routeClears + (routeCleared ? 1 : 0);
     const nextMapKills = routeCleared ? 0 : Math.min(nextRuntime.mapKillTarget, nextRuntime.mapKills + 1);
     const bossNowReady = !routeCleared && nextRuntime.mapKills < nextRuntime.mapKillTarget && nextMapKills >= nextRuntime.mapKillTarget;
@@ -1356,7 +1521,7 @@ function outwardFromBasin(entity: TopRuntimeEntity, fallbackX: number, fallbackY
   return normalize(fallbackX, fallbackY);
 }
 
-function resolveTopCollisionPhysics(
+export function resolveTopCollisionPhysics(
   player: TopRuntimeEntity,
   enemy: TopRuntimeEntity,
   time: number,
@@ -1409,7 +1574,18 @@ function resolveTopCollisionPhysics(
   const recoilEnergy = closingSpeed * 1.08 + normalImpulse * 1.06 + Math.abs(tangentImpulse) * 0.44 + spinShearSpeed * 0.1;
   const speedBurst = 1 + Math.pow(speedRecoilRatio, 1.34) * 0.46;
   const launchCap = 580 + tuning.collisionLaunchMultiplier * 780;
-  const launchPower = clamp(recoilEnergy * (0.26 + speedRecoilRatio * 0.82 + spinShearRatio * 0.18) * centerPocketBoost * speedBurst * tuning.collisionLaunchMultiplier, 0, launchCap);
+  const playerRingOutPressure = Math.max(0, player.stats.ringOutPressure ?? 0);
+  const enemyRingOutPressure = Math.max(0, enemy.stats.ringOutPressure ?? 0);
+  const launchPower = clamp(
+    recoilEnergy *
+      (0.26 + speedRecoilRatio * 0.82 + spinShearRatio * 0.18) *
+      centerPocketBoost *
+      speedBurst *
+      tuning.collisionLaunchMultiplier *
+      (1 + clamp(playerRingOutPressure + enemyRingOutPressure, 0, 2.6) * 0.1),
+    0,
+    launchCap,
+  );
   const recoilSeparation = clamp(overlap * 0.58 + launchPower * 0.032, 0, 38);
   const tangentSign = Math.sign(tangentImpulse || relativeTangentialSpeed || 1);
   const playerOutward = outwardFromBasin(playerPositioned, -normal.x, -normal.y);
@@ -1429,16 +1605,16 @@ function resolveTopCollisionPhysics(
       ...drainCollisionSpinEnergy(playerPositioned, normalImpulse),
       x: playerPositioned.x + playerLaunch.x * recoilSeparation,
       y: playerPositioned.y + playerLaunch.y * recoilSeparation,
-      vx: playerPositioned.vx - impulseX * playerInvMass + playerLaunch.x * launchPower * clamp(playerInvMass, 0.52, 1.7),
-      vy: playerPositioned.vy - impulseY * playerInvMass + playerLaunch.y * launchPower * clamp(playerInvMass, 0.52, 1.7),
+      vx: playerPositioned.vx - impulseX * playerInvMass + playerLaunch.x * launchPower * clamp(playerInvMass, 0.52, 1.7) * (1 + clamp(enemyRingOutPressure, 0, 2.6) * 0.22),
+      vy: playerPositioned.vy - impulseY * playerInvMass + playerLaunch.y * launchPower * clamp(playerInvMass, 0.52, 1.7) * (1 + clamp(enemyRingOutPressure, 0, 2.6) * 0.22),
       wobble: clamp(playerPositioned.wobble + playerWobbleGain, 0, 1),
     },
     enemy: {
       ...drainCollisionSpinEnergy(enemyPositioned, normalImpulse),
       x: enemyPositioned.x + enemyLaunch.x * recoilSeparation,
       y: enemyPositioned.y + enemyLaunch.y * recoilSeparation,
-      vx: enemyPositioned.vx + impulseX * enemyInvMass + enemyLaunch.x * launchPower * clamp(enemyInvMass, 0.52, 1.7),
-      vy: enemyPositioned.vy + impulseY * enemyInvMass + enemyLaunch.y * launchPower * clamp(enemyInvMass, 0.52, 1.7),
+      vx: enemyPositioned.vx + impulseX * enemyInvMass + enemyLaunch.x * launchPower * clamp(enemyInvMass, 0.52, 1.7) * (1 + clamp(playerRingOutPressure, 0, 2.6) * 0.22),
+      vy: enemyPositioned.vy + impulseY * enemyInvMass + enemyLaunch.y * launchPower * clamp(enemyInvMass, 0.52, 1.7) * (1 + clamp(playerRingOutPressure, 0, 2.6) * 0.22),
       wobble: clamp(enemyPositioned.wobble + enemyWobbleGain, 0, 1),
     },
     collision: {
@@ -1861,7 +2037,7 @@ export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: numb
     return immediateOutcome;
   }
 
-  const arena = getArenaCircuitDef(runtime.arenaId);
+  const arenaRadius = arenaRadiusForRuntime(runtime);
   const tuning = normalizeArenaTuning(tuningOverrides);
   const previousPlayer = runtime.player;
   let nextRuntime: TopArenaRuntime = {
@@ -1877,10 +2053,11 @@ export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: numb
     lastCollision: undefined,
     combatEvents: [],
   };
+  nextRuntime = tickAilments(nextRuntime, deltaSeconds);
   nextRuntime = tickRouteMechanic(nextRuntime, deltaSeconds);
 
   if (nextRuntime.nextEnemyIn <= 0 && nextRuntime.routeTransitionCooldown <= 0) {
-    const bossReady = nextRuntime.mapKills >= nextRuntime.mapKillTarget;
+    const bossReady = nextRuntime.mode === "duel" || nextRuntime.mapKills >= nextRuntime.mapKillTarget;
     const smallEnemies = activeSmallEnemyCount(nextRuntime);
     const bossEnemy = nextRuntime.enemies.find((enemy) => enemy.rank === "boss");
     if (bossReady && !nextRuntime.bossSpawned && nextRuntime.enemies.length === 0) {
@@ -1891,13 +2068,14 @@ export function stepTopArenaRuntime(runtime: TopArenaRuntime, deltaSeconds: numb
   }
 
   const firstEnemy = nextRuntime.enemies[0] ?? null;
-  const playerSteer = steerEntity(nextRuntime.player, firstEnemy, arena.radius, deltaSeconds, tuning);
+  const ringoutGateScalar = nextRuntime.mode === "duel" ? 0.68 : 1;
+  const playerSteer = steerEntity(nextRuntime.player, firstEnemy, arenaRadius, deltaSeconds, tuning, ringoutGateScalar);
   let player = playerSteer.entity;
   if (playerSteer.combatEvent) {
     nextRuntime = emitCombatEvent(nextRuntime, playerSteer.combatEvent);
   }
   const enemies = nextRuntime.enemies.map((enemy) => {
-    const result = steerEntity(enemy, player, arena.radius, deltaSeconds, tuning);
+    const result = steerEntity(enemy, player, arenaRadius, deltaSeconds, tuning, ringoutGateScalar);
     if (result.combatEvent) {
       nextRuntime = emitCombatEvent(nextRuntime, result.combatEvent);
     }

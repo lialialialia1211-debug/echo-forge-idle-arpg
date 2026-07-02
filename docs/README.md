@@ -1,6 +1,6 @@
 # 專案文件索引
 
-日期：2026-07-02
+日期：2026-07-03
 
 ## 文件
 
@@ -15,9 +15,10 @@
 - [09 目前程式碼映射與落地切點](./09_current_code_mapping_zh.md)
 - [10 UI 操作設計評估與下一輪優化方向](./10_ui_operation_design_audit_zh.md)
 - [11 基礎數值](./11_基礎數值_zh.md)
+- [12 更新紀錄](./12_update_log_zh.md)
 
 ## 目前重點
 
 - 入口已切換為 2D 俯視自動戰鬥陀螺競技場。
 - 數值層採 POE-like 公式邏輯，但命名、資料表、視覺與世界觀都使用原創設計。
-- 系統契約與目前程式碼映射已補齊，下一步先整理 UI 操作動線，讓 `Run -> Loot -> Build/Forge -> Route` 的循環更清楚。
+- Phase 1 到 Phase 4 已完成，QA 站會由 GitHub Pages 發布：https://lialialialia1211-debug.github.io/echo-forge-idle-arpg/

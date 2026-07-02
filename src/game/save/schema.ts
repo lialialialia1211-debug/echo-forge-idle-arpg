@@ -2,6 +2,11 @@ import { z } from "zod";
 import { createStarterBuild } from "../engine/character";
 import { createStarterEquipment, createStarterInventory } from "../data/topParts";
 
+const nonNegativeIntegerSchema = z.preprocess(
+  (value) => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : value),
+  z.number().int().min(0).default(0),
+);
+
 export const characterSaveSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -50,6 +55,7 @@ export const topPartSaveSchema = z.object({
   statBonuses: z.record(z.string(), z.number()),
   resistanceBonuses: z.record(z.string(), z.number()),
   modifiers: z.array(topModifierSchema),
+  revision: z.number().int().min(0).optional(),
   locked: z.boolean().optional(),
   sourceDropId: z.string().optional(),
   generatedAt: z.string().optional(),
@@ -123,6 +129,7 @@ export const topAccountStateSchema = z.object({
   runeIds: z.array(z.string()).max(5),
   talentIds: z.array(z.string()),
   circuitAtlasNodeIds: z.array(z.string()).default([]),
+  doctrineId: z.string().nullable().default(null),
   wallet: z.object({
     ash: z.number(),
     glass: z.number(),
@@ -131,11 +138,12 @@ export const topAccountStateSchema = z.object({
   arenaKeys: z.array(arenaKeySaveSchema),
   clearedBossGateIds: z.array(z.string()),
   routeClears: z.record(z.string(), z.number()),
+  totalKills: nonNegativeIntegerSchema,
   lastSettledAt: z.string(),
 });
 
 export const accountSaveSchema = z.object({
-  schemaVersion: z.literal(2),
+  schemaVersion: z.literal(4),
   accountId: z.string().nullable(),
   settings: z.object({
     reduceMotion: z.boolean(),
@@ -181,7 +189,7 @@ export function createNewAccountSave(classId = "veilrunner"): AccountSave {
   const selectedDriveId = starterDriveForFrame(selectedFrameId);
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 4,
     accountId: null,
     settings: {
       reduceMotion: false,
@@ -219,6 +227,7 @@ export function createNewAccountSave(classId = "veilrunner"): AccountSave {
       runeIds: [],
       talentIds: [],
       circuitAtlasNodeIds: [],
+      doctrineId: null,
       wallet: {
         ash: 12,
         glass: 2,
@@ -227,6 +236,7 @@ export function createNewAccountSave(classId = "veilrunner"): AccountSave {
       arenaKeys: [],
       clearedBossGateIds: [],
       routeClears: {},
+      totalKills: 0,
       lastSettledAt: now,
     },
     achievements: {},

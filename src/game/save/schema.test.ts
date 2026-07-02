@@ -8,13 +8,15 @@ describe("save schema", () => {
     const save = createNewAccountSave("ironbound");
     const parsed = accountSaveSchema.parse(save);
 
-    expect(parsed.schemaVersion).toBe(2);
+    expect(parsed.schemaVersion).toBe(4);
     expect(parsed.accountId).toBeNull();
     expect(parsed.roster[0].classId).toBe("ironbound");
     expect(parsed.roster[0].build.supportIds.length).toBeGreaterThan(0);
     expect(parsed.top.equipment.core?.slot).toBe("core");
     expect(parsed.top.inventory.length).toBeGreaterThan(0);
     expect(parsed.top.circuitAtlasNodeIds).toEqual([]);
+    expect(parsed.top.doctrineId).toBeNull();
+    expect(parsed.top.totalKills).toBe(0);
     expect(parsed.top.wallet.ash).toBeGreaterThanOrEqual(12);
     expect(parsed.top.wallet.glass).toBeGreaterThanOrEqual(2);
   });
@@ -55,13 +57,68 @@ describe("save schema", () => {
       lastSavedAt: now,
     });
 
-    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.schemaVersion).toBe(4);
     expect(migrated.top.selectedFrameId).toBe("frame_swift_razor");
     expect(migrated.top.wallet.ash).toBe(3);
     expect(migrated.top.circuitAtlasNodeIds).toEqual([]);
+    expect(migrated.top.doctrineId).toBeNull();
+    expect(migrated.top.totalKills).toBe(0);
   });
 
-  it("sanitizes structurally valid v2 saves with stale top data IDs", () => {
+  it("migrates structurally valid v2 saves without totalKills", () => {
+    const save = createNewAccountSave("veilrunner");
+    const topWithoutTotalKills: Partial<typeof save.top> = { ...save.top };
+    delete topWithoutTotalKills.totalKills;
+
+    const migrated = migrateUnknownSave({
+      ...save,
+      schemaVersion: 2,
+      top: {
+        ...topWithoutTotalKills,
+        talentIds: ["talent_iron_rotation"],
+      },
+    });
+
+    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.top.totalKills).toBe(0);
+    expect(migrated.top.talentIds).toEqual(["talent_iron_rotation"]);
+    expect(migrated.top.doctrineId).toBeNull();
+  });
+
+  it("migrates v3 saves to v4 with doctrine defaults", () => {
+    const save = createNewAccountSave("veilrunner");
+    const migrated = migrateUnknownSave({
+      ...save,
+      schemaVersion: 3,
+      top: {
+        ...save.top,
+        doctrineId: undefined,
+        totalKills: 44,
+      },
+    });
+
+    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.top.totalKills).toBe(44);
+    expect(migrated.top.doctrineId).toBeNull();
+  });
+
+  it("keeps totalKills and legal doctrine during v4 round trips", () => {
+    const save = createNewAccountSave("veilrunner");
+    const migrated = migrateUnknownSave({
+      ...save,
+      top: {
+        ...save.top,
+        totalKills: 137,
+        doctrineId: "doctrine_swift_razor_edge",
+      },
+    });
+
+    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.top.totalKills).toBe(137);
+    expect(migrated.top.doctrineId).toBe("doctrine_swift_razor_edge");
+  });
+
+  it("sanitizes structurally valid v3 saves with stale top data IDs", () => {
     const save = createNewAccountSave("veilrunner");
     const staleArenaKey = generateArenaKey({
       arenaBaseId: "arena_cinder_crucible",
@@ -83,6 +140,7 @@ describe("save schema", () => {
         runeIds: ["missing_rune"],
         talentIds: ["missing_talent"],
         circuitAtlasNodeIds: ["missing_atlas", "atlas_breach_calibrator"],
+        doctrineId: "doctrine_ember_rail_monk",
         wallet: {
           ash: -3,
           glass: 1.8,
@@ -112,6 +170,7 @@ describe("save schema", () => {
           missing_arena: 5,
           arena_cinder_crucible: -1,
         },
+        totalKills: -9,
       },
     });
 
@@ -121,11 +180,13 @@ describe("save schema", () => {
     expect(migrated.top.runeIds).toEqual([]);
     expect(migrated.top.talentIds).toEqual([]);
     expect(migrated.top.circuitAtlasNodeIds).toEqual(["atlas_breach_calibrator"]);
+    expect(migrated.top.doctrineId).toBeNull();
     expect(migrated.top.equipment.core?.baseId).toBe("part_core_black_iron_wound");
     expect(migrated.top.inventory.length).toBeGreaterThan(0);
     expect(migrated.top.arenaKeys).toEqual([]);
     expect(migrated.top.clearedBossGateIds).toEqual([]);
     expect(migrated.top.routeClears).toEqual({ arena_cinder_crucible: 0 });
+    expect(migrated.top.totalKills).toBe(0);
     expect(migrated.top.wallet.ash).toBe(0);
     expect(migrated.top.wallet.glass).toBe(1);
     expect(migrated.currencies.ash).toBe(0);

@@ -35,4 +35,15 @@ describe("top assembly", () => {
     expect(talented.resistances.heat).toBeGreaterThan(base.resistances.heat);
     expect(talented.modifiers.some((modifier) => modifier.id.includes("talent_furnace_scoring"))).toBe(true);
   });
+
+  it("applies selected doctrine bonuses", () => {
+    const base = resolveTopRuntimeStats("frame_ember_crucible", "drive_ember_scour");
+    const doctrined = resolveTopRuntimeStats("frame_ember_crucible", "drive_ember_scour", {
+      doctrineId: "doctrine_ember_rail_monk",
+    });
+
+    expect(doctrined.grip).toBeGreaterThan(base.grip);
+    expect(doctrined.resistances.heat).toBeGreaterThan(base.resistances.heat);
+    expect(doctrined.modifiers.some((modifier) => modifier.id.includes("doctrine_ember_rail_heat"))).toBe(true);
+  });
 });

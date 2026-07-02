@@ -218,4 +218,53 @@ describe("top damage resolver", () => {
     expect(highEnergy.rawDamage.impact).toBeCloseTo(100, 5);
     expect(lowEnergy.rawDamage.impact).toBeCloseTo(125, 5);
   });
+
+  it("respects hit profile flags for tracking and crit", () => {
+    const packet = emptyDamagePacket();
+    packet.impact = 100;
+    const drive = {
+      ...neutralDrive,
+      hit: {
+        source: "drive",
+        damage: packet,
+        usesTracking: false,
+        canCrit: false,
+      },
+    } satisfies DriveCoreDef;
+
+    const hit = resolveTopHit({
+      baseDamage: packet,
+      attacker: createStats([], { edge: 0.55, fracture: 3, tracking: 10 }),
+      defender: createStats([], { drift: 1000 }),
+      drive,
+      sourceTags: ["attack"],
+    });
+
+    expect(hit.hitChance).toBe(1);
+    expect(hit.critChance).toBe(0);
+    expect(hit.expectedCritMultiplier).toBe(1);
+  });
+
+  it("applies drive scaling before damage modifiers", () => {
+    const packet = emptyDamagePacket();
+    packet.impact = 10;
+    const drive = {
+      ...neutralDrive,
+      tags: ["projectile"],
+      damageTypes: ["impact"],
+      scaling: [{ stat: "impact", coefficient: 0.42, tags: ["projectile"] }],
+    } satisfies DriveCoreDef;
+
+    const hit = resolveTopHit({
+      baseDamage: packet,
+      attacker: createStats([], { impact: 100 }),
+      defender: createStats(),
+      drive,
+      sourceTags: ["projectile"],
+      hitFlags: { usesTracking: false, canCrit: false },
+    });
+
+    expect(hit.rawDamage.impact).toBeCloseTo(52, 5);
+    expect(hit.totalDamage).toBeCloseTo(52, 5);
+  });
 });

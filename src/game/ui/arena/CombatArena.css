@@ -951,6 +951,72 @@
   gap: 8px;
 }
 
+.offline-report-overlay {
+  position: absolute;
+  left: 50%;
+  top: 92px;
+  z-index: 4;
+  width: min(360px, calc(100% - 32px));
+  display: grid;
+  gap: 9px;
+  border: 1px solid rgba(101, 198, 176, 0.42);
+  border-radius: 8px;
+  background: rgba(9, 10, 11, 0.95);
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.38);
+  padding: 14px;
+  transform: translateX(-50%);
+}
+
+.offline-report-overlay small {
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.offline-report-overlay strong {
+  color: var(--teal);
+  font-size: 1.06rem;
+}
+
+.offline-report-overlay > span {
+  color: var(--soft);
+  font-size: 0.8rem;
+}
+
+.offline-report-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.offline-report-grid span {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--muted);
+  padding: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.68rem;
+}
+
+.offline-report-grid strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+}
+
+.offline-report-overlay .arena-button {
+  justify-self: start;
+}
+
 .loot-toast-stack {
   position: absolute;
   right: 14px;
@@ -2129,9 +2195,69 @@
   grid-template-columns: 1fr;
 }
 
+.doctrine-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.doctrine-card {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(230, 215, 181, 0.14);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  padding: 9px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.doctrine-card small,
+.doctrine-card span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.25;
+}
+
+.doctrine-card strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--soft);
+  font-size: 0.85rem;
+}
+
+.doctrine-card-active {
+  border-color: rgba(182, 140, 255, 0.56);
+  background: rgba(182, 140, 255, 0.11);
+}
+
+.doctrine-card-active strong {
+  color: var(--violet);
+}
+
+.doctrine-detail {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  border: 1px solid rgba(182, 140, 255, 0.2);
+  border-radius: 7px;
+  background: rgba(182, 140, 255, 0.06);
+  padding: 9px;
+}
+
+.doctrine-detail > strong {
+  color: var(--violet);
+  font-size: 0.86rem;
+}
+
 .talent-board {
   position: relative;
-  min-height: 390px;
+  min-height: 520px;
   margin-top: 10px;
   border: 1px solid rgba(230, 215, 181, 0.13);
   border-radius: 8px;
@@ -2237,16 +2363,29 @@
   position: absolute;
   left: var(--talent-x);
   top: var(--talent-y);
-  width: 112px;
-  min-height: 66px;
+  width: 82px;
+  min-height: 52px;
   align-content: center;
   text-align: center;
   transform: translate(-50%, -50%);
 }
 
+.talent-board .talent-node-notable {
+  width: 96px;
+  min-height: 60px;
+  border-color: rgba(217, 165, 84, 0.34);
+}
+
+.talent-board .talent-node-keystone {
+  width: 112px;
+  min-height: 70px;
+  border-color: rgba(182, 140, 255, 0.48);
+  background: rgba(182, 140, 255, 0.08);
+}
+
 .talent-node small {
   color: var(--teal);
-  font-size: 0.72rem;
+  font-size: 0.62rem;
 }
 
 .talent-node strong {
@@ -2254,8 +2393,22 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: normal;
-  font-size: 0.78rem;
+  font-size: 0.66rem;
   line-height: 1.15;
+}
+
+.talent-node-notable strong {
+  color: var(--brass);
+  font-size: 0.72rem;
+}
+
+.talent-node-keystone small,
+.talent-node-keystone strong {
+  color: var(--violet);
+}
+
+.talent-node-keystone strong {
+  font-size: 0.78rem;
 }
 
 .talent-node:hover,
@@ -2751,6 +2904,16 @@
     top: 58px;
   }
 
+  .offline-report-overlay {
+    top: 54px;
+    width: min(330px, calc(100% - 20px));
+    padding: 12px;
+  }
+
+  .offline-report-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .canvas-wrap {
     height: clamp(460px, 62vh, 560px);
   }
@@ -2785,6 +2948,10 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .doctrine-grid {
+    grid-template-columns: 1fr;
+  }
+
   .arena-hud-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2802,11 +2969,22 @@
   }
 
   .talent-board {
-    min-height: 430px;
+    min-height: 560px;
   }
 
   .talent-board .talent-node {
-    width: 104px;
+    width: 76px;
+    min-height: 50px;
+    padding: 6px;
+  }
+
+  .talent-board .talent-node-notable {
+    width: 88px;
+  }
+
+  .talent-board .talent-node-keystone {
+    width: 98px;
+    min-height: 64px;
   }
 
   .atlas-board {

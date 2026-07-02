@@ -65,6 +65,7 @@ export type TopModifierDef = {
   tags?: DriveTag[];
   fromDamageType?: TopDamageType;
   toDamageType?: TopDamageType;
+  // NOT-YET-CONSUMED (見 Codex 計畫 R3/F2):
   scope?: "local" | "global";
   condition?: CombatCondition;
 };
@@ -113,15 +114,29 @@ export type CooldownDef = {
 export type HitProfile = {
   source: TopDamageSource;
   damage: DamagePacket;
+  // NOT-YET-CONSUMED (見 Codex 計畫 R3/F2):
   usesTracking: boolean;
   canCrit: boolean;
 };
 
+// NOT-YET-CONSUMED (見 Codex 計畫 R3/F2):
 export type DotProfile = {
   source: TopDamageSource;
   damageType: TopDamageType;
   baseDps: number;
   duration: number;
+};
+
+export type AilmentKind = "burn" | "shock" | "bleed" | "slow" | "stagger";
+
+export type AilmentState = {
+  id: string;
+  kind: AilmentKind;
+  sourceDamageType: TopDamageType;
+  sourceId: string;
+  magnitude: number;
+  duration: number;
+  remainingSeconds: number;
 };
 
 export type SatelliteProfile = {
@@ -160,6 +175,7 @@ export type DriveCoreDef = {
   dot?: DotProfile;
   minion?: SatelliteProfile;
   arenaEffect?: HazardProfile;
+  // NOT-YET-CONSUMED (見 Codex 計畫 R3/F2):
   scaling?: ScalingRule[];
   requiredAttributes?: DriveAttributeRequirement[];
 };
@@ -174,6 +190,18 @@ export type ArenaCircuitDef = {
   enemyImpact: number;
   enemyGuard: number;
   rewardMultiplier: number;
+};
+
+export type ArenaAnomalyDef = {
+  id: string;
+  displayName: string;
+  description: string;
+  minTier: number;
+  enemyIntegrityMultiplier: number;
+  enemyImpactMultiplier: number;
+  rewardQuantity: number;
+  rewardRarity: number;
+  requiredBossGateId?: string;
 };
 
 export type TopPartSlotId = "core" | "attackRing" | "weightDisk" | "tip" | "launcher" | "seal" | "circuitChip";
@@ -222,6 +250,12 @@ export type TopPartGeneratedBy = {
   source: "drop" | "starter" | "craft" | "debug";
 };
 
+export type LauncherProfile = {
+  initialSpeedScalar: number;
+  initialEnergyBonus: number;
+  entrySkillId?: string;
+};
+
 export type TopPartBaseDef = {
   id: string;
   slot: TopPartSlotId;
@@ -237,6 +271,7 @@ export type TopPartBaseDef = {
   implicitStats?: TopStatBlock;
   implicitResistances?: TopResistanceBlock;
   implicitModifiers?: TopModifierDef[];
+  launcherProfile?: LauncherProfile;
 };
 
 export type TopPartInstance = {
@@ -250,6 +285,7 @@ export type TopPartInstance = {
   statBonuses: TopStatBlock;
   resistanceBonuses: TopResistanceBlock;
   modifiers: TopModifierDef[];
+  revision?: number;
   locked?: boolean;
   sourceDropId?: string;
   generatedAt?: string;
@@ -265,6 +301,7 @@ export type TuningRuneDef = {
   excludedTags?: DriveTag[];
   supportFamily?: string;
   costMultiplier?: number;
+  // NOT-YET-CONSUMED (見 Codex 計畫 R3/F2):
   instability?: number;
   behavior?: "projectileCount" | "repeat" | "chain" | "area" | "duration" | "trigger" | "defense" | "risk";
   statBonuses?: TopStatBlock;
@@ -277,6 +314,9 @@ export type TalentNodeDef = {
   displayName: string;
   description: string;
   cost: number;
+  position: { x: number; y: number };
+  kind: "minor" | "notable" | "keystone";
+  clusterId?: string;
   requiredNodeIds?: string[];
   statBonuses?: TopStatBlock;
   resistanceBonuses?: TopResistanceBlock;
@@ -306,11 +346,43 @@ export type CircuitAtlasNodeDef = {
   bonuses: CircuitAtlasBonus;
 };
 
+export type CircuitNetworkNodeDef = {
+  id: string;
+  displayName: string;
+  description: string;
+  arenaId: string;
+  requiredBossGateId?: string;
+  anomalyId?: string;
+  requiredNodeIds?: string[];
+};
+
+export type DoctrineRule = "selfHazardSafe" | "anchorMass" | "overloadSurge" | "precisionBleed" | "fluxRecursion" | "stormConduit";
+
+export type DoctrineNodeDef = {
+  id: string;
+  displayName: string;
+  description: string;
+  statBonuses?: TopStatBlock;
+  resistanceBonuses?: TopResistanceBlock;
+  modifiers?: TopModifierDef[];
+  rule?: DoctrineRule;
+};
+
+export type DoctrineDef = {
+  id: string;
+  frameId: string;
+  displayName: string;
+  description: string;
+  nodes: DoctrineNodeDef[];
+};
+
 export type TopLoadoutConfig = {
   equipment?: TopEquipment;
   runeIds?: string[];
   talentIds?: string[];
   circuitAtlasNodeIds?: string[];
+  doctrineId?: string | null;
+  anomalyId?: string | null;
 };
 
 export type TopRuntimeStats = {
@@ -365,6 +437,7 @@ export type TopRuntimeEntity = {
   behaviorId?: EnemyBehaviorId;
   bossPhase?: 1 | 2 | 3;
   phaseGateCooldown?: number;
+  ailments?: AilmentState[];
 };
 
 export type TopCollisionKind = "scrape" | "clash" | "smash" | "grind";
@@ -460,6 +533,7 @@ export type TopArenaDefeatCause = "spinout" | "break" | "ringout";
 export type TopArenaRuntime = {
   seed: string;
   arenaId: string;
+  mode: "route" | "duel";
   arenaKey?: ArenaKey;
   activeEvent?: ArenaEventState;
   routeMechanic?: ArenaRouteMechanicState;

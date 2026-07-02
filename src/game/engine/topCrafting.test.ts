@@ -89,4 +89,16 @@ describe("top crafting", () => {
     expect(isTopPartLegal(added)).toBe(true);
     expect(isTopPartLegal(removed)).toBe(true);
   });
+
+  it("keeps crafted part IDs stable and increments revision", () => {
+    const original = makePart();
+    let crafted = original;
+    for (let index = 0; index < 10; index += 1) {
+      crafted = rerollTopPartValues(crafted, `stable-id-${index}`).part;
+    }
+
+    expect(crafted.id).toBe(original.id);
+    expect(crafted.revision).toBe(10);
+    expect(crafted.id.length).toBe(original.id.length);
+  });
 });

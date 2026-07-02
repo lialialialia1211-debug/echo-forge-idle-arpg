@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { collisionSpinEnergyLoss, createCollisionDamage, createTopArenaRuntime, stepTopArenaRuntime } from "./arenaRuntime";
+import { collisionSpinEnergyLoss, createCollisionDamage, createTopArenaRuntime, resolveTopCollisionPhysics, stepTopArenaRuntime } from "./arenaRuntime";
 import { createCollisionPacket } from "./topCombat";
 import { generateTopPart } from "./topPartGeneration";
+import { createStarterEquipment } from "../data/topParts";
 
 describe("top arena runtime", () => {
   it("spawns enemies automatically when the arena starts", () => {
@@ -57,6 +58,53 @@ describe("top arena runtime", () => {
     expect(energyRatio).toBeGreaterThan(0.12);
   });
 
+  it("uses launcher profiles for opening speed and spin energy", () => {
+    const redlineEquipment = {
+      ...createStarterEquipment(),
+      launcher: generateTopPart({
+        id: "redline_launcher_test",
+        baseId: "part_launcher_redline",
+        rarity: "common",
+        itemLevel: 1,
+        seed: "redline_launcher_test",
+        arenaId: "test",
+        enemyLevel: 1,
+        source: "debug",
+      }),
+    };
+    const coilEquipment = {
+      ...createStarterEquipment(),
+      launcher: generateTopPart({
+        id: "coil_launcher_test",
+        baseId: "part_launcher_coil",
+        rarity: "common",
+        itemLevel: 1,
+        seed: "coil_launcher_test",
+        arenaId: "test",
+        enemyLevel: 1,
+        source: "debug",
+      }),
+    };
+
+    const redline = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      loadout: { equipment: redlineEquipment },
+      seed: "redline_launch_test",
+    });
+    const coil = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      loadout: { equipment: coilEquipment },
+      seed: "coil_launch_test",
+    });
+
+    expect(Math.hypot(redline.player.vx, redline.player.vy)).toBeGreaterThan(Math.hypot(coil.player.vx, coil.player.vy));
+    expect(coil.player.spinEnergy ?? 0).toBeGreaterThan(redline.player.spinEnergy ?? 0);
+  });
+
   it("slides tops down the basin slope toward the center", () => {
     const runtime = createTopArenaRuntime({
       arenaId: "arena_cinder_crucible",
@@ -108,6 +156,140 @@ describe("top arena runtime", () => {
     expect(emberNext.effects.some((effect) => effect.kind === "emberTrail")).toBe(true);
     expect(stormNext.events.some((event) => event.tone === "skill")).toBe(true);
     expect(emberNext.events.some((event) => event.tone === "skill")).toBe(true);
+  });
+
+  it("applies heat drive burn damage over time", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_ember_crucible",
+      driveId: "drive_ember_scour",
+      seed: "burn_ailment_test",
+    });
+    const enemy = {
+      ...runtime.player,
+      id: "burn_target",
+      team: "enemy" as const,
+      name: "Burn Target",
+      rank: "pack" as const,
+      x: 80,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      cooldownRemaining: 10,
+      spinIntegrity: 1200,
+      stats: {
+        ...runtime.player.stats,
+        maxSpinIntegrity: 1200,
+        guard: 0,
+        resistances: { ...runtime.player.stats.resistances, heat: 0 },
+      },
+    };
+
+    const withBurn = stepTopArenaRuntime({ ...runtime, enemies: [enemy], nextEnemyIn: 10, player: { ...runtime.player, cooldownRemaining: 0, flux: 999 } }, 0.05);
+    const burningEnemy = withBurn.enemies[0];
+    const burn = burningEnemy?.ailments?.find((ailment) => ailment.kind === "burn");
+
+    expect(burn).toBeTruthy();
+
+    const afterDot = stepTopArenaRuntime({ ...withBurn, player: { ...withBurn.player, cooldownRemaining: 10 }, nextEnemyIn: 10 }, 0.5);
+
+    expect(afterDot.enemies[0].spinIntegrity).toBeLessThan(burningEnemy.spinIntegrity);
+  });
+
+  it("expires ailments when their duration runs out", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "ailment_expiry_test",
+    });
+    const player = {
+      ...runtime.player,
+      ailments: [
+        {
+          id: "short_burn",
+          kind: "burn" as const,
+          sourceDamageType: "heat" as const,
+          sourceId: "test",
+          magnitude: 1,
+          duration: 0.05,
+          remainingSeconds: 0.05,
+        },
+      ],
+    };
+
+    const next = stepTopArenaRuntime({ ...runtime, player, enemies: [], nextEnemyIn: 10 }, 0.1);
+
+    expect(next.player.ailments).toHaveLength(0);
+  });
+
+  it("doctrine selfHazardSafe prevents hazard damage to the player", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_ember_crucible",
+      driveId: "drive_ember_scour",
+      seed: "doctrine_hazard_safe_test",
+      loadout: { doctrineId: "doctrine_ember_rail_monk" },
+    });
+    const hazard = {
+      id: "hazard_test",
+      kind: "hazard" as const,
+      x: 0,
+      y: 0,
+      age: 0.6,
+      lifetime: 3,
+      intensity: 1.5,
+    };
+    const unsafe = stepTopArenaRuntime({ ...runtime, loadout: {}, effects: [hazard], player: { ...runtime.player, x: 0, y: 0, spinIntegrity: 900 }, enemies: [], nextEnemyIn: 10 }, 0.5);
+    const safe = stepTopArenaRuntime({ ...runtime, effects: [hazard], player: { ...runtime.player, x: 0, y: 0, spinIntegrity: 900 }, enemies: [], nextEnemyIn: 10 }, 0.5);
+
+    expect(safe.player.spinIntegrity).toBeGreaterThan(unsafe.player.spinIntegrity);
+  });
+
+  it("shock increases subsequent damage taken", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "shock_amp_test",
+    });
+    const enemy = {
+      ...runtime.player,
+      id: "shock_target",
+      team: "enemy" as const,
+      name: "Shock Target",
+      rank: "pack" as const,
+      x: 80,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      cooldownRemaining: 10,
+      spinIntegrity: 1200,
+      stats: {
+        ...runtime.player.stats,
+        maxSpinIntegrity: 1200,
+        guard: 0,
+      },
+    };
+    const shockedEnemy = {
+      ...enemy,
+      ailments: [
+        {
+          id: "shock_test",
+          kind: "shock" as const,
+          sourceDamageType: "static" as const,
+          sourceId: "test",
+          magnitude: 0.25,
+          duration: 2,
+          remainingSeconds: 2,
+        },
+      ],
+    };
+
+    const normalHit = stepTopArenaRuntime({ ...runtime, enemies: [enemy], nextEnemyIn: 10, player: { ...runtime.player, cooldownRemaining: 0, flux: 999 } }, 0.05);
+    const shockedHit = stepTopArenaRuntime({ ...runtime, enemies: [shockedEnemy], nextEnemyIn: 10, player: { ...runtime.player, cooldownRemaining: 0, flux: 999 } }, 0.05);
+
+    expect(shockedHit.enemies[0].spinIntegrity).toBeLessThan(normalHit.enemies[0].spinIntegrity);
   });
 
   it("starts routes with an arena event and spawns modified enemies", () => {
@@ -210,6 +392,125 @@ describe("top arena runtime", () => {
     expect(next.enemies[0]?.cooldownRemaining).toBeGreaterThan(0.8);
     expect(next.effects.some((effect) => effect.kind === "bossSignal")).toBe(true);
     expect(next.events.some((event) => event.text.includes("Judicator shockwave"))).toBe(false);
+  });
+
+  it("duel mode spawns only the boss", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_red_chancel_disk",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "duel_spawn_test",
+      mode: "duel",
+    });
+
+    const next = stepTopArenaRuntime(runtime, 0.05);
+
+    expect(next.mode).toBe("duel");
+    expect(next.enemies).toHaveLength(1);
+    expect(next.enemies[0].rank).toBe("boss");
+    expect(next.enemies.some((enemy) => enemy.rank !== "boss")).toBe(false);
+  });
+
+  it("duel mode uses a smaller ring-out boundary", () => {
+    const route = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "route_ringout_boundary_test",
+    });
+    const duel = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "duel_ringout_boundary_test",
+      mode: "duel",
+    });
+    const player = { ...route.player, x: 160, y: 0, vx: 1600, vy: 0, cooldownRemaining: 10 };
+
+    const routeNext = stepTopArenaRuntime({ ...route, player, enemies: [], nextEnemyIn: 10 }, 0.05);
+    const duelNext = stepTopArenaRuntime({ ...duel, player: { ...player, id: duel.player.id }, enemies: [], nextEnemyIn: 10 }, 0.05);
+
+    expect(routeNext.combatEvents.some((event) => event.kind === "ringout")).toBe(false);
+    expect(duelNext.combatEvents.some((event) => event.kind === "ringout")).toBe(true);
+  });
+
+  it("duel mode ends in victory when the boss shatters", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_red_chancel_disk",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "duel_victory_test",
+      mode: "duel",
+    });
+    const spawned = stepTopArenaRuntime(runtime, 0.05);
+    const defeatedBoss = { ...spawned.enemies[0], spinIntegrity: 0 };
+    const next = stepTopArenaRuntime({ ...spawned, enemies: [defeatedBoss], player: { ...spawned.player, cooldownRemaining: 10 }, nextEnemyIn: 10 }, 0.05);
+
+    expect(next.outcome).toBe("victory");
+    expect(next.routeClears).toBe(1);
+  });
+
+  it("arena anomalies increase enemy pressure", () => {
+    const normal = stepTopArenaRuntime(
+      createTopArenaRuntime({
+        arenaId: "arena_red_chancel_disk",
+        frameId: "frame_swift_razor",
+        driveId: "drive_shard_barrage",
+        seed: "normal_anomaly_compare",
+      }),
+      0.25,
+    );
+    const anomalous = stepTopArenaRuntime(
+      createTopArenaRuntime({
+        arenaId: "arena_red_chancel_disk",
+        frameId: "frame_swift_razor",
+        driveId: "drive_shard_barrage",
+        loadout: { anomalyId: "anomaly_flux_monsoon" },
+        seed: "normal_anomaly_compare",
+      }),
+      0.25,
+    );
+
+    expect(anomalous.enemies[0].stats.maxSpinIntegrity).toBeGreaterThan(normal.enemies[0].stats.maxSpinIntegrity);
+    expect(anomalous.enemies[0].stats.impact).toBeGreaterThan(normal.enemies[0].stats.impact);
+  });
+
+  it("ringOutPressure increases outward enemy launch", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "ringout_pressure_test",
+    });
+    const player = {
+      ...runtime.player,
+      x: -16,
+      y: 0,
+      vx: 220,
+      vy: 0,
+      stats: { ...runtime.player.stats, ringOutPressure: 0 },
+    };
+    const pressurePlayer = {
+      ...player,
+      stats: { ...player.stats, ringOutPressure: 1.6 },
+    };
+    const enemy = {
+      ...runtime.player,
+      id: "pressure_target",
+      team: "enemy" as const,
+      rank: "pack" as const,
+      name: "Pressure Target",
+      x: 30,
+      y: 0,
+      vx: -140,
+      vy: 0,
+      stats: { ...runtime.player.stats, mass: 0.8, grip: 0.28 },
+    };
+
+    const normal = resolveTopCollisionPhysics(player, enemy, 0, 0, 0.1).enemy;
+    const pressured = resolveTopCollisionPhysics(pressurePlayer, enemy, 0, 0, 0.1).enemy;
+
+    expect(pressured.vx).toBeGreaterThan(normal.vx);
   });
 
   it("pulls tops toward the low center of the basin", () => {
