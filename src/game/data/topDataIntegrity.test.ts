@@ -44,6 +44,8 @@ const validDriveTags: DriveTag[] = [
   "thorns",
   "risk",
 ];
+const validDamageTypes = ["impact", "heat", "glass", "static", "void"];
+const validCollisionKinds = ["scrape", "clash", "smash", "grind"];
 
 describe("top ARPG data integrity", () => {
   it("has unique IDs across data tables", () => {
@@ -92,6 +94,13 @@ describe("top ARPG data integrity", () => {
       expect(drive.damageTypes.length).toBeGreaterThan(0);
       expect(drive.cost?.amount ?? 1).toBeGreaterThan(0);
       expect(drive.cooldown?.baseSeconds ?? drive.baseCooldown).toBeGreaterThan(0);
+      if (drive.collisionBonus) {
+        expect(validDamageTypes).toContain(drive.collisionBonus.damageType);
+        expect(drive.damageTypes).toContain(drive.collisionBonus.damageType);
+      }
+      expect((drive.collisionTrigger?.requireKinds ?? []).every((kind) => validCollisionKinds.includes(kind))).toBe(true);
+      expect((drive.collisionHazard?.requireKinds ?? []).every((kind) => validCollisionKinds.includes(kind))).toBe(true);
+      expect(drive.collisionHazard?.lifetime ?? 1).toBeGreaterThan(0);
     }
 
     for (const rune of tuningRunes) {

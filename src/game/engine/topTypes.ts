@@ -159,6 +159,33 @@ export type ScalingRule = {
   tags?: DriveTag[];
 };
 
+export type DriveCollisionBonus = {
+  damageType: TopDamageType;
+  fromSurfaceShear?: number;
+  fromSurfaceShearWhenNotHeavy?: number;
+  fromTangentImpulse?: number;
+  fromSparkIntensity?: number;
+  fromNormalImpulse?: number;
+  fromNormalImpulseOnHeavy?: number;
+  fromContactAgeOnGrind?: number;
+  fromRpm?: number;
+};
+
+export type DriveCollisionTrigger = {
+  requireKinds?: TopCollisionKind[];
+  minSparkIntensity?: number;
+  requireHeavy?: boolean;
+};
+
+export type DriveCollisionHazard = {
+  requireKinds?: TopCollisionKind[];
+  lifetime: number;
+  baseIntensity: number;
+  fromSparkIntensity?: number;
+  fromContactAge?: number;
+  maxIntensityBonus?: number;
+};
+
 export type DriveCoreDef = {
   id: string;
   displayName: string;
@@ -178,6 +205,9 @@ export type DriveCoreDef = {
   // NOT-YET-CONSUMED (見 Codex 計畫 R3/F2):
   scaling?: ScalingRule[];
   requiredAttributes?: DriveAttributeRequirement[];
+  collisionBonus?: DriveCollisionBonus;
+  collisionTrigger?: DriveCollisionTrigger;
+  collisionHazard?: DriveCollisionHazard;
 };
 
 export type ArenaCircuitDef = {

@@ -19,6 +19,12 @@ export const driveCores: DriveCoreDef[] = [
       canCrit: true,
     },
     scaling: [{ stat: "impact", coefficient: 0.42, tags: ["projectile"] }],
+    collisionBonus: {
+      damageType: "impact",
+      fromSurfaceShear: 0.2,
+      fromTangentImpulse: 0.3,
+    },
+    collisionTrigger: {},
     modifiers: [
       { id: "shard_more_projectile_impact", stat: "impact", type: "more", value: 0.18, tags: ["projectile"] },
       { id: "shard_added_edge", stat: "edge", type: "flat", value: 0.03, tags: ["critical"] },
@@ -82,6 +88,19 @@ export const driveCores: DriveCoreDef[] = [
       duration: 2.4,
     },
     scaling: [{ stat: "resonance", coefficient: 34, tags: ["fire", "duration"] }],
+    collisionBonus: {
+      damageType: "heat",
+      fromSurfaceShear: 0.18,
+      fromContactAgeOnGrind: 90,
+    },
+    collisionTrigger: { requireKinds: ["scrape", "grind"] },
+    collisionHazard: {
+      requireKinds: ["grind"],
+      lifetime: 1.8,
+      baseIntensity: 0.85,
+      fromSparkIntensity: 0.2,
+      maxIntensityBonus: 1,
+    },
     modifiers: [
       { id: "ember_more_heat", stat: "heat", type: "more", value: 0.22, tags: ["fire"] },
       { id: "ember_heat_as_extra_impact", stat: "heat", type: "extraAs", value: 0.12, fromDamageType: "impact", toDamageType: "heat" },
@@ -120,6 +139,19 @@ export const driveCores: DriveCoreDef[] = [
       { stat: "resonance", coefficient: 46, tags: ["fire", "duration"] },
       { stat: "grip", coefficient: 120, tags: ["control"] },
     ],
+    collisionBonus: {
+      damageType: "heat",
+      fromSurfaceShear: 0.26,
+      fromContactAgeOnGrind: 120,
+    },
+    collisionTrigger: { requireKinds: ["grind"] },
+    collisionHazard: {
+      requireKinds: ["grind"],
+      lifetime: 2.6,
+      baseIntensity: 1.25,
+      fromContactAge: 2.2,
+      maxIntensityBonus: 1.4,
+    },
     modifiers: [
       { id: "groove_more_area_heat", stat: "heat", type: "more", value: 0.18, tags: ["area"] },
       { id: "groove_guard", stat: "guard", type: "flat", value: 34, tags: ["control"] },
@@ -144,6 +176,12 @@ export const driveCores: DriveCoreDef[] = [
       canCrit: true,
     },
     scaling: [{ stat: "rpm", coefficient: 6.5, tags: ["lightning", "chain"] }],
+    collisionBonus: {
+      damageType: "static",
+      fromSparkIntensity: 34,
+      fromRpm: 5,
+    },
+    collisionTrigger: { minSparkIntensity: 1.7 },
     modifiers: [
       { id: "storm_more_static", stat: "static", type: "more", value: 0.16, tags: ["lightning"] },
       { id: "storm_static_pen", stat: "static", type: "penetration", value: 0.12, tags: ["lightning"] },
@@ -178,6 +216,13 @@ export const driveCores: DriveCoreDef[] = [
       { stat: "tracking", coefficient: 0.14, tags: ["chain"] },
       { stat: "rpm", coefficient: 8, tags: ["lightning"] },
     ],
+    collisionBonus: {
+      damageType: "static",
+      fromSparkIntensity: 48,
+      fromNormalImpulseOnHeavy: 0.32,
+      fromSurfaceShearWhenNotHeavy: 0.12,
+    },
+    collisionTrigger: { requireHeavy: true },
     modifiers: [
       { id: "tempest_more_chain", stat: "static", type: "more", value: 0.2, tags: ["chain"] },
       { id: "tempest_instability_damage", stat: "damage", type: "increased", value: 0.14, tags: ["risk"] },
