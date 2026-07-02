@@ -22,6 +22,7 @@ import { resolveTopHit } from "./topDamage";
 import { rollDropOutcome } from "./topDropRolls";
 import type {
   AilmentState,
+  ArenaDrop,
   ArenaEffect,
   ArenaEventState,
   ArenaKey,
@@ -31,6 +32,7 @@ import type {
   EnemyBehaviorId,
   EnemyModifierDef,
   NamedRivalDef,
+  RivalMechanicId,
   TopArenaDefeatCause,
   TopArenaRuntime,
   TopCollisionEvent,
@@ -1109,6 +1111,176 @@ function damagePlayer(runtime: TopArenaRuntime, amount: number, impulseX = 0, im
   };
 }
 
+type RivalMechanicContext = {
+  runtime: TopArenaRuntime;
+  enemy: TopRuntimeEntity;
+  player: TopRuntimeEntity;
+  phase: 1 | 2 | 3;
+  direction: { x: number; y: number };
+  distanceToPlayer: number;
+};
+
+type RivalMechanicResult = {
+  runtime: TopArenaRuntime;
+  enemy: TopRuntimeEntity;
+  player: TopRuntimeEntity;
+};
+
+const rivalMechanicHandlers: Record<RivalMechanicId, (context: RivalMechanicContext) => RivalMechanicResult> = {
+  reflectProjectiles: ({ runtime, enemy, player, phase, direction }) => {
+    const playerDrive = getDriveCoreDef(runtime.driveId);
+    const projectilePressure = playerDrive.tags.includes("projectile") ? 1 : 0.35;
+    const damage = (44 + enemy.stats.tracking * 0.045 + enemy.stats.edge * 220) * projectilePressure * (1 + (phase - 1) * 0.14);
+    let nextRuntime = addEffect(runtime, {
+      kind: "stormArc",
+      x: enemy.x,
+      y: enemy.y,
+      x2: player.x,
+      y2: player.y,
+      lifetime: 0.58,
+      intensity: 1.25 + phase * 0.25,
+    });
+    nextRuntime = emitCombatEvent(nextRuntime, {
+      kind: "overheat",
+      sourceId: enemy.id,
+      targetId: player.id,
+      magnitude: damage,
+      x: player.x,
+      y: player.y,
+      driveId: enemy.driveId,
+      tags: ["projectile"],
+    });
+    nextRuntime = pushEvent(nextRuntime, "danger", `${enemy.name} reflects projectile pressure`);
+    nextRuntime = damagePlayer(nextRuntime, damage, direction.x * 56, direction.y * 56);
+
+    return {
+      runtime: nextRuntime,
+      player: nextRuntime.player,
+      enemy: { ...enemy, bossPhase: phase, cooldownRemaining: phase === 1 ? 2.85 : phase === 2 ? 2.35 : 1.95 },
+    };
+  },
+  gravityWell: ({ runtime, enemy, phase, direction, distanceToPlayer }) => {
+    const pull = (115 + enemy.stats.tracking * 0.045) * (1 + (phase - 1) * 0.18);
+    let nextRuntime = addEffect(runtime, {
+      kind: "bossSignal",
+      x: enemy.x,
+      y: enemy.y,
+      lifetime: 0.78,
+      intensity: 1.35 + phase * 0.22,
+    });
+    nextRuntime = pushEvent(nextRuntime, "danger", `${enemy.name} folds the basin into a gravity well`);
+    nextRuntime = {
+      ...nextRuntime,
+      player: {
+        ...nextRuntime.player,
+        vx: nextRuntime.player.vx - direction.x * pull,
+        vy: nextRuntime.player.vy - direction.y * pull,
+      },
+    };
+    if (distanceToPlayer < 170) {
+      nextRuntime = damagePlayer(nextRuntime, 28 + enemy.stats.impact * 0.08, -direction.x * 26, -direction.y * 26);
+    }
+
+    return {
+      runtime: nextRuntime,
+      player: nextRuntime.player,
+      enemy: { ...enemy, bossPhase: phase, cooldownRemaining: phase === 1 ? 3.05 : phase === 2 ? 2.55 : 2.1 },
+    };
+  },
+  heavyCrash: ({ runtime, enemy, phase, direction, distanceToPlayer }) => {
+    const damage = (62 + enemy.stats.impact * 0.3) * (1 + (phase - 1) * 0.16);
+    let nextRuntime = addEffect(pushEvent(runtime, "danger", `${enemy.name} hammers the rim with a heavy crash`), {
+      kind: "shockwave",
+      x: enemy.x,
+      y: enemy.y,
+      lifetime: 0.92,
+      intensity: 1.9 + phase * 0.28,
+    });
+    nextRuntime = emitCombatEvent(nextRuntime, {
+      kind: "smash",
+      sourceId: enemy.id,
+      targetId: runtime.player.id,
+      magnitude: damage,
+      x: enemy.x,
+      y: enemy.y,
+      driveId: enemy.driveId,
+      tags: ["physical", "melee"],
+    });
+    if (distanceToPlayer < 210) {
+      nextRuntime = damagePlayer(nextRuntime, damage, direction.x * 82, direction.y * 82);
+    }
+
+    return {
+      runtime: nextRuntime,
+      player: nextRuntime.player,
+      enemy: { ...enemy, bossPhase: phase, cooldownRemaining: phase === 1 ? 3.25 : phase === 2 ? 2.75 : 2.2 },
+    };
+  },
+  phaseShift: ({ runtime, enemy, player, phase }) => {
+    const angle = Math.atan2(enemy.y - player.y, enemy.x - player.x) + Math.PI * (0.52 + phase * 0.08);
+    const distance = 112 + phase * 18;
+    const nextEnemy = {
+      ...enemy,
+      x: player.x + Math.cos(angle) * distance,
+      y: player.y + Math.sin(angle) * distance,
+      vx: -Math.sin(angle) * (70 + phase * 16),
+      vy: Math.cos(angle) * (70 + phase * 16),
+      bossPhase: phase,
+      cooldownRemaining: phase === 1 ? 2.55 : phase === 2 ? 2.1 : 1.7,
+    };
+    let nextRuntime = addEffect(pushEvent(runtime, "danger", `${enemy.name} slips through a phase shift`), {
+      kind: "chargeLine",
+      x: enemy.x,
+      y: enemy.y,
+      x2: nextEnemy.x,
+      y2: nextEnemy.y,
+      lifetime: 0.46,
+      intensity: 1.25 + phase * 0.2,
+    });
+    nextRuntime = emitCombatEvent(nextRuntime, {
+      kind: "stance_shift",
+      sourceId: enemy.id,
+      targetId: player.id,
+      magnitude: phase,
+      x: nextEnemy.x,
+      y: nextEnemy.y,
+      driveId: enemy.driveId,
+      tags: ["void", "speed"],
+    });
+
+    return {
+      runtime: nextRuntime,
+      player: nextRuntime.player,
+      enemy: nextEnemy,
+    };
+  },
+  ringWard: ({ runtime, enemy, phase, direction, distanceToPlayer }) => {
+    const ward = enemy.stats.maxFluxGuard * (0.18 + phase * 0.06);
+    let nextRuntime = addEffect(pushEvent(runtime, "danger", `${enemy.name} raises a ring ward`), {
+      kind: "bossSignal",
+      x: enemy.x,
+      y: enemy.y,
+      lifetime: 0.86,
+      intensity: 1.2 + phase * 0.24,
+    });
+    const nextEnemy = {
+      ...enemy,
+      fluxGuard: Math.min(enemy.stats.maxFluxGuard, enemy.fluxGuard + ward),
+      bossPhase: phase,
+      cooldownRemaining: phase === 1 ? 3.05 : phase === 2 ? 2.55 : 2.05,
+    };
+    if (distanceToPlayer < 150) {
+      nextRuntime = damagePlayer(nextRuntime, 34 + enemy.stats.guard * 0.05, direction.x * 38, direction.y * 38);
+    }
+
+    return {
+      runtime: nextRuntime,
+      player: nextRuntime.player,
+      enemy: nextEnemy,
+    };
+  },
+};
+
 function bossPhaseFor(enemy: TopRuntimeEntity): 1 | 2 | 3 {
   if (enemy.rank !== "boss") {
     return 1;
@@ -1353,40 +1525,54 @@ function resolveEnemySkills(runtime: TopArenaRuntime): TopArenaRuntime {
 
     if (enemy.behaviorId === "bossJudicator" && enemy.cooldownRemaining <= 0) {
       const phase = bossPhaseFor(enemy);
-      const atlasBonuses = resolveCircuitAtlasBonuses(runtime.loadout.circuitAtlasNodeIds ?? []);
       const direction = normalize(player.x - enemy.x, player.y - enemy.y);
-      const phasePressure = 1 + (phase - 1) * 0.18 + atlasBonuses.bossPhasePressure;
-      const shockDamage = (72 + enemy.stats.impact * 0.24) * phasePressure;
-      nextEnemy = { ...nextEnemy, bossPhase: phase, cooldownRemaining: phase === 1 ? 3.4 : phase === 2 ? 2.65 : 2.15 };
-      nextRuntime = pushEvent(
-        nextRuntime,
-        "danger",
-        phase === 1 ? `${enemy.name} releases Judicator shockwave` : phase === 2 ? `${enemy.name} opens phase 2 rail pressure` : `${enemy.name} enters phase 3 brass lock`,
-      );
-      nextRuntime = addEffect(nextRuntime, {
-        kind: phase === 2 ? "bossSignal" : "shockwave",
-        x: enemy.x,
-        y: enemy.y,
-        lifetime: phase === 3 ? 1.05 : 0.9,
-        intensity: phase === 3 ? 2.55 : phase === 2 ? 1.8 : 2.1,
-      });
-      if (phase >= 2) {
-        nextRuntime = { ...nextRuntime, nextEnemyIn: Math.min(nextRuntime.nextEnemyIn, phase === 3 ? 0.02 : 0.05) };
-      }
-      if (phase === 3) {
+      if (enemy.rivalMechanicId) {
+        const result = rivalMechanicHandlers[enemy.rivalMechanicId]({
+          runtime: { ...nextRuntime, player },
+          enemy,
+          player,
+          phase,
+          direction,
+          distanceToPlayer,
+        });
+        nextRuntime = result.runtime;
+        nextEnemy = result.enemy;
+        player = result.player;
+      } else {
+        const atlasBonuses = resolveCircuitAtlasBonuses(runtime.loadout.circuitAtlasNodeIds ?? []);
+        const phasePressure = 1 + (phase - 1) * 0.18 + atlasBonuses.bossPhasePressure;
+        const shockDamage = (72 + enemy.stats.impact * 0.24) * phasePressure;
+        nextEnemy = { ...nextEnemy, bossPhase: phase, cooldownRemaining: phase === 1 ? 3.4 : phase === 2 ? 2.65 : 2.15 };
+        nextRuntime = pushEvent(
+          nextRuntime,
+          "danger",
+          phase === 1 ? `${enemy.name} releases Judicator shockwave` : phase === 2 ? `${enemy.name} opens phase 2 rail pressure` : `${enemy.name} enters phase 3 brass lock`,
+        );
         nextRuntime = addEffect(nextRuntime, {
-          kind: "chargeLine",
+          kind: phase === 2 ? "bossSignal" : "shockwave",
           x: enemy.x,
           y: enemy.y,
-          x2: player.x,
-          y2: player.y,
-          lifetime: 0.42,
-          intensity: 1.4,
+          lifetime: phase === 3 ? 1.05 : 0.9,
+          intensity: phase === 3 ? 2.55 : phase === 2 ? 1.8 : 2.1,
         });
-      }
-      if (distanceToPlayer < 190) {
-        nextRuntime = damagePlayer(nextRuntime, shockDamage, direction.x * (phase === 3 ? 70 : 48), direction.y * (phase === 3 ? 70 : 48));
-        player = nextRuntime.player;
+        if (phase >= 2) {
+          nextRuntime = { ...nextRuntime, nextEnemyIn: Math.min(nextRuntime.nextEnemyIn, phase === 3 ? 0.02 : 0.05) };
+        }
+        if (phase === 3) {
+          nextRuntime = addEffect(nextRuntime, {
+            kind: "chargeLine",
+            x: enemy.x,
+            y: enemy.y,
+            x2: player.x,
+            y2: player.y,
+            lifetime: 0.42,
+            intensity: 1.4,
+          });
+        }
+        if (distanceToPlayer < 190) {
+          nextRuntime = damagePlayer(nextRuntime, shockDamage, direction.x * (phase === 3 ? 70 : 48), direction.y * (phase === 3 ? 70 : 48));
+          player = nextRuntime.player;
+        }
       }
     }
 
@@ -1532,6 +1718,42 @@ function handleDrops(runtime: TopArenaRuntime, enemy: TopRuntimeEntity): TopAren
   );
 }
 
+function handleRivalUniqueDrop(runtime: TopArenaRuntime, enemy: TopRuntimeEntity): TopArenaRuntime {
+  if (!runtime.rivalId) {
+    return runtime;
+  }
+
+  const rival = getNamedRivalDef(runtime.rivalId);
+  if (rival.uniqueDropBaseIds.length === 0) {
+    return runtime;
+  }
+
+  const rng = createRng(`${runtime.seed}_${rival.id}_unique_${runtime.kills}_${runtime.routeClears}`);
+  const baseId = rival.uniqueDropBaseIds[rng.int(0, rival.uniqueDropBaseIds.length - 1)];
+  const base = getTopPartBaseDef(baseId);
+  const drop: ArenaDrop = {
+    id: `drop_unique_${rival.id}_${runtime.kills}`,
+    label: base.displayName,
+    slot: base.slot,
+    baseId,
+    rarity: "relic",
+    x: enemy.x,
+    y: enemy.y,
+    age: 0,
+  };
+
+  return addEffect(
+    pushEvent({ ...runtime, drops: [drop, ...runtime.drops].slice(0, maxDrops) }, "drop", `Rival unique ${base.displayName} dropped`),
+    {
+      kind: "drop",
+      x: enemy.x,
+      y: enemy.y,
+      lifetime: 1,
+      intensity: 2.2,
+    },
+  );
+}
+
 function handleKills(runtime: TopArenaRuntime): TopArenaRuntime {
   let nextRuntime = runtime;
   const survivors: TopRuntimeEntity[] = [];
@@ -1546,6 +1768,7 @@ function handleKills(runtime: TopArenaRuntime): TopArenaRuntime {
     const routeCleared = enemy.rank === "boss";
     if (runtime.mode === "duel" && routeCleared) {
       nextRuntime = handleDrops(pushEvent(nextRuntime, "reward", `${enemy.name} duel gate shattered`), enemy);
+      nextRuntime = handleRivalUniqueDrop(nextRuntime, enemy);
       nextRuntime = {
         ...nextRuntime,
         outcome: "victory",

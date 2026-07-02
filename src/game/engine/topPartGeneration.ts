@@ -353,6 +353,7 @@ export function createPartFromArenaDrop(drop: ArenaDrop, arenaTier: number, wave
   const itemLevel = Math.max(1, arenaTier * 3 + wave);
   return generateTopPart({
     id: `part_${drop.id}`,
+    baseId: drop.baseId,
     slot: drop.slot ?? baseSlotForDropLabel(drop.label),
     rarity: drop.rarity,
     itemLevel,

@@ -549,6 +549,7 @@ export type ArenaDrop = {
   id: string;
   label: string;
   slot: TopPartSlotId;
+  baseId?: string;
   rarity: "common" | "tuned" | "engraved" | "relic";
   x: number;
   y: number;

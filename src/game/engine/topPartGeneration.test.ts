@@ -128,4 +128,25 @@ describe("top part generation", () => {
       expect(part.slot).toBe(entry.slot);
     }
   });
+
+  it("uses explicit drop base IDs for unique rewards", () => {
+    const part = createPartFromArenaDrop(
+      {
+        id: "drop_unique_glass_rebound",
+        label: "Glass Rebound Tip",
+        slot: "tip",
+        baseId: "part_tip_glass_rebound",
+        rarity: "relic",
+        x: 0,
+        y: 0,
+        age: 0,
+      },
+      3,
+      4,
+    );
+
+    expect(part.baseId).toBe("part_tip_glass_rebound");
+    expect(part.slot).toBe("tip");
+    expect(part.rarity).toBe("relic");
+  });
 });

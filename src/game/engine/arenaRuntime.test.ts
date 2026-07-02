@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { collisionSpinEnergyLoss, createCollisionDamage, createTopArenaRuntime, resolveTopCollisionPhysics, stepTopArenaRuntime } from "./arenaRuntime";
 import { createCollisionPacket } from "./topCombat";
 import { resolveTopRuntimeStats } from "./topAssembly";
-import { generateTopPart } from "./topPartGeneration";
+import { createPartFromArenaDrop, generateTopPart } from "./topPartGeneration";
 import { getNamedRivalDef } from "../data/namedRivals";
 import { createStarterEquipment } from "../data/topParts";
 import type { AilmentState, TopRuntimeEntity } from "./topTypes";
@@ -605,6 +605,42 @@ describe("top arena runtime", () => {
     expect(boss.stats.maxSpinIntegrity).toBeCloseTo(rivalStats.maxSpinIntegrity * 2.2 * (rival.integrityScalar ?? 1), 5);
   });
 
+  it("dispatches rival mechanics by mechanicId", () => {
+    const rival = getNamedRivalDef("rival_sable_reflector");
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_red_chancel_disk",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "rival_reflect_projectiles_test",
+      mode: "duel",
+      rivalId: rival.id,
+    });
+    const spawned = stepTopArenaRuntime(runtime, 0.05);
+    const boss = {
+      ...spawned.enemies[0],
+      x: 0,
+      y: 150,
+      vx: 0,
+      vy: 0,
+      cooldownRemaining: 0,
+    };
+    const player = {
+      ...spawned.player,
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      spinIntegrity: spawned.player.stats.maxSpinIntegrity,
+    };
+
+    const next = stepTopArenaRuntime({ ...spawned, player, enemies: [boss], nextEnemyIn: 10 }, 0.05);
+
+    expect(next.player.spinIntegrity).toBeLessThan(player.spinIntegrity);
+    expect(next.enemies[0].cooldownRemaining).toBeGreaterThan(1);
+    expect(next.combatEvents.some((event) => event.kind === "overheat" && event.sourceId === boss.id && event.targetId === player.id)).toBe(true);
+    expect(next.events.some((event) => event.text.includes("reflects projectile pressure"))).toBe(true);
+  });
+
   it("duel mode uses a smaller ring-out boundary", () => {
     const route = createTopArenaRuntime({
       arenaId: "arena_cinder_crucible",
@@ -642,6 +678,27 @@ describe("top arena runtime", () => {
 
     expect(next.outcome).toBe("victory");
     expect(next.routeClears).toBe(1);
+  });
+
+  it("duel victory drops a named rival unique base", () => {
+    const rival = getNamedRivalDef("rival_sable_reflector");
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_red_chancel_disk",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "rival_unique_drop_test",
+      mode: "duel",
+      rivalId: rival.id,
+    });
+    const spawned = stepTopArenaRuntime(runtime, 0.05);
+    const defeatedBoss = { ...spawned.enemies[0], spinIntegrity: 0 };
+    const next = stepTopArenaRuntime({ ...spawned, enemies: [defeatedBoss], player: { ...spawned.player, cooldownRemaining: 10 }, nextEnemyIn: 10 }, 0.05);
+    const uniqueDrop = next.drops.find((drop) => rival.uniqueDropBaseIds.includes(drop.baseId ?? ""));
+
+    expect(uniqueDrop).toBeTruthy();
+    expect(uniqueDrop?.rarity).toBe("relic");
+    const part = createPartFromArenaDrop(uniqueDrop!, 3, next.wave);
+    expect(part.baseId).toBe(uniqueDrop?.baseId);
   });
 
   it("arena anomalies increase enemy pressure", () => {
