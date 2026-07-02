@@ -3,9 +3,10 @@ import { resolveCircuitAtlasBonuses } from "../data/circuitAtlasNodes";
 import { resolveDoctrineBonuses } from "../data/doctrines";
 import { getTalentNodeDef } from "../data/talentNodes";
 import { getTopFrameDef } from "../data/topFrames";
+import { getTopPartBaseDef } from "../data/topPartBases";
 import { getTuningRuneDef } from "../data/tuningRunes";
 import { validateRuneLoadout } from "./driveRuneValidation";
-import type { TopLoadoutConfig, TopModifierDef, TopResistanceBlock, TopRuntimeStats, TopStatBlock } from "./topTypes";
+import type { DriveTag, TopLoadoutConfig, TopModifierDef, TopResistanceBlock, TopRuntimeStats, TopStatBlock, TopStatId } from "./topTypes";
 import { zeroResistances } from "./topTypes";
 
 type LoadoutBonuses = {
@@ -34,6 +35,56 @@ function cloneModifiers(modifiers: TopModifierDef[] = [], suffix: string): TopMo
   return modifiers.map((modifier) => ({ ...modifier, id: `${modifier.id}_${suffix}` }));
 }
 
+const topStatIds = new Set<TopStatId>([
+  "spinIntegrity",
+  "fluxGuard",
+  "guard",
+  "drift",
+  "tracking",
+  "impact",
+  "rpm",
+  "mass",
+  "grip",
+  "edge",
+  "fracture",
+  "resonance",
+  "fluxCost",
+  "cooldownRecovery",
+  "reservationEfficiency",
+  "stagger",
+  "ringOutPressure",
+  "partQuantity",
+  "partRarity",
+]);
+
+function isTopStatId(stat: TopModifierDef["stat"]): stat is TopStatId {
+  return topStatIds.has(stat as TopStatId);
+}
+
+function localModifierMatchesTags(modifier: TopModifierDef, partTags: DriveTag[]): boolean {
+  return !modifier.tags || modifier.tags.length === 0 || modifier.tags.some((tag) => partTags.includes(tag));
+}
+
+function applyLocalStatModifiers(stats: TopStatBlock = {}, modifiers: TopModifierDef[] = [], partTags: DriveTag[] = []): TopStatBlock {
+  let next: TopStatBlock = { ...stats };
+
+  for (const modifier of modifiers) {
+    if (!isTopStatId(modifier.stat) || !localModifierMatchesTags(modifier, partTags)) {
+      continue;
+    }
+    const current = next[modifier.stat] ?? 0;
+    if (modifier.type === "flat") {
+      next = { ...next, [modifier.stat]: current + modifier.value };
+    } else if (modifier.type === "increased" || modifier.type === "more") {
+      next = { ...next, [modifier.stat]: current * (1 + modifier.value) };
+    } else if (modifier.type === "reduced" || modifier.type === "less") {
+      next = { ...next, [modifier.stat]: current * Math.max(0, 1 - modifier.value) };
+    }
+  }
+
+  return next;
+}
+
 export function resolveTopLoadoutBonuses(loadout: TopLoadoutConfig = {}, driveId = "drive_shard_barrage"): LoadoutBonuses {
   let statBonuses: TopStatBlock = {};
   let resistanceBonuses: TopResistanceBlock = {};
@@ -43,9 +94,13 @@ export function resolveTopLoadoutBonuses(loadout: TopLoadoutConfig = {}, driveId
     if (!part) {
       continue;
     }
-    statBonuses = addStats(statBonuses, part.statBonuses);
+    const partBase = getTopPartBaseDef(part.baseId);
+    const partModifiers = cloneModifiers(part.modifiers, part.id);
+    const localModifiers = partModifiers.filter((modifier) => modifier.scope === "local");
+    const globalModifiers = partModifiers.filter((modifier) => modifier.scope !== "local");
+    statBonuses = addStats(statBonuses, applyLocalStatModifiers(part.statBonuses, localModifiers, partBase.tags));
     resistanceBonuses = addResistances(resistanceBonuses, part.resistanceBonuses);
-    modifiers = [...modifiers, ...cloneModifiers(part.modifiers, part.id)];
+    modifiers = [...modifiers, ...globalModifiers];
   }
 
   for (const runeId of validateRuneLoadout(driveId, loadout.runeIds ?? []).validRuneIds) {

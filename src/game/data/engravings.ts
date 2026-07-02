@@ -23,7 +23,8 @@ export const topEngravings: TopEngravingDef[] = [
     group: "impact_more",
     minItemLevel: 4,
     weight: 70,
-    modifiers: [{ id: "engraving_more_impact", stat: "impact", type: "increased", value: 1, tags: ["attack"] }],
+    slots: ["attackRing"],
+    modifiers: [{ id: "engraving_more_impact", stat: "impact", type: "increased", value: 1, tags: ["attack"], scope: "local" }],
     tiers: [
       { itemLevel: 4, min: 0.06, max: 0.1 },
       { itemLevel: 10, min: 0.11, max: 0.16 },

@@ -1,6 +1,33 @@
 import { describe, expect, it } from "vitest";
 import { createStarterEquipment } from "../data/topParts";
-import { resolveTopRuntimeStats } from "./topAssembly";
+import { resolveTopLoadoutBonuses, resolveTopRuntimeStats } from "./topAssembly";
+import type { TopModifierDef, TopPartInstance, TopPartSlotId, TopStatBlock } from "./topTypes";
+
+function makePart({
+  id,
+  baseId,
+  slot,
+  statBonuses,
+  modifiers,
+}: {
+  id: string;
+  baseId: string;
+  slot: TopPartSlotId;
+  statBonuses: TopStatBlock;
+  modifiers: TopModifierDef[];
+}): TopPartInstance {
+  return {
+    id,
+    baseId,
+    displayName: id,
+    slot,
+    rarity: "common",
+    itemLevel: 1,
+    statBonuses,
+    resistanceBonuses: {},
+    modifiers,
+  };
+}
 
 describe("top assembly", () => {
   it("applies equipped part bonuses to runtime stats", () => {
@@ -45,5 +72,47 @@ describe("top assembly", () => {
     expect(doctrined.grip).toBeGreaterThan(base.grip);
     expect(doctrined.resistances.heat).toBeGreaterThan(base.resistances.heat);
     expect(doctrined.modifiers.some((modifier) => modifier.id.includes("doctrine_ember_rail_heat"))).toBe(true);
+  });
+
+  it("applies local modifiers to their source part before global modifier pooling", () => {
+    const localModifier: TopModifierDef = { id: "scope_impact", stat: "impact", type: "increased", value: 1, tags: ["attack"], scope: "local" };
+    const globalModifier: TopModifierDef = { id: "scope_impact", stat: "impact", type: "increased", value: 1, tags: ["attack"], scope: "global" };
+    const otherPart = makePart({
+      id: "other_tip",
+      baseId: "part_tip_anchor",
+      slot: "tip",
+      statBonuses: { impact: 30 },
+      modifiers: [],
+    });
+
+    const local = resolveTopLoadoutBonuses({
+      equipment: {
+        attackRing: makePart({
+          id: "local_ring",
+          baseId: "part_ring_serrated_halo",
+          slot: "attackRing",
+          statBonuses: { impact: 10 },
+          modifiers: [localModifier],
+        }),
+        tip: otherPart,
+      },
+    });
+    const global = resolveTopLoadoutBonuses({
+      equipment: {
+        attackRing: makePart({
+          id: "global_ring",
+          baseId: "part_ring_serrated_halo",
+          slot: "attackRing",
+          statBonuses: { impact: 10 },
+          modifiers: [globalModifier],
+        }),
+        tip: otherPart,
+      },
+    });
+
+    expect(local.statBonuses.impact).toBe(50);
+    expect(local.modifiers.some((modifier) => modifier.id.includes("scope_impact"))).toBe(false);
+    expect(global.statBonuses.impact).toBe(40);
+    expect(global.modifiers.some((modifier) => modifier.id.includes("scope_impact"))).toBe(true);
   });
 });
