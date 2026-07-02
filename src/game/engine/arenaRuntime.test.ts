@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createCollisionDamage, createTopArenaRuntime, stepTopArenaRuntime } from "./arenaRuntime";
+import { collisionSpinEnergyLoss, createCollisionDamage, createTopArenaRuntime, stepTopArenaRuntime } from "./arenaRuntime";
 import { createCollisionPacket } from "./topCombat";
 import { generateTopPart } from "./topPartGeneration";
 
@@ -1136,6 +1136,15 @@ describe("top arena runtime", () => {
       },
       0.5,
     );
+    const lowFlux = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...lowEnergyPlayer, stats: { ...lowEnergyPlayer.stats, mass: 1.3 }, flux: 8 },
+        enemies: [],
+        nextEnemyIn: 10,
+      },
+      0.5,
+    );
     const fullEnergy = stepTopArenaRuntime(
       {
         ...runtime,
@@ -1147,8 +1156,24 @@ describe("top arena runtime", () => {
     );
 
     expect(noFlux.player.spinEnergy ?? 0).toBeLessThan(120);
+    expect(lowFlux.player.spinEnergy ?? 0).toBeLessThan(120);
     expect(withFlux.player.spinEnergy ?? 0).toBeGreaterThan(120);
     expect(withFlux.player.flux ?? 0).toBeLessThan(fullEnergy.player.flux ?? 0);
+  });
+
+  it("uses normal impulse over mass for collision spin energy loss", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "collision_energy_loss_test",
+    });
+    const light = { ...runtime.player, stats: { ...runtime.player.stats, mass: 0.8 } };
+    const heavy = { ...runtime.player, stats: { ...runtime.player.stats, mass: 1.6 } };
+
+    expect(collisionSpinEnergyLoss(light, 120)).toBeCloseTo(18, 5);
+    expect(collisionSpinEnergyLoss(heavy, 120)).toBeCloseTo(9, 5);
+    expect(collisionSpinEnergyLoss(light, 120)).toBeGreaterThan(collisionSpinEnergyLoss(heavy, 120));
   });
 
   it("shatters enemies when their spin energy reaches zero", () => {
@@ -1285,6 +1310,126 @@ describe("top arena runtime", () => {
     expect(locked.combatEvents.some((event) => event.kind === "clash" || event.kind === "smash" || event.kind === "scrape" || event.kind === "grind")).toBe(true);
     expect(locked.combatEvents.some((event) => event.kind === "discharge")).toBe(false);
     expect(unlocked.combatEvents.some((event) => event.kind === "discharge" && event.driveId === "drive_razor_rebound")).toBe(true);
+  });
+
+  it("gates speed and core-energy specialized Drives with physical attributes", () => {
+    const stormRuntime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_storm_needle",
+      driveId: "drive_storm_lattice",
+      seed: "storm_gate_test",
+    });
+    const chainRuntime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_storm_needle",
+      driveId: "drive_chain_tempest",
+      seed: "chain_gate_test",
+    });
+    const makeEnemy = (runtime: typeof stormRuntime) => ({
+      ...runtime.player,
+      id: "gate_spell_target",
+      team: "enemy" as const,
+      name: "Gate Spell Target",
+      rank: "pack" as const,
+      x: 80,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      radius: 22,
+      spinIntegrity: 900,
+      fluxGuard: 80,
+      cooldownRemaining: 10,
+      stats: { ...runtime.player.stats, maxSpinIntegrity: 900, maxFluxGuard: 80, modifiers: [] },
+      behaviorId: "hunter" as const,
+    });
+
+    const lowOmega = stepTopArenaRuntime(
+      {
+        ...stormRuntime,
+        player: { ...stormRuntime.player, spinEnergy: 30, spinPower: 3, cooldownRemaining: 0 },
+        enemies: [makeEnemy(stormRuntime)],
+        nextEnemyIn: 10,
+      },
+      0,
+    );
+    const highOmega = stepTopArenaRuntime(
+      {
+        ...stormRuntime,
+        player: { ...stormRuntime.player, cooldownRemaining: 0 },
+        enemies: [makeEnemy(stormRuntime)],
+        nextEnemyIn: 10,
+      },
+      0,
+    );
+    const lowFluxCapacity = stepTopArenaRuntime(
+      {
+        ...chainRuntime,
+        player: { ...chainRuntime.player, stats: { ...chainRuntime.player.stats, resonance: 1 }, maxFlux: 108, flux: 108, cooldownRemaining: 0 },
+        enemies: [makeEnemy(chainRuntime)],
+        nextEnemyIn: 10,
+      },
+      0,
+    );
+    const highFluxCapacity = stepTopArenaRuntime(
+      {
+        ...chainRuntime,
+        player: { ...chainRuntime.player, stats: { ...chainRuntime.player.stats, resonance: 6 }, maxFlux: 148, flux: 148, cooldownRemaining: 0 },
+        enemies: [makeEnemy(chainRuntime)],
+        nextEnemyIn: 10,
+      },
+      0,
+    );
+
+    expect(lowOmega.combatEvents.some((event) => event.kind === "discharge")).toBe(false);
+    expect(highOmega.combatEvents.some((event) => event.kind === "discharge" && event.driveId === "drive_storm_lattice")).toBe(true);
+    expect(lowFluxCapacity.combatEvents.some((event) => event.kind === "discharge")).toBe(false);
+    expect(highFluxCapacity.combatEvents.some((event) => event.kind === "discharge" && event.driveId === "drive_chain_tempest")).toBe(true);
+  });
+
+  it("uses omega to stretch or compress player skill cooldown", () => {
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "omega_cooldown_test",
+    });
+    const enemy = {
+      ...runtime.player,
+      id: "cooldown_target",
+      team: "enemy" as const,
+      name: "Cooldown Target",
+      rank: "pack" as const,
+      x: 80,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      radius: 22,
+      spinIntegrity: 900,
+      fluxGuard: 80,
+      cooldownRemaining: 10,
+      stats: { ...runtime.player.stats, maxSpinIntegrity: 900, maxFluxGuard: 80, modifiers: [] },
+      behaviorId: "hunter" as const,
+    };
+    const slow = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...runtime.player, spinEnergy: 120, spinPower: 12, cooldownRemaining: 0 },
+        enemies: [enemy],
+        nextEnemyIn: 10,
+      },
+      0,
+    );
+    const fast = stepTopArenaRuntime(
+      {
+        ...runtime,
+        player: { ...runtime.player, cooldownRemaining: 0 },
+        enemies: [enemy],
+        nextEnemyIn: 10,
+      },
+      0,
+    );
+
+    expect(slow.player.cooldownRemaining).toBeGreaterThan(fast.player.cooldownRemaining);
   });
 
   it("emits overheat when a ready skill wants to fire with empty Flux", () => {

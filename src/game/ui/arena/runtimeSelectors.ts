@@ -73,7 +73,9 @@ export function selectDpsBreakdown(entity: TopRuntimeEntity): { collisionSeed: n
 }
 
 export function selectESustain(entity: TopRuntimeEntity): { fluxPerSecond: number; energyPerSecond: number; secondsRemaining: number } {
-  const fluxPerSecond = Math.min(balanceConfig.flux.energySustainConversionPerSecond, currentFlux(entity));
+  const physics = combatContextForSelector(entity).physics;
+  const canSustain = currentFlux(entity) > physics.fluxLowThreshold;
+  const fluxPerSecond = canSustain ? Math.min(balanceConfig.flux.energySustainConversionPerSecond, currentFlux(entity)) : 0;
   return {
     fluxPerSecond,
     energyPerSecond: fluxPerSecond * balanceConfig.flux.fluxToEnergyRate,

@@ -72,7 +72,7 @@ export type TopModifierDef = {
 export type CombatEventKind = TopCollisionKind | "ringout" | "overheat" | "discharge" | "stabilize";
 
 export type CombatCondition =
-  | { kind: "attr"; attr: "mass" | "volume" | "spinEnergyRatio" | "fluxRatio" | "omega"; op: ">=" | "<=" | "<" | ">" | "=="; value: number }
+  | { kind: "attr"; attr: "mass" | "volume" | "spinEnergyRatio" | "fluxRatio" | "omega" | "maxFlux"; op: ">=" | "<=" | "<" | ">" | "=="; value: number }
   | { kind: "event"; event: CombatEventKind }
   | { kind: "and" | "or"; terms: CombatCondition[] };
 

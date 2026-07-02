@@ -39,6 +39,9 @@ export function attrValueForCondition(context: CombatContext, attr: Extract<Comb
   if (attr === "fluxRatio") {
     return context.fluxRatio;
   }
+  if (attr === "maxFlux") {
+    return context.physics.maxFlux;
+  }
   return context.omega;
 }
 

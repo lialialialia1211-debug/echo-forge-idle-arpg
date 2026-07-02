@@ -32,6 +32,7 @@ describe("combat condition evaluator", () => {
   it("evaluates attribute comparisons", () => {
     expect(evaluateCombatCondition({ kind: "attr", attr: "mass", op: ">=", value: 6 }, context)).toBe(true);
     expect(evaluateCombatCondition({ kind: "attr", attr: "spinEnergyRatio", op: "<", value: 0.5 }, context)).toBe(true);
+    expect(evaluateCombatCondition({ kind: "attr", attr: "maxFlux", op: ">=", value: 108 }, context)).toBe(true);
     expect(evaluateCombatCondition({ kind: "attr", attr: "omega", op: ">", value: 12 }, context)).toBe(false);
   });
 

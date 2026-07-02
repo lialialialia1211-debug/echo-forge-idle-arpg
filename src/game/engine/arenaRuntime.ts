@@ -11,7 +11,7 @@ import { evaluateCombatCondition, type CombatContext } from "./conditionEval";
 import { evaluateDriveGate } from "./driveGate";
 import { validateRuneLoadout } from "./driveRuneValidation";
 import { clamp } from "./math";
-import { collisionImpactSeedFromMass, resolveStatsPhysics } from "./topPhysics";
+import { collisionImpactSeedFromMass, effectiveCooldownFromOmega, resolveStatsPhysics } from "./topPhysics";
 import { createRng } from "./rng";
 import { resolveTopRuntimeStats } from "./topAssembly";
 import { resolveTopHit } from "./topDamage";
@@ -162,8 +162,13 @@ function addSpinEnergy(entity: TopRuntimeEntity, amount: number): TopRuntimeEnti
   return withSpinEnergy(entity, currentSpinEnergy(entity) + Math.max(0, amount));
 }
 
-function loseSpinPower(entity: TopRuntimeEntity, spinPowerLoss: number): TopRuntimeEntity {
-  return drainSpinEnergy(entity, maxSpinEnergy(entity) * Math.max(0, spinPowerLoss) * 0.01 * balanceConfig.energy.collisionLossScalar);
+export function collisionSpinEnergyLoss(entity: TopRuntimeEntity, normalImpulse: number): number {
+  const physics = resolveStatsPhysics(entity.stats, { spinEnergy: currentSpinEnergy(entity) });
+  return (Math.max(0, normalImpulse) / Math.max(0.1, physics.designMass)) * balanceConfig.energy.collisionLossScalar;
+}
+
+function drainCollisionSpinEnergy(entity: TopRuntimeEntity, normalImpulse: number): TopRuntimeEntity {
+  return drainSpinEnergy(entity, collisionSpinEnergyLoss(entity, normalImpulse));
 }
 
 function maxFlux(entity: TopRuntimeEntity): number {
@@ -203,6 +208,11 @@ function createCombatContext(entity: TopRuntimeEntity, events: CombatEvent[] = [
 }
 
 function sustainSpinEnergyFromFlux(entity: TopRuntimeEntity, deltaSeconds: number): TopRuntimeEntity {
+  const physics = resolveStatsPhysics(entity.stats, { spinEnergy: currentSpinEnergy(entity) });
+  if (currentFlux(entity) <= physics.fluxLowThreshold) {
+    return entity;
+  }
+
   const missingEnergy = Math.max(0, maxSpinEnergy(entity) - currentSpinEnergy(entity));
   if (missingEnergy <= 0 || currentFlux(entity) <= 0) {
     return entity;
@@ -1322,11 +1332,6 @@ function resolveTopCollisionPhysics(
   const enemyOutward = outwardFromBasin(enemyPositioned, normal.x, normal.y);
   const playerLaunch = normalize(-normal.x * 1.1 + playerOutward.x * 0.7 - tangent.x * tangentSign * 0.22, -normal.y * 1.1 + playerOutward.y * 0.7 - tangent.y * tangentSign * 0.22);
   const enemyLaunch = normalize(normal.x * 1.1 + enemyOutward.x * 0.7 + tangent.x * tangentSign * 0.22, normal.y * 1.1 + enemyOutward.y * 0.7 + tangent.y * tangentSign * 0.22);
-  const skid = surfaceShear / 96;
-  const playerSpinLoss =
-    normalImpulse * (0.018 / Math.max(0.7, player.stats.mass)) + Math.abs(tangentImpulse) * (0.032 + enemy.stats.edge * 0.04) + skid * Math.max(0.1, 1 - player.stats.grip) * 0.48;
-  const enemySpinLoss =
-    normalImpulse * (0.018 / Math.max(0.7, enemy.stats.mass)) + Math.abs(tangentImpulse) * (0.032 + player.stats.edge * 0.04) + skid * Math.max(0.1, 1 - enemy.stats.grip) * 0.48;
   const playerWobbleGain = clamp((normalImpulse * 0.0034 + Math.abs(tangentImpulse) * 0.006 + spinShearRatio * 0.06) / Math.max(0.8, player.stats.mass + player.stats.grip), 0, 0.65);
   const enemyWobbleGain = clamp((normalImpulse * 0.0034 + Math.abs(tangentImpulse) * 0.006 + spinShearRatio * 0.06) / Math.max(0.8, enemy.stats.mass + enemy.stats.grip), 0, 0.65);
   const sparkIntensity = clamp((surfaceShear / 84 + normalImpulse / 104 + (spinRatio(player) + spinRatio(enemy)) * 0.42) * tuning.sparkMultiplier, 0.25, 7.2);
@@ -1337,7 +1342,7 @@ function resolveTopCollisionPhysics(
 
   return {
     player: {
-      ...loseSpinPower(playerPositioned, playerSpinLoss),
+      ...drainCollisionSpinEnergy(playerPositioned, normalImpulse),
       x: playerPositioned.x + playerLaunch.x * recoilSeparation,
       y: playerPositioned.y + playerLaunch.y * recoilSeparation,
       vx: playerPositioned.vx - impulseX * playerInvMass + playerLaunch.x * launchPower * clamp(playerInvMass, 0.52, 1.7),
@@ -1345,7 +1350,7 @@ function resolveTopCollisionPhysics(
       wobble: clamp(playerPositioned.wobble + playerWobbleGain, 0, 1),
     },
     enemy: {
-      ...loseSpinPower(enemyPositioned, enemySpinLoss),
+      ...drainCollisionSpinEnergy(enemyPositioned, normalImpulse),
       x: enemyPositioned.x + enemyLaunch.x * recoilSeparation,
       y: enemyPositioned.y + enemyLaunch.y * recoilSeparation,
       vx: enemyPositioned.vx + impulseX * enemyInvMass + enemyLaunch.x * launchPower * clamp(enemyInvMass, 0.52, 1.7),
@@ -1502,14 +1507,11 @@ function resolveEnemyCrowdPhysics(runtime: TopArenaRuntime, tuning: ArenaTuningC
       const rightLaunch = normalize(normal.x * 1.05 + rightOutward.x * 0.32 + tangent.x * tangentSign * 0.14, normal.y * 1.05 + rightOutward.y * 0.32 + tangent.y * tangentSign * 0.14);
       const launchPower = clamp((normalImpulse * 0.46 + closingSpeed * 0.82 + Math.abs(tangentImpulse) * 0.26 + spinShearSpeed * 0.035) * tuning.collisionLaunchMultiplier, 0, 420);
       const recoilSeparation = clamp(overlap * 0.44 + launchPower * 0.012, 0, 16);
-      const skid = surfaceShear / 110;
-      const leftSpinLoss = normalImpulse * (0.007 / Math.max(0.75, left.stats.mass)) + Math.abs(tangentImpulse) * 0.012 + skid * Math.max(0.12, 1 - left.stats.grip) * 0.18;
-      const rightSpinLoss = normalImpulse * (0.007 / Math.max(0.75, right.stats.mass)) + Math.abs(tangentImpulse) * 0.012 + skid * Math.max(0.12, 1 - right.stats.grip) * 0.18;
       const leftWobbleGain = clamp((normalImpulse * 0.0018 + Math.abs(tangentImpulse) * 0.0034 + overlap * 0.004) / Math.max(0.8, left.stats.mass + left.stats.grip), 0, 0.34);
       const rightWobbleGain = clamp((normalImpulse * 0.0018 + Math.abs(tangentImpulse) * 0.0034 + overlap * 0.004) / Math.max(0.8, right.stats.mass + right.stats.grip), 0, 0.34);
 
       enemies[leftIndex] = {
-        ...loseSpinPower(left, leftSpinLoss),
+        ...drainCollisionSpinEnergy(left, normalImpulse),
         x: left.x - normal.x * leftCorrection + leftLaunch.x * recoilSeparation,
         y: left.y - normal.y * leftCorrection + leftLaunch.y * recoilSeparation,
         vx: left.vx - impulseX * leftInvMass + leftLaunch.x * launchPower * clamp(leftInvMass, 0.42, 1.55),
@@ -1517,7 +1519,7 @@ function resolveEnemyCrowdPhysics(runtime: TopArenaRuntime, tuning: ArenaTuningC
         wobble: clamp(left.wobble + leftWobbleGain, 0, 1),
       };
       enemies[rightIndex] = {
-        ...loseSpinPower(right, rightSpinLoss),
+        ...drainCollisionSpinEnergy(right, normalImpulse),
         x: right.x + normal.x * rightCorrection + rightLaunch.x * recoilSeparation,
         y: right.y + normal.y * rightCorrection + rightLaunch.y * recoilSeparation,
         vx: right.vx + impulseX * rightInvMass + rightLaunch.x * launchPower * clamp(rightInvMass, 0.42, 1.55),
@@ -1713,10 +1715,17 @@ function resolvePlayerSkill(runtime: TopArenaRuntime): TopArenaRuntime {
     behaviorCount(runeBehaviors, "projectileCount") * 0.06 +
     behaviorCount(runeBehaviors, "chain") * 0.05 -
     behaviorCount(runeBehaviors, "trigger") * 0.08;
+  const cooldownPhysics = resolveStatsPhysics(nextRuntime.player.stats, { spinEnergy: currentSpinEnergy(nextRuntime.player) });
+  const cooldownRemaining = effectiveCooldownFromOmega(
+    drive.baseCooldown * Math.max(0.65, cooldownPressure),
+    cooldownPhysics.omega,
+    nextRuntime.player.stats.resonance,
+    nextRuntime.player.stats.cooldownRecovery ?? 0,
+  );
 
   return {
     ...nextRuntime,
-    player: { ...nextRuntime.player, cooldownRemaining: (drive.baseCooldown * Math.max(0.65, cooldownPressure)) / Math.max(0.35, nextRuntime.player.stats.resonance) },
+    player: { ...nextRuntime.player, cooldownRemaining },
     enemies,
   };
 }

@@ -134,6 +134,7 @@ export const driveCores: DriveCoreDef[] = [
     trigger: "onCooldown",
     baseCooldown: 1.05,
     baseDamage: { impact: 0, heat: 0, glass: 0, static: 78, void: 0 },
+    requiredAttributes: [{ kind: "attr", attr: "omega", op: ">=", value: balanceConfig.thresholds.specializedDriveAttribute }],
     cost: { amount: 20 },
     cooldown: { baseSeconds: 1.05, recoveryStat: "cooldownRecovery" },
     hit: {
@@ -157,6 +158,14 @@ export const driveCores: DriveCoreDef[] = [
     trigger: "onCooldown",
     baseCooldown: 1.35,
     baseDamage: { impact: 0, heat: 0, glass: 0, static: 104, void: 0 },
+    requiredAttributes: [
+      {
+        kind: "attr",
+        attr: "maxFlux",
+        op: ">=",
+        value: balanceConfig.flux.baseMax + balanceConfig.thresholds.specializedDriveAttribute * balanceConfig.flux.maxPerResonance,
+      },
+    ],
     cost: { amount: 30 },
     cooldown: { baseSeconds: 1.35, recoveryStat: "cooldownRecovery" },
     hit: {
