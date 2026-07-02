@@ -28,6 +28,7 @@ import { circuitAtlasNodes, getCircuitAtlasNodeDef } from "../../data/circuitAtl
 import { circuitNetworkNodes } from "../../data/circuitNetwork";
 import { doctrineForFrame, getDoctrineDef } from "../../data/doctrines";
 import { driveCores, getDriveCoreDef } from "../../data/driveCores";
+import { getNamedRivalDef, namedRivals } from "../../data/namedRivals";
 import { talentNodes, getTalentNodeDef } from "../../data/talentNodes";
 import { getTopFrameDef, topFrames } from "../../data/topFrames";
 import {
@@ -656,7 +657,7 @@ export function CombatArena() {
   );
   const saveShellRef = useRef(initialSave);
   const [account, dispatchAccount] = useReducer(accountReducer, initialAccountState);
-  const { frameId, driveId, arenaId, equipment, inventory, runeSlots, talentIds, circuitAtlasNodeIds, doctrineId, wallet, arenaKeys, clearedBossGateIds, routeClears, totalKills } = account;
+  const { frameId, driveId, arenaId, equipment, inventory, runeSlots, talentIds, circuitAtlasNodeIds, doctrineId, wallet, arenaKeys, clearedBossGateIds, clearedRivalIds, routeClears, totalKills } = account;
   const [speed, setSpeed] = useState(1);
   const [running, setRunning] = useState(false);
   const [showDebugHud, setShowDebugHud] = useState(false);
@@ -808,6 +809,34 @@ export function CombatArena() {
   const availableTalentPoints = resolveAvailableTalentPoints({ talentIds, totalKills });
   const atlasPoints = atlasPointTotal(totalKills, routeClears);
   const availableAtlasPoints = resolveAvailableAtlasPoints({ circuitAtlasNodeIds, routeClears, totalKills });
+  const rivalById = useMemo(() => new Map(namedRivals.map((rival) => [rival.id, rival])), []);
+  const unlockedCircuitNodeIds = useMemo(() => {
+    const byId = new Map(circuitNetworkNodes.map((node) => [node.id, node]));
+    const memo = new Map<string, boolean>();
+    const isUnlocked = (nodeId: string, visiting = new Set<string>()): boolean => {
+      if (memo.has(nodeId)) {
+        return memo.get(nodeId)!;
+      }
+      if (visiting.has(nodeId)) {
+        return false;
+      }
+      const node = byId.get(nodeId);
+      if (!node) {
+        return false;
+      }
+      visiting.add(nodeId);
+      const prerequisitesMet = (node.requiredNodeIds ?? []).every((requiredId) => isUnlocked(requiredId, visiting));
+      visiting.delete(nodeId);
+      const unlocked =
+        prerequisitesMet &&
+        (!node.requiredBossGateId || clearedBossGateIds.includes(node.requiredBossGateId)) &&
+        (!node.requiredRivalId || clearedRivalIds.includes(node.requiredRivalId));
+      memo.set(nodeId, unlocked);
+      return unlocked;
+    };
+
+    return new Set(circuitNetworkNodes.filter((node) => isUnlocked(node.id)).map((node) => node.id));
+  }, [clearedBossGateIds, clearedRivalIds]);
 
   const resetArena = useCallback(
     (
@@ -817,6 +846,7 @@ export function CombatArena() {
       nextLoadout = makeLoadout(),
       nextArenaKey: ArenaKey | null = currentArenaKey,
       nextMode: TopArenaRuntime["mode"] = runtimeRef.current.mode,
+      nextRivalId: string | null = null,
     ) => {
       setRuntimeError(null);
       setCurrentArenaKey(nextArenaKey);
@@ -828,7 +858,8 @@ export function CombatArena() {
           loadout: nextLoadout,
           arenaKey: nextArenaKey ?? undefined,
           mode: nextMode,
-          seed: `arena_${nextMode}_${nextFrameId}_${nextDriveId}_${nextArenaId}_${Date.now()}`,
+          rivalId: nextRivalId ?? undefined,
+          seed: `arena_${nextMode}_${nextRivalId ?? "open"}_${nextFrameId}_${nextDriveId}_${nextArenaId}_${Date.now()}`,
         }),
       );
     },
@@ -952,6 +983,7 @@ export function CombatArena() {
 
   const attemptBossGate = () => {
     setRunning(false);
+    setActiveAnomalyId(null);
     setScreen("combat");
     resetArena(frameId, driveId, arenaId, loadout, currentArenaKey, "duel");
     setLootNotices((current) => [
@@ -962,6 +994,32 @@ export function CombatArena() {
       },
       ...current,
     ].slice(0, 8));
+  };
+
+  const startRivalDuel = (rivalId: string) => {
+    const rival = getNamedRivalDef(rivalId);
+    const node = circuitNetworkNodes.find((entry) => entry.id === rival.circuitNodeId);
+    const nextArenaId = node?.arenaId ?? arenaId;
+    const action = { type: "selectArena", arenaId: nextArenaId } as const;
+    const nextState = nextArenaId === arenaId ? account : accountReducer(account, action);
+    if (nextArenaId !== arenaId) {
+      dispatchAccount(action);
+    }
+
+    setRunning(false);
+    setActiveAnomalyId(null);
+    setScreen("combat");
+    resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState), null, "duel", rival.id);
+    setLootNotices((current) =>
+      [
+        {
+          id: `rival_duel_${rival.id}_${Date.now()}`,
+          tone: "reward" as const,
+          text: `Rival duel opened: ${rival.displayName}`,
+        },
+        ...current,
+      ].slice(0, 8),
+    );
   };
 
   const startAnomalyRoute = (anomalyId: string) => {
@@ -1146,18 +1204,23 @@ export function CombatArena() {
       return;
     }
     lastDuelVictoryRef.current = runtime.seed;
-    dispatchAccount({ type: "markBossGateCleared", gateId: bossProjection.gateId });
+    const rival = runtime.rivalId ? getNamedRivalDef(runtime.rivalId) : null;
+    if (rival) {
+      dispatchAccount({ type: "clearRival", rivalId: rival.id });
+    } else {
+      dispatchAccount({ type: "markBossGateCleared", gateId: bossProjection.gateId });
+    }
     setLootNotices((current) =>
       [
         {
-          id: `boss_duel_clear_${runtime.seed}`,
+          id: `${rival ? "rival" : "boss"}_duel_clear_${runtime.seed}`,
           tone: "reward" as const,
-          text: "Brass Judicator duel gate cleared",
+          text: rival ? `${rival.displayName} rival gate cleared` : "Brass Judicator duel gate cleared",
         },
         ...current,
       ].slice(0, 8),
     );
-  }, [bossProjection.gateId, runtime.mode, runtime.outcome, runtime.seed]);
+  }, [bossProjection.gateId, runtime.mode, runtime.outcome, runtime.rivalId, runtime.seed]);
 
   useEffect(() => {
     if (offlineSettlementAppliedRef.current) {
@@ -1915,22 +1978,33 @@ export function CombatArena() {
         <div className="section-title">
           <MapIcon size={17} aria-hidden />
           <h2>Circuit Network</h2>
-          <span className="section-counter">{activeAnomalyId ? "anomaly" : "route"}</span>
+          <span className="section-counter">{clearedRivalIds.length}/{namedRivals.length} rivals</span>
         </div>
         <div className="route-clear-list">
           {circuitNetworkNodes.map((node) => {
-            const unlocked = !node.requiredBossGateId || clearedBossGateIds.includes(node.requiredBossGateId);
+            const unlocked = unlockedCircuitNodeIds.has(node.id);
             const anomaly = node.anomalyId ? getArenaAnomalyDef(node.anomalyId) : null;
+            const rival = node.unlocksRivalId ? rivalById.get(node.unlocksRivalId) : null;
+            const rivalCleared = rival ? clearedRivalIds.includes(rival.id) : false;
             return (
-              <div className="route-clear-line" key={node.id}>
-                <span>{node.displayName}</span>
-                {anomaly ? (
-                  <button className="arena-button" disabled={!unlocked} onClick={() => startAnomalyRoute(anomaly.id)} type="button">
-                    {unlocked ? anomaly.displayName : "Locked"}
-                  </button>
-                ) : (
-                  <strong>{unlocked ? "open" : "locked"}</strong>
-                )}
+              <div className={unlocked ? "route-clear-line" : "route-clear-line route-clear-line-locked"} key={node.id}>
+                <span>
+                  {node.displayName}
+                  {rival ? <small>{rival.displayName}</small> : null}
+                </span>
+                <div className="route-line-actions">
+                  {rival ? (
+                    <button className="arena-button" disabled={!unlocked || rivalCleared} onClick={() => startRivalDuel(rival.id)} type="button">
+                      {rivalCleared ? "Cleared" : unlocked ? "Duel" : "Locked"}
+                    </button>
+                  ) : null}
+                  {anomaly ? (
+                    <button className="arena-button" disabled={!unlocked} onClick={() => startAnomalyRoute(anomaly.id)} type="button">
+                      {unlocked ? anomaly.displayName : "Locked"}
+                    </button>
+                  ) : null}
+                  {!rival && !anomaly ? <strong>{unlocked ? "open" : "locked"}</strong> : null}
+                </div>
               </div>
             );
           })}

@@ -2642,12 +2642,36 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
   color: var(--muted);
+}
+
+.route-clear-line span > small {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .route-clear-line strong {
   color: var(--teal);
+}
+
+.route-clear-line-locked {
+  opacity: 0.62;
+}
+
+.route-line-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.route-line-actions .arena-button {
+  min-width: 72px;
+  padding-inline: 10px;
 }
 
 @media (max-width: 1180px) {
