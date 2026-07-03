@@ -34,6 +34,28 @@ export const arenaCircuits: ArenaCircuitDef[] = [
     enemyGuard: 240,
     rewardMultiplier: 1.38,
   },
+  {
+    id: "arena_null_tide_basin",
+    displayName: "Null Tide Basin",
+    tier: 4,
+    radius: 305,
+    enemyLevel: 11,
+    enemyIntegrity: 1720,
+    enemyImpact: 186,
+    enemyGuard: 310,
+    rewardMultiplier: 1.58,
+  },
+  {
+    id: "arena_resonant_apex",
+    displayName: "Resonant Apex",
+    tier: 5,
+    radius: 310,
+    enemyLevel: 15,
+    enemyIntegrity: 2260,
+    enemyImpact: 235,
+    enemyGuard: 390,
+    rewardMultiplier: 1.82,
+  },
 ];
 
 export function getArenaCircuitDef(arenaId: string): ArenaCircuitDef {

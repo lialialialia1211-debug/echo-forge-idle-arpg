@@ -4,6 +4,16 @@
 狀態：Phase 1 到 Phase 4 已完成並準備發布到 QA 站
 QA 連結：https://lialialialia1211-debug.github.io/echo-forge-idle-arpg/
 
+## 2026-07-03 UX 修正與 Anomaly 2.0
+
+- Damage breakdown 改用 `resolveTopHit` / `projectTopCombat` 的真實投射數值，面板顯示碰撞、驅動、持續傷害與總 DPS。
+- Breakpoint 面板會標示 penalty 門檻；Boss gate、Phaser label、resource orb 與 canvas aria 補齊繁中顯示。
+- Heavy collision 改為完整結構傷害但只造成 35% spin energy bleed；rival projectile reflect 改為真正反射玩家 projectile hit 的 30%。
+- 離線結算會偵測未來 `lastSettledAt`，歸零收益並重設結算時間，避免調時造成錯誤收益或 crash。
+- Arena anomaly 擴充到 8 個，新增 `playerRule`：`noFluxSustain`、`shrinkingArena`、`heavyResonance`，並加入 tier 4/5 終局 arena 與 network 節點。
+- Save schema 維持 v5；本輪未新增破壞性存檔欄位。
+- `pnpm test`：通過，20 個 test files / 160 tests。
+
 ## 2026-07-03 Phase 1-4 實作
 
 本次更新把 `docs/codex-implementation-plan.md` 中 Phase 1 到 Phase 4 的核心落地到可玩版本，重點是把 UI hardcode 的帳號流程、掉落、鍛造、路線與進階規則移回 engine/data/save 邊界，讓後續平衡與 QA 能依照資料驗證與引擎測試推進。
@@ -14,7 +24,7 @@ QA 連結：https://lialialialia1211-debug.github.io/echo-forge-idle-arpg/
 - 新增離線結算、掉落 roll helper、idle automation 與 balance soak，讓 idle ARPG 迴圈可用測試驗證。
 - 擴充 Top Part、Damage、Runtime schema，加入 hit flags、drive scaling、DoT/ailment、launcher profile、duel mode、anomaly、circuit network 與 doctrine。
 - 擴充天賦到 64 nodes，補上 doctrine data、arena anomaly data、circuit network data。
-- Save schema 升到 v4，加入 doctrineId、part revision、migration sanitize 與 corrupt save backup，避免壞存檔造成 app crash。
+- Save schema 升到 v5，加入 doctrineId、clearedRivalIds、part revision、migration sanitize 與 corrupt save backup，避免壞存檔造成 app crash。
 - Forge action 改為 engine cost/validation，鍛造後維持穩定 part id 並使用 revision 表示變更。
 - CombatArena 串接 account reducer、offline report、doctrine selection、boss duel、route anomaly/circuit network 與新的 Forge/Route 流程。
 - 移除未使用的 `src/game/ui/store.ts` 與 `zustand` dependency。
@@ -22,7 +32,7 @@ QA 連結：https://lialialialia1211-debug.github.io/echo-forge-idle-arpg/
 ## 驗證紀錄
 
 - `pnpm typecheck`：通過。
-- `pnpm test`：通過，26 個 test files / 146 tests。
+- `pnpm test`：通過，20 個 test files / 160 tests。
 - `pnpm build`：通過。
 - Browser QA：通過。
   - 首頁載入後沒有 ErrorBoundary。

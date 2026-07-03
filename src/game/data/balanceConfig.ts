@@ -25,6 +25,17 @@ export const balanceConfig = {
     efficiency: 0.4,
     capSeconds: 8 * 3600,
     dropCap: 30,
+    anomalyRuleRewardScalar: 0.5,
+  },
+  combat: {
+    heavyEnergyBleed: 0.35,
+  },
+  rival: {
+    reflectRatio: 0.3,
+  },
+  anomaly: {
+    shrinkingArenaRadiusScalar: 0.7,
+    heavyResonanceThresholdScalar: 0.75,
   },
   energy: {
     frictionLossPerMassPerSecond: 8,

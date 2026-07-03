@@ -19,7 +19,6 @@ Browser-first auto battler prototype that combines POE-like build math with an o
 - Prototype inventory, equipment slots, and equip comparison deltas.
 - Timed farming tick with retained inventory, capacity overflow, lock protection, salvage, and starter currencies.
 - Account-shaped local save schema with Zod validation.
-- Legacy dense game dashboard systems are still in the codebase as reusable engine/prototype material, but the active app entry is the combat arena.
 - Vitest coverage for core formulas, top damage, top arena runtime, RNG, item generation/scoring, farming, and save schema.
 
 ## Commands
@@ -39,8 +38,12 @@ pnpm dev
 - [Playable Product Plan](docs/04_playable_product_plan_zh.md)
 - [Dark Metal Top Arena Design](docs/05_dark_metal_top_arena_design_zh.md)
 - [Current Implementation Status](docs/06_current_implementation_status_zh.md)
+- [POE System Rethink Battle Top Plan](docs/07_poe_system_rethink_battle_top_plan_zh.md)
+- [Top ARPG System Contract](docs/08_top_arpg_system_contract_zh.md)
+- [Current Code Mapping](docs/09_current_code_mapping_zh.md)
 - [UI Operation Design Audit](docs/10_ui_operation_design_audit_zh.md)
 - [基礎數值](docs/11_基礎數值_zh.md)
+- [Update Log](docs/12_update_log_zh.md)
 - [Docs Index](docs/README.md)
 
 ## Architecture Rules

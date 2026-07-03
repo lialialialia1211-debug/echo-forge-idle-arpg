@@ -24,6 +24,7 @@ import type {
   AilmentState,
   ArenaDrop,
   ArenaEffect,
+  ArenaAnomalyRule,
   ArenaEventState,
   ArenaKey,
   ArenaLogEvent,
@@ -81,6 +82,11 @@ function activeRuneBehaviors(runtime: Pick<TopArenaRuntime, "driveId" | "loadout
     behaviors[behavior] = (behaviors[behavior] ?? 0) + 1;
     return behaviors;
   }, {});
+}
+
+function hasArenaAnomalyRule(loadout: TopLoadoutConfig | undefined, rule: ArenaAnomalyRule): boolean {
+  const anomaly = loadout?.anomalyId ? getArenaAnomalyDef(loadout.anomalyId) : null;
+  return anomaly?.playerRule === rule;
 }
 
 function behaviorCount(behaviors: ActiveRuneBehaviors, behavior: NonNullable<TuningRuneDef["behavior"]>): number {
@@ -456,9 +462,11 @@ function difficultyWaveForRuntime(runtime: TopArenaRuntime): number {
   return 1 + runtime.routeClears * 3 + Math.floor(runtime.mapKills / 40);
 }
 
-function arenaRadiusForRuntime(runtime: Pick<TopArenaRuntime, "arenaId" | "mode">): number {
+function arenaRadiusForRuntime(runtime: Pick<TopArenaRuntime, "arenaId" | "mode" | "loadout">): number {
   const arena = getArenaCircuitDef(runtime.arenaId);
-  return runtime.mode === "duel" ? arena.radius * 0.6 : arena.radius;
+  const modeScalar = runtime.mode === "duel" ? 0.6 : 1;
+  const anomalyScalar = hasArenaAnomalyRule(runtime.loadout, "shrinkingArena") ? balanceConfig.anomaly.shrinkingArenaRadiusScalar : 1;
+  return arena.radius * modeScalar * anomalyScalar;
 }
 
 function spawnEnemy(runtime: TopArenaRuntime, rankOverride?: TopRuntimeEntity["rank"], tuning: ArenaTuningConfig = defaultArenaTuning): TopArenaRuntime {
@@ -1129,8 +1137,32 @@ type RivalMechanicResult = {
 const rivalMechanicHandlers: Record<RivalMechanicId, (context: RivalMechanicContext) => RivalMechanicResult> = {
   reflectProjectiles: ({ runtime, enemy, player, phase, direction }) => {
     const playerDrive = getDriveCoreDef(runtime.driveId);
-    const projectilePressure = playerDrive.tags.includes("projectile") ? 1 : 0.35;
-    const damage = (44 + enemy.stats.tracking * 0.045 + enemy.stats.edge * 220) * projectilePressure * (1 + (phase - 1) * 0.14);
+    if (!playerDrive.tags.includes("projectile")) {
+      const nextRuntime = addEffect(runtime, {
+        kind: "bossSignal",
+        x: enemy.x,
+        y: enemy.y,
+        lifetime: 0.48,
+        intensity: 0.95 + phase * 0.12,
+      });
+
+      return {
+        runtime: nextRuntime,
+        player: nextRuntime.player,
+        enemy: { ...enemy, bossPhase: phase, cooldownRemaining: phase === 1 ? 2.85 : phase === 2 ? 2.35 : 1.95 },
+      };
+    }
+
+    const reflectedHit = resolveTopHit({
+      baseDamage: createSkillDamage(player, undefined, activeRuneBehaviors(runtime)),
+      attacker: player.stats,
+      defender: player.stats,
+      drive: playerDrive,
+      sourceTags: playerDrive.tags,
+      context: createCombatContext(player, runtime.combatEvents),
+      hitFlags: playerDrive.hit ? { usesTracking: playerDrive.hit.usesTracking, canCrit: playerDrive.hit.canCrit } : undefined,
+    });
+    const damage = reflectedHit.totalDamage * balanceConfig.rival.reflectRatio;
     let nextRuntime = addEffect(runtime, {
       kind: "stormArc",
       x: enemy.x,
@@ -1141,14 +1173,14 @@ const rivalMechanicHandlers: Record<RivalMechanicId, (context: RivalMechanicCont
       intensity: 1.25 + phase * 0.25,
     });
     nextRuntime = emitCombatEvent(nextRuntime, {
-      kind: "overheat",
+      kind: "reflect",
       sourceId: enemy.id,
       targetId: player.id,
       magnitude: damage,
       x: player.x,
       y: player.y,
-      driveId: enemy.driveId,
-      tags: ["projectile"],
+      driveId: playerDrive.id,
+      tags: playerDrive.tags,
     });
     nextRuntime = pushEvent(nextRuntime, "danger", `${enemy.name} reflects projectile pressure`);
     nextRuntime = damagePlayer(nextRuntime, damage, direction.x * 56, direction.y * 56);
@@ -1424,7 +1456,7 @@ function dealDamage(
   const doctrineDamageScalar = doctrineSkillDamageScalar(runtime, attacker, defender, hit, source);
   const rawTotalDamage = hit.totalDamage * damageScalar * phaseDamageScalar * ailmentTakenScalar * doctrineDamageScalar;
   const totalDamage = rawTotalDamage * defenseRune.scalar;
-  const energyDamage = source === "collision" ? totalDamage : 0;
+  const energyDamage = source === "collision" ? totalDamage * (collision?.heavy ? balanceConfig.combat.heavyEnergyBleed : 1) : 0;
   const integrityDamage = source === "skill" || collision?.heavy ? totalDamage : 0;
   const bossGate = applyBossPhaseGate(defender, integrityDamage);
   const impulseDirection = normalize(defender.x - attacker.x, defender.y - attacker.y);
@@ -1829,17 +1861,19 @@ function classifyCollision({
   contactAge,
   closingSpeed,
   combinedMass,
+  heavyThresholdScalar = 1,
 }: {
   normalImpulse: number;
   surfaceShear: number;
   contactAge: number;
   closingSpeed: number;
   combinedMass: number;
+  heavyThresholdScalar?: number;
 }): TopCollisionEvent["kind"] {
   if (contactAge >= 0.16 && surfaceShear > 112) {
     return "grind";
   }
-  if (normalImpulse > 142 || (combinedMass > 2.35 && normalImpulse > 104) || closingSpeed > 132) {
+  if (normalImpulse > 142 * heavyThresholdScalar || (combinedMass > 2.35 && normalImpulse > 104 * heavyThresholdScalar) || closingSpeed > 132 * heavyThresholdScalar) {
     return "smash";
   }
   if (surfaceShear > normalImpulse * 1.45 && surfaceShear > 124) {
@@ -1863,6 +1897,7 @@ export function resolveTopCollisionPhysics(
   index: number,
   contactAge: number,
   tuning: ArenaTuningConfig = defaultArenaTuning,
+  heavyThresholdScalar = 1,
 ): { player: TopRuntimeEntity; enemy: TopRuntimeEntity; collision: TopCollisionEvent } {
   const dx = enemy.x - player.x;
   const dy = enemy.y - player.y;
@@ -1930,8 +1965,13 @@ export function resolveTopCollisionPhysics(
   const playerWobbleGain = clamp((normalImpulse * 0.0034 + Math.abs(tangentImpulse) * 0.006 + spinShearRatio * 0.06) / Math.max(0.8, player.stats.mass + player.stats.grip), 0, 0.65);
   const enemyWobbleGain = clamp((normalImpulse * 0.0034 + Math.abs(tangentImpulse) * 0.006 + spinShearRatio * 0.06) / Math.max(0.8, enemy.stats.mass + enemy.stats.grip), 0, 0.65);
   const sparkIntensity = clamp((surfaceShear / 84 + normalImpulse / 104 + (spinRatio(player) + spinRatio(enemy)) * 0.42) * tuning.sparkMultiplier, 0.25, 7.2);
-  const kind = classifyCollision({ normalImpulse, surfaceShear, contactAge, closingSpeed, combinedMass: player.stats.mass + enemy.stats.mass });
-  const heavy = kind === "smash" || normalImpulse > 66 || closingSpeed > 78 || Math.abs(tangentImpulse) > 30 || sparkIntensity > 1.8;
+  const kind = classifyCollision({ normalImpulse, surfaceShear, contactAge, closingSpeed, combinedMass: player.stats.mass + enemy.stats.mass, heavyThresholdScalar });
+  const heavy =
+    kind === "smash" ||
+    normalImpulse > 66 * heavyThresholdScalar ||
+    closingSpeed > 78 * heavyThresholdScalar ||
+    Math.abs(tangentImpulse) > 30 * heavyThresholdScalar ||
+    sparkIntensity > 1.8 * heavyThresholdScalar;
   const contactX = playerPositioned.x + normal.x * player.radius;
   const contactY = playerPositioned.y + normal.y * player.radius;
 
@@ -1991,7 +2031,8 @@ function resolveCollisions(runtime: TopArenaRuntime, deltaSeconds: number, tunin
     if (distance < collisionDistance) {
       const contactAge = (runtime.collisionContacts[enemy.id] ?? 0) + deltaSeconds;
       collisionContacts[enemy.id] = contactAge;
-      const resolved = resolveTopCollisionPhysics(player, nextEnemy, runtime.time, index, contactAge, tuning);
+      const heavyThresholdScalar = hasArenaAnomalyRule(runtime.loadout, "heavyResonance") ? balanceConfig.anomaly.heavyResonanceThresholdScalar : 1;
+      const resolved = resolveTopCollisionPhysics(player, nextEnemy, runtime.time, index, contactAge, tuning, heavyThresholdScalar);
       player = hasDoctrineRule(nextRuntime, "anchorMass")
         ? {
             ...resolved.player,
@@ -2337,6 +2378,10 @@ function recoverPlayer(player: TopRuntimeEntity, deltaSeconds: number): TopRunti
 }
 
 function sustainPlayerEnergy(runtime: TopArenaRuntime, deltaSeconds: number): TopArenaRuntime {
+  if (hasArenaAnomalyRule(runtime.loadout, "noFluxSustain")) {
+    return runtime;
+  }
+
   return {
     ...runtime,
     player: sustainSpinEnergyFromFlux(runtime.player, deltaSeconds),

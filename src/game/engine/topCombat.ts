@@ -17,7 +17,7 @@ export type TopCombatProjection = {
   missingLayers: Array<"dps" | "tracking" | "guard" | "drift" | "grip" | "resistance" | "sustain">;
 };
 
-function createEnemyStats(arenaId: string): TopRuntimeStats {
+export function createProjectionEnemyStats(arenaId: string): TopRuntimeStats {
   const arena = getArenaCircuitDef(arenaId);
   return {
     maxSpinIntegrity: arena.enemyIntegrity,
@@ -84,7 +84,7 @@ export function projectTopCombat({
     omega: playerPhysics.omega,
     events: [],
   };
-  const enemy = createEnemyStats(arenaId);
+  const enemy = createProjectionEnemyStats(arenaId);
   const collisionHit = resolveTopHit({
     baseDamage: createCollisionPacket(player),
     attacker: player,

@@ -715,6 +715,42 @@
   background: linear-gradient(90deg, var(--violet), var(--brass));
 }
 
+.anomaly-hud-marker {
+  position: absolute;
+  left: 12px;
+  top: 64px;
+  z-index: 2;
+  width: min(260px, calc(100% - 28px));
+  display: grid;
+  gap: 2px;
+  border: 1px solid rgba(182, 140, 255, 0.4);
+  border-radius: 6px;
+  background: rgba(8, 10, 11, 0.78);
+  color: var(--soft);
+  padding: 7px 9px;
+  pointer-events: none;
+}
+
+.anomaly-hud-marker small,
+.anomaly-hud-marker strong,
+.anomaly-hud-marker span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.anomaly-hud-marker small,
+.anomaly-hud-marker span {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.anomaly-hud-marker strong {
+  color: var(--violet);
+  font-size: 0.78rem;
+}
+
 .arena-hud-grid {
   position: absolute;
   left: auto;
@@ -1161,7 +1197,8 @@
   font-size: 0.72rem;
 }
 
-.damage-pipeline {
+.damage-pipeline,
+.damage-components {
   min-width: 0;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1169,6 +1206,7 @@
 }
 
 .damage-pipeline span,
+.damage-components span,
 .modifier-status,
 .breakpoint-line,
 .threshold-line,
@@ -1183,13 +1221,15 @@
   font-size: 0.7rem;
 }
 
-.damage-pipeline span {
+.damage-pipeline span,
+.damage-components span {
   display: flex;
   justify-content: space-between;
   gap: 6px;
 }
 
-.damage-pipeline strong {
+.damage-pipeline strong,
+.damage-components strong {
   color: var(--soft);
 }
 
@@ -1199,6 +1239,17 @@
   min-width: 0;
   display: grid;
   gap: 5px;
+}
+
+.modifier-status-list {
+  max-height: 292px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.modifier-overflow-note {
+  color: var(--brass);
+  font-size: 0.72rem;
 }
 
 .modifier-status {
@@ -1249,6 +1300,16 @@
 .threshold-bad {
   border-color: rgba(217, 165, 84, 0.42);
   color: var(--brass);
+}
+
+.breakpoint-penalty {
+  border-color: rgba(223, 98, 76, 0.55);
+  border-left-color: rgba(223, 98, 76, 0.82);
+}
+
+.breakpoint-penalty strong,
+.breakpoint-penalty em {
+  color: var(--ember);
 }
 
 .breakpoint-line {

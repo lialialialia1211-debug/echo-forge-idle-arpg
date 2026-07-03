@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { useEffect, useRef, type RefObject } from "react";
 import { getArenaCircuitDef } from "../../data/arenaCircuits";
 import { clamp } from "../../engine/math";
+import { localizeEntityName, t } from "../../locale/zh-Hant";
 import type { ArenaCircuitDef, ArenaDrop, ArenaEffect, ArenaTuningConfig, EnemyBehaviorId, TopArenaRuntime, TopCollisionKind, TopRuntimeEntity } from "../../engine/topTypes";
 
 type Palette = {
@@ -926,7 +927,7 @@ class ArenaPhaserScene extends Phaser.Scene {
     const radius = map.radius(entity.radius);
     let label = this.labels.get(entity.id);
     if (!label) {
-      label = this.add.text(0, 0, entity.name, {
+      label = this.add.text(0, 0, localizeEntityName(entity.name), {
         color: palette.text,
         fontFamily: "Inter, system-ui, sans-serif",
         fontSize: "11px",
@@ -937,7 +938,7 @@ class ArenaPhaserScene extends Phaser.Scene {
       this.labels.set(entity.id, label);
     }
 
-    label.setText(entity.name);
+    label.setText(localizeEntityName(entity.name));
     label.setColor(palette.text);
     label.setPosition(point.x, point.y + radius + 24);
     label.setVisible(true);
@@ -1011,5 +1012,5 @@ export function ArenaPhaserView({ runtime, runtimeRef, tuning, onMetrics }: Aren
     sceneRef.current?.setRuntime(runtime);
   }, [runtime]);
 
-  return <div aria-label="Live battle top arena" className="arena-phaser-view" data-testid="arena-phaser-view" ref={hostRef} role="img" />;
+  return <div aria-label={t("ui.aria.arenaCanvas")} className="arena-phaser-view" data-testid="arena-phaser-view" ref={hostRef} role="img" />;
 }

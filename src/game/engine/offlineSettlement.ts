@@ -1,4 +1,5 @@
 import { getArenaCircuitDef } from "../data/arenaCircuits";
+import { getArenaAnomalyDef } from "../data/arenaAnomalies";
 import { balanceConfig } from "../data/balanceConfig";
 import { circuitNetworkNodes } from "../data/circuitNetwork";
 import { namedRivals } from "../data/namedRivals";
@@ -28,6 +29,8 @@ export type OfflineSettlementResult = {
   targetArenaId: string;
   targetArenaTier: number;
   circuitNodeId?: string;
+  anomalyId?: string;
+  anomalyRewardScalar: number;
   rivalUniqueDropsBlocked: boolean;
   kills: number;
   parts: TopPartInstance[];
@@ -37,6 +40,21 @@ export type OfflineSettlementResult = {
 
 const zeroWallet: AccountWallet = { ash: 0, glass: 0, echo: 0 };
 const rivalUniqueBaseIds = new Set(namedRivals.flatMap((rival) => rival.uniqueDropBaseIds));
+
+export function resolveOfflineElapsedSeconds(
+  lastSettledAt: string,
+  nowMs = Date.now(),
+  futureToleranceMs = 60_000,
+): { elapsedSeconds: number; futureClockSkew: boolean; settledAtMs: number | null } {
+  const settledAtMs = Date.parse(lastSettledAt);
+  if (!Number.isFinite(settledAtMs)) {
+    return { elapsedSeconds: 0, futureClockSkew: false, settledAtMs: null };
+  }
+  if (settledAtMs > nowMs + futureToleranceMs) {
+    return { elapsedSeconds: 0, futureClockSkew: true, settledAtMs };
+  }
+  return { elapsedSeconds: Math.max(0, (nowMs - settledAtMs) / 1000), futureClockSkew: false, settledAtMs };
+}
 
 function killWallet(kills: number): AccountWallet {
   return {
@@ -53,12 +71,16 @@ function resolveOfflineTarget(input: OfflineSettlementInput) {
   }
   const arenaId = node?.arenaId ?? input.arenaId;
   const arena = getArenaCircuitDef(arenaId);
+  const anomalyId = node?.anomalyId ?? input.loadout.anomalyId ?? undefined;
+  const anomaly = anomalyId ? getArenaAnomalyDef(anomalyId) : null;
   const rivalUniqueDropsBlocked = Boolean(node?.requiredRivalId || node?.unlocksRivalId);
   return {
     arena,
     arenaId,
     arenaTier: node ? arena.tier : input.arenaTier,
     circuitNodeId: node?.id,
+    anomaly,
+    anomalyRewardScalar: anomaly?.playerRule ? balanceConfig.offline.anomalyRuleRewardScalar : 1,
     rivalUniqueDropsBlocked,
   };
 }
@@ -74,6 +96,8 @@ export function resolveOfflineSettlement(input: OfflineSettlementInput): Offline
       targetArenaId: target.arenaId,
       targetArenaTier: target.arenaTier,
       circuitNodeId: target.circuitNodeId,
+      anomalyId: target.anomaly?.id,
+      anomalyRewardScalar: target.anomalyRewardScalar,
       rivalUniqueDropsBlocked: target.rivalUniqueDropsBlocked,
       kills: 0,
       parts: [],
@@ -103,6 +127,8 @@ export function resolveOfflineSettlement(input: OfflineSettlementInput): Offline
       killCount: killIndex,
       playerPartQuantity: input.partQuantity,
       playerPartRarity: input.partRarity,
+      rewardQuantity: (target.anomaly?.rewardQuantity ?? 0) * target.anomalyRewardScalar,
+      rewardRarity: (target.anomaly?.rewardRarity ?? 0) * target.anomalyRewardScalar,
     });
 
     if (!drop) {
@@ -126,6 +152,8 @@ export function resolveOfflineSettlement(input: OfflineSettlementInput): Offline
     targetArenaId: target.arenaId,
     targetArenaTier: target.arenaTier,
     circuitNodeId: target.circuitNodeId,
+    anomalyId: target.anomaly?.id,
+    anomalyRewardScalar: target.anomalyRewardScalar,
     rivalUniqueDropsBlocked: target.rivalUniqueDropsBlocked,
     kills,
     parts,

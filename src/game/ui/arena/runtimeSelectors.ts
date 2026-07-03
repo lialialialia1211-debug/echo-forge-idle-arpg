@@ -3,8 +3,10 @@ import { getDriveCoreDef } from "../../data/driveCores";
 import { attrValueForCondition, evaluateCombatCondition, type CombatContext } from "../../engine/conditionEval";
 import { evaluateDriveGate, type DriveGateStatus } from "../../engine/driveGate";
 import { clamp } from "../../engine/math";
-import { collisionImpactSeedFromMass, resolveStatsPhysics } from "../../engine/topPhysics";
-import type { CombatCondition, CombatEvent, DriveCoreDef, TopModifierDef, TopRuntimeEntity, TopRuntimeStats } from "../../engine/topTypes";
+import { createCollisionPacket, createProjectionEnemyStats, projectTopCombat } from "../../engine/topCombat";
+import { resolveTopHit } from "../../engine/topDamage";
+import { effectiveCooldownFromOmega, resolveStatsPhysics } from "../../engine/topPhysics";
+import type { CombatCondition, CombatEvent, DriveCoreDef, TopLoadoutConfig, TopModifierDef, TopRuntimeEntity, TopRuntimeStats } from "../../engine/topTypes";
 
 export type DamageBreakdownLine = {
   id: string;
@@ -25,11 +27,26 @@ export type DamageBreakdown = {
   moreProduct: number;
   lessProduct: number;
   preCritDamage: number;
+  rawDamage: number;
+  mitigatedDamage: number;
+  hitChance: number;
+  mitigationMultiplier: number;
   critChance: number;
   critExpectedMultiplier: number;
   attackFrequency: number;
   collisionDps: number;
+  driveDps: number;
+  dotDps: number;
+  totalDps: number;
   lines: DamageBreakdownLine[];
+};
+
+export type DpsBreakdownProjectionInput = {
+  arenaId: string;
+  frameId: string;
+  driveId: string;
+  loadout?: TopLoadoutConfig;
+  targetStats?: TopRuntimeStats;
 };
 
 export type BreakpointStatus = {
@@ -122,6 +139,10 @@ function modifierAffectsDamageBreakdown(modifier: TopModifierDef): boolean {
   );
 }
 
+function sumDamagePacket(packet: Record<string, number>): number {
+  return Object.values(packet).reduce((sum, value) => sum + value, 0);
+}
+
 function collectAttrConditions(condition: CombatCondition | undefined): Extract<CombatCondition, { kind: "attr" }>[] {
   if (!condition) {
     return [];
@@ -174,13 +195,14 @@ export function selectAttackFrequency(entity: TopRuntimeEntity): number {
   return combatContextForSelector(entity).physics.attackFrequency;
 }
 
-export function selectDpsBreakdown(entity: TopRuntimeEntity, events: CombatEvent[] = [], driveId?: string): DamageBreakdown {
+export function selectDpsBreakdown(entity: TopRuntimeEntity, events: CombatEvent[] = [], driveId?: string, projectionInput?: DpsBreakdownProjectionInput): DamageBreakdown {
   const context = combatContextForSelector(entity, events);
   const physics = context.physics;
   const drive = driveForEntity(entity, driveId);
   const tags = drive.tags;
   const modifiers = [...entity.stats.modifiers, ...drive.modifiers].filter(modifierAffectsDamageBreakdown);
-  const collisionSeed = collisionImpactSeedFromMass(physics.designMass);
+  const collisionPacket = createCollisionPacket(entity.stats);
+  const collisionSeed = collisionPacket.impact;
   const attackFrequency = physics.attackFrequency;
   const lines: DamageBreakdownLine[] = [
     {
@@ -241,10 +263,42 @@ export function selectDpsBreakdown(entity: TopRuntimeEntity, events: CombatEvent
     }
   }
 
-  const preCritDamage = Math.max(0, (collisionSeed + flatTotal) * (1 + increasedTotal - reducedTotal) * moreProduct * lessProduct);
-  const critChance = clamp(entity.stats.edge + edgeFlat, 0, 0.85);
-  const critExpectedMultiplier = 1 + critChance * (entity.stats.fracture - 1);
-  const collisionDps = preCritDamage * critExpectedMultiplier * attackFrequency;
+  const defender = projectionInput?.targetStats ?? createProjectionEnemyStats(projectionInput?.arenaId ?? "arena_cinder_crucible");
+  const collisionHit = resolveTopHit({
+    baseDamage: collisionPacket,
+    attacker: entity.stats,
+    defender,
+    drive,
+    sourceTags: ["attack", "melee"],
+    context,
+  });
+  const driveHit = resolveTopHit({
+    baseDamage: drive.hit?.damage ?? drive.baseDamage,
+    attacker: entity.stats,
+    defender,
+    drive,
+    sourceTags: drive.tags,
+    context,
+    hitFlags: drive.hit ? { usesTracking: drive.hit.usesTracking, canCrit: drive.hit.canCrit } : undefined,
+  });
+  const rawDamage = sumDamagePacket(collisionHit.rawDamage);
+  const mitigatedDamage = collisionHit.totalDamage;
+  const preCritDamage = rawDamage;
+  const critChance = collisionHit.critChance;
+  const critExpectedMultiplier = collisionHit.expectedCritMultiplier;
+  const effectiveCooldown = effectiveCooldownFromOmega(drive.cooldown?.baseSeconds ?? drive.baseCooldown, physics.omega, entity.stats.resonance, entity.stats.cooldownRecovery ?? 0);
+  const projected = projectionInput
+    ? projectTopCombat({
+        arenaId: projectionInput.arenaId,
+        frameId: projectionInput.frameId,
+        driveId: projectionInput.driveId,
+        loadout: projectionInput.loadout,
+      })
+    : null;
+  const collisionDps = projected?.collisionDps ?? collisionHit.totalDamage * Math.max(0.25, attackFrequency);
+  const driveDps = projected?.driveDps ?? driveHit.totalDamage / Math.max(0.25, effectiveCooldown);
+  const dotDps = projected?.dotDps ?? drive.dot?.baseDps ?? 0;
+  const totalDps = projected?.totalDps ?? collisionDps + driveDps + dotDps;
   lines.push(
     {
       id: "crit_expected_value",
@@ -272,6 +326,22 @@ export function selectDpsBreakdown(entity: TopRuntimeEntity, events: CombatEvent
       sourceId: "dps",
       type: "dps",
     },
+    {
+      id: "drive_dps",
+      label: "drive_dps",
+      value: driveDps,
+      active: true,
+      sourceId: drive.id,
+      type: "dps",
+    },
+    {
+      id: "dot_dps",
+      label: "dot_dps",
+      value: dotDps,
+      active: Boolean(dotDps),
+      sourceId: drive.id,
+      type: "dps",
+    },
   );
 
   return {
@@ -282,10 +352,17 @@ export function selectDpsBreakdown(entity: TopRuntimeEntity, events: CombatEvent
     moreProduct,
     lessProduct,
     preCritDamage,
+    rawDamage,
+    mitigatedDamage,
+    hitChance: collisionHit.hitChance,
+    mitigationMultiplier: rawDamage > 0 ? mitigatedDamage / rawDamage : 1,
     critChance,
     critExpectedMultiplier,
     attackFrequency,
     collisionDps,
+    driveDps,
+    dotDps,
+    totalDps,
     lines,
   };
 }

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { collisionSpinEnergyLoss, createCollisionDamage, createTopArenaRuntime, resolveTopCollisionPhysics, stepTopArenaRuntime } from "./arenaRuntime";
+import { collisionSpinEnergyLoss, createCollisionDamage, createTopArenaRuntime, defaultArenaTuning, resolveTopCollisionPhysics, stepTopArenaRuntime } from "./arenaRuntime";
 import { createCollisionPacket } from "./topCombat";
 import { resolveTopRuntimeStats } from "./topAssembly";
 import { createPartFromArenaDrop, generateTopPart } from "./topPartGeneration";
+import { balanceConfig } from "../data/balanceConfig";
 import { getNamedRivalDef } from "../data/namedRivals";
 import { createStarterEquipment } from "../data/topParts";
 import type { AilmentState, TopRuntimeEntity } from "./topTypes";
@@ -637,8 +638,42 @@ describe("top arena runtime", () => {
 
     expect(next.player.spinIntegrity).toBeLessThan(player.spinIntegrity);
     expect(next.enemies[0].cooldownRemaining).toBeGreaterThan(1);
-    expect(next.combatEvents.some((event) => event.kind === "overheat" && event.sourceId === boss.id && event.targetId === player.id)).toBe(true);
+    expect(next.combatEvents.some((event) => event.kind === "reflect" && event.sourceId === boss.id && event.targetId === player.id && event.driveId === "drive_shard_barrage")).toBe(true);
     expect(next.events.some((event) => event.text.includes("reflects projectile pressure"))).toBe(true);
+  });
+
+  it("does not reflect non-projectile player Drives", () => {
+    const rival = getNamedRivalDef("rival_sable_reflector");
+    const runtime = createTopArenaRuntime({
+      arenaId: "arena_red_chancel_disk",
+      frameId: "frame_ember_crucible",
+      driveId: "drive_ember_scour",
+      seed: "rival_no_reflect_spell_test",
+      mode: "duel",
+      rivalId: rival.id,
+    });
+    const spawned = stepTopArenaRuntime(runtime, 0.05);
+    const boss = {
+      ...spawned.enemies[0],
+      x: 0,
+      y: 150,
+      vx: 0,
+      vy: 0,
+      cooldownRemaining: 0,
+    };
+    const player = {
+      ...spawned.player,
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      spinIntegrity: spawned.player.stats.maxSpinIntegrity,
+    };
+
+    const next = stepTopArenaRuntime({ ...spawned, player, enemies: [boss], nextEnemyIn: 10 }, 0.05);
+
+    expect(next.player.spinIntegrity).toBe(player.spinIntegrity);
+    expect(next.combatEvents.some((event) => event.kind === "reflect")).toBe(false);
   });
 
   it("duel mode uses a smaller ring-out boundary", () => {
@@ -724,6 +759,92 @@ describe("top arena runtime", () => {
 
     expect(anomalous.enemies[0].stats.maxSpinIntegrity).toBeGreaterThan(normal.enemies[0].stats.maxSpinIntegrity);
     expect(anomalous.enemies[0].stats.impact).toBeGreaterThan(normal.enemies[0].stats.impact);
+  });
+
+  it("noFluxSustain anomalies stop Flux from restoring spin energy", () => {
+    const baseRuntime = createTopArenaRuntime({
+      arenaId: "arena_red_chancel_disk",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "no_flux_sustain_test",
+    });
+    const woundedPlayer = {
+      ...baseRuntime.player,
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      spinEnergy: 120,
+      maxSpinEnergy: 1000,
+      flux: 100,
+      maxFlux: 100,
+      cooldownRemaining: 10,
+    };
+    const normal = stepTopArenaRuntime({ ...baseRuntime, player: woundedPlayer, enemies: [], nextEnemyIn: 10 }, 1);
+    const blocked = stepTopArenaRuntime(
+      {
+        ...baseRuntime,
+        loadout: { anomalyId: "anomaly_ember_backdraft" },
+        player: woundedPlayer,
+        enemies: [],
+        nextEnemyIn: 10,
+      },
+      1,
+    );
+
+    expect(normal.player.spinEnergy ?? 0).toBeGreaterThan(blocked.player.spinEnergy ?? 0);
+    expect(blocked.player.flux ?? 0).toBeGreaterThan(normal.player.flux ?? 0);
+  });
+
+  it("shrinkingArena anomalies reduce the active arena boundary", () => {
+    const baseRuntime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "shrinking_arena_test",
+    });
+    const edgePlayer = { ...baseRuntime.player, x: 230, y: 0, vx: 220, vy: 0, cooldownRemaining: 10 };
+    const normal = stepTopArenaRuntime({ ...baseRuntime, player: edgePlayer, enemies: [], nextEnemyIn: 10 }, 0.05);
+    const shrunk = stepTopArenaRuntime(
+      {
+        ...baseRuntime,
+        loadout: { anomalyId: "anomaly_glass_hail" },
+        player: edgePlayer,
+        enemies: [],
+        nextEnemyIn: 10,
+      },
+      0.05,
+    );
+
+    expect(Math.hypot(normal.player.x, normal.player.y)).toBeGreaterThan(205);
+    expect(Math.hypot(shrunk.player.x, shrunk.player.y)).toBeLessThan(180);
+  });
+
+  it("heavyResonance anomalies lower the heavy collision threshold", () => {
+    const baseRuntime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "heavy_resonance_threshold_test",
+    });
+    const player = { ...baseRuntime.player, x: -20, y: 0, vx: 8, vy: 0, cooldownRemaining: 10, spinPower: 10, maxSpinEnergy: 100, spinEnergy: 10, wobble: 0 };
+    const enemy = makeTestEnemy(baseRuntime, {
+      x: 20,
+      y: 0,
+      vx: -8,
+      spinPower: 10,
+      maxSpinEnergy: 100,
+      spinEnergy: 10,
+      vy: 0,
+      radius: 22,
+      stats: { ...baseRuntime.player.stats, maxSpinIntegrity: 6000, maxFluxGuard: 400, guard: 0, drift: 1, mass: 1, grip: 0.44, modifiers: [] },
+    });
+
+    const normal = resolveTopCollisionPhysics(player, enemy, 0, 0, 0.05, defaultArenaTuning, 1);
+    const resonant = resolveTopCollisionPhysics(player, enemy, 0, 0, 0.05, defaultArenaTuning, balanceConfig.anomaly.heavyResonanceThresholdScalar);
+
+    expect(normal.collision.heavy).toBe(false);
+    expect(resonant.collision.heavy).toBe(true);
   });
 
   it("ringOutPressure increases outward enemy launch", () => {
@@ -886,6 +1007,64 @@ describe("top arena runtime", () => {
     expect(next.enemies[0]?.spinPower).toBeLessThan(100);
     expect(next.events.some((event) => event.text.includes("Razor Rebound hits"))).toBe(true);
     expect(next.player.cooldownRemaining).toBeGreaterThan(0);
+  });
+
+  it("bleeds only part of spin energy on heavy collision structure damage", () => {
+    const baseRuntime = createTopArenaRuntime({
+      arenaId: "arena_cinder_crucible",
+      frameId: "frame_swift_razor",
+      driveId: "drive_shard_barrage",
+      seed: "heavy_bleed_test",
+    });
+    const enemyStats = {
+      ...baseRuntime.player.stats,
+      maxSpinIntegrity: 18000,
+      maxFluxGuard: 800,
+      guard: 0,
+      drift: 1,
+      mass: 1,
+      grip: 0.44,
+      modifiers: [],
+    };
+    const enemy = {
+      ...baseRuntime.player,
+      id: "heavy_bleed_target",
+      team: "enemy" as const,
+      name: "Heavy Bleed Target",
+      rank: "pack" as const,
+      x: 20,
+      y: 0,
+      vx: -190,
+      vy: 0,
+      radius: 22,
+      spinIntegrity: enemyStats.maxSpinIntegrity,
+      fluxGuard: enemyStats.maxFluxGuard,
+      spinPower: 100,
+      maxSpinEnergy: 100000,
+      spinEnergy: 100000,
+      wobble: 0,
+      cooldownRemaining: 10,
+      stats: enemyStats,
+      behaviorId: "hunter" as const,
+    };
+    const next = stepTopArenaRuntime(
+      {
+        ...baseRuntime,
+        player: { ...baseRuntime.player, x: -20, y: 0, vx: 190, vy: 0, cooldownRemaining: 10, spinPower: 100, wobble: 0 },
+        enemies: [enemy],
+        nextEnemyIn: 10,
+      },
+      0.05,
+    );
+
+    expect(next.lastCollision?.heavy).toBe(true);
+    const damagedEnemy = next.enemies[0];
+    const collisionDrain = collisionSpinEnergyLoss(enemy, next.lastCollision!.normalImpulse);
+    const dealEnergyDamage = (enemy.spinEnergy ?? 0) - (damagedEnemy.spinEnergy ?? 0) - collisionDrain;
+    const integrityDamage = enemy.spinIntegrity - damagedEnemy.spinIntegrity;
+
+    expect(integrityDamage).toBeGreaterThan(0);
+    expect(dealEnergyDamage / integrityDamage).toBeCloseTo(balanceConfig.combat.heavyEnergyBleed, 1);
   });
 
   it("resolves enemy-to-enemy collisions without dealing friendly damage", () => {

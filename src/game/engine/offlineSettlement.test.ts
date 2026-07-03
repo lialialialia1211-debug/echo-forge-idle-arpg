@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { balanceConfig } from "../data/balanceConfig";
 import { namedRivals } from "../data/namedRivals";
 import { createStarterEquipment } from "../data/topParts";
-import { resolveOfflineSettlement } from "./offlineSettlement";
+import { resolveOfflineElapsedSeconds, resolveOfflineSettlement } from "./offlineSettlement";
 import type { TopLoadoutConfig } from "./topTypes";
 
 function input(overrides: Partial<Parameters<typeof resolveOfflineSettlement>[0]> = {}): Parameters<typeof resolveOfflineSettlement>[0] {
@@ -43,6 +43,14 @@ describe("resolveOfflineSettlement", () => {
     expect(result.wallet).toEqual({ ash: 0, glass: 0, echo: 0 });
   });
 
+  it("flags future settlement timestamps without granting elapsed time", () => {
+    const now = Date.parse("2026-07-03T12:00:00.000Z");
+    const result = resolveOfflineElapsedSeconds("2026-07-03T12:02:00.000Z", now);
+
+    expect(result.futureClockSkew).toBe(true);
+    expect(result.elapsedSeconds).toBe(0);
+  });
+
   it("does not reduce kills for a stronger loadout", () => {
     const weak = resolveOfflineSettlement(input({ loadout: {} }));
     const strongLoadout: TopLoadoutConfig = {
@@ -79,6 +87,17 @@ describe("resolveOfflineSettlement", () => {
     expect(result.circuitNodeId).toBe("network_magnet_well");
     expect(result.targetArenaId).toBe("arena_red_chancel_disk");
     expect(result.targetArenaTier).toBe(3);
+  });
+
+  it("halves anomaly player-rule rewards during offline settlement", () => {
+    const result = resolveOfflineSettlement(
+      input({
+        circuitNodeId: "network_magnet_well",
+      }),
+    );
+
+    expect(result.anomalyId).toBe("anomaly_flux_monsoon");
+    expect(result.anomalyRewardScalar).toBe(balanceConfig.offline.anomalyRuleRewardScalar);
   });
 
   it("does not create named rival unique drops for offline rival nodes", () => {

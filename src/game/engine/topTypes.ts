@@ -71,7 +71,7 @@ export type TopModifierDef = {
   condition?: CombatCondition;
 };
 
-export type CombatEventKind = TopCollisionKind | "ringout" | "overheat" | "discharge" | "stabilize" | "stance_shift";
+export type CombatEventKind = TopCollisionKind | "ringout" | "overheat" | "discharge" | "stabilize" | "stance_shift" | "reflect";
 
 export type CombatCondition =
   | { kind: "attr"; attr: "mass" | "volume" | "spinEnergyRatio" | "fluxRatio" | "omega" | "maxFlux"; op: ">=" | "<=" | "<" | ">" | "=="; value: number }
@@ -232,8 +232,11 @@ export type ArenaAnomalyDef = {
   enemyImpactMultiplier: number;
   rewardQuantity: number;
   rewardRarity: number;
+  playerRule?: ArenaAnomalyRule;
   requiredBossGateId?: string;
 };
+
+export type ArenaAnomalyRule = "noFluxSustain" | "shrinkingArena" | "heavyResonance";
 
 export type TopPartSlotId = "core" | "attackRing" | "weightDisk" | "tip" | "launcher" | "seal" | "circuitChip";
 

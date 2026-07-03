@@ -57,7 +57,7 @@ import { generateArenaKey, summarizeArenaKeyRiskReward } from "../../engine/aren
 import { projectBossGateAttempt } from "../../engine/bossGate";
 import { validateRuneLoadout } from "../../engine/driveRuneValidation";
 import { clamp, formatNumber, formatPercent, round } from "../../engine/math";
-import { resolveOfflineSettlement, type OfflineSettlementResult } from "../../engine/offlineSettlement";
+import { resolveOfflineElapsedSeconds, resolveOfflineSettlement, type OfflineSettlementResult } from "../../engine/offlineSettlement";
 import { resolveTopRuntimeStats } from "../../engine/topAssembly";
 import {
   addRandomEngraving,
@@ -85,7 +85,9 @@ import {
 import type {
   ArenaEffect,
   ArenaKey,
+  ArenaAnomalyRule,
   ArenaTuningConfig,
+  BossGateFailureReason,
   CombatEvent,
   CircuitAtlasNodeDef,
   DoctrineDef,
@@ -308,6 +310,20 @@ function displayRuneName(rune: TuningRuneDef): string {
 
 function displayFrameName(frameId: string, fallback: string): string {
   return dataName("frame", frameId, fallback);
+}
+
+function bossFailureLabel(reason: BossGateFailureReason): string {
+  if (reason === "dps") {
+    return term("stat", "dps", "DPS");
+  }
+  if (reason === "resistance") {
+    return term("stat", "resistance", reason);
+  }
+  return term("stat", reason, reason);
+}
+
+function anomalyRuleLabel(rule: ArenaAnomalyRule | undefined): string {
+  return rule ? t(`ui.anomaly.rule.${rule}`) : t("ui.anomaly.rule.none");
 }
 
 function buildPartVerdict(part: TopPartInstance, currentStats: TopRuntimeStats, previewStats: TopRuntimeStats, equipped: boolean): PartVerdict {
@@ -857,7 +873,8 @@ export function CombatArena() {
   const defeatCauseDetail = formatDefeatDetail(runtime.defeatCause);
   const playerOmega = selectOmega(runtime.player);
   const playerAttackFrequency = selectAttackFrequency(runtime.player);
-  const dpsBreakdown = selectDpsBreakdown(runtime.player, runtime.combatEvents, driveId);
+  const dpsBreakdown = selectDpsBreakdown(runtime.player, runtime.combatEvents, driveId, { arenaId, frameId, driveId, loadout });
+  const damageModifierLines = dpsBreakdown.lines.filter((line) => !["base", "crit", "frequency", "dps"].includes(line.type));
   const breakpointStatuses = selectBreakpointStatus(runtime.player, driveId, runtime.combatEvents);
   const equipCompare = useMemo(() => selectEquipCompare(currentStats, previewStats, driveId), [currentStats, driveId, previewStats]);
   const eSustain = selectESustain(runtime.player);
@@ -865,6 +882,7 @@ export function CombatArena() {
   const cooldownRatio = drive.baseCooldown > 0 ? 1 - clamp(runtime.player.cooldownRemaining / drive.baseCooldown, 0, 1) : 1;
   const routeMechanic = runtime.routeMechanic;
   const routeMechanicProgress = routeMechanic ? clamp(routeMechanic.progress / routeMechanic.maxProgress, 0, 1) : 0;
+  const activeAnomaly = runtime.loadout.anomalyId ? getArenaAnomalyDef(runtime.loadout.anomalyId) : null;
   const target = runtime.enemies[0] ?? null;
   const targetIntegrity = target ? selectLifeRatio(target) : 0;
   const bossEnemy = runtime.enemies.find((enemy) => enemy.rank === "boss") ?? null;
@@ -1118,12 +1136,18 @@ export function CombatArena() {
     );
   };
 
-  const startAnomalyRoute = (anomalyId: string) => {
+  const startAnomalyRoute = (anomalyId: string, nextArenaId = arenaId) => {
     const anomaly = getArenaAnomalyDef(anomalyId);
+    const action = { type: "selectArena", arenaId: nextArenaId } as const;
+    const nextState = nextArenaId === arenaId ? account : accountReducer(account, action);
+    if (nextArenaId !== arenaId) {
+      dispatchAccount(action);
+    }
+
     setRunning(false);
     setActiveAnomalyId(anomalyId);
     setScreen("combat");
-    resetArena(frameId, driveId, arenaId, { ...loadout, anomalyId }, currentArenaKey, "route");
+    resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, { ...loadoutFromAccountState(nextState), anomalyId }, nextArenaId === arenaId ? currentArenaKey : null, "route");
     setLootNotices((current) =>
       [
         {
@@ -1324,8 +1348,37 @@ export function CombatArena() {
     }
     offlineSettlementAppliedRef.current = true;
 
-    const lastSettledMs = Date.parse(initialSave.top.lastSettledAt);
-    const elapsedSeconds = Number.isFinite(lastSettledMs) ? (Date.now() - lastSettledMs) / 1000 : 0;
+    const nowMs = Date.now();
+    const offlineElapsed = resolveOfflineElapsedSeconds(initialSave.top.lastSettledAt, nowMs);
+    if (offlineElapsed.futureClockSkew) {
+      const now = new Date(nowMs).toISOString();
+      const nextSave = {
+        ...saveShellRef.current,
+        currencies: {
+          ...saveShellRef.current.currencies,
+          ash: account.wallet.ash,
+          glass: account.wallet.glass,
+          echo: account.wallet.echo,
+        },
+        top: accountStateToSaveTop(account, now),
+        lastSavedAt: now,
+      };
+      saveShellRef.current = nextSave;
+      writeLocalSave(nextSave);
+      setLootNotices((current) =>
+        [
+          {
+            id: `offline_clock_skew_${now}`,
+            tone: "reward" as const,
+            text: t("ui.offline.clockSkew"),
+          },
+          ...current,
+        ].slice(0, 8),
+      );
+      return;
+    }
+
+    const elapsedSeconds = offlineElapsed.elapsedSeconds;
     if (elapsedSeconds < 60) {
       return;
     }
@@ -2072,7 +2125,7 @@ export function CombatArena() {
         </div>
         <div className="modifier-lines">
           {bossProjection.failureReasons.length > 0 ? (
-            bossProjection.failureReasons.map((reason) => <span key={reason}>{reason}: 目標 {formatNumber(bossProjection.recommendedStats[reason] ?? 0, 1)}</span>)
+            bossProjection.failureReasons.map((reason) => <span key={reason}>{bossFailureLabel(reason)}: 目標 {formatNumber(bossProjection.recommendedStats[reason] ?? 0, 1)}</span>)
           ) : (
             <span>{t("ui.route.bossGateStable")}</span>
           )}
@@ -2100,6 +2153,7 @@ export function CombatArena() {
                 <span>
                   {dataName("network", node.id, node.displayName)}
                   {rival ? <small>{dataName("rival", rival.id, rival.displayName)}</small> : null}
+                  {anomaly ? <small>{anomalyRuleLabel(anomaly.playerRule)} / {formatPercent(anomaly.rewardQuantity + anomaly.rewardRarity, 0)} {t("ui.route.reward")}</small> : null}
                 </span>
                 <div className="route-line-actions">
                   {rival ? (
@@ -2108,7 +2162,7 @@ export function CombatArena() {
                     </button>
                   ) : null}
                   {anomaly ? (
-                    <button className="arena-button" disabled={!unlocked} onClick={() => startAnomalyRoute(anomaly.id)} type="button">
+                    <button className="arena-button" disabled={!unlocked} onClick={() => startAnomalyRoute(anomaly.id, node.arenaId)} type="button">
                       {unlocked ? dataName("anomaly", anomaly.id, anomaly.displayName) : t("ui.route.locked")}
                     </button>
                   ) : null}
@@ -2566,7 +2620,11 @@ export function CombatArena() {
         <section className={["arena-stage-panel", running ? "arena-stage-live" : "", currentArenaKey ? "arena-stage-keyed" : ""].filter(Boolean).join(" ")}>
           <div className="arena-stage-header">
             <div>
-              <span className="arena-kicker">{runtime.activeEvent ? `${dataName("arena", arena.id, arena.displayName)} / ${dataName("arenaEvent", runtime.activeEvent.eventId, runtime.activeEvent.displayName)}` : dataName("arena", arena.id, arena.displayName)}</span>
+              <span className="arena-kicker">
+                {[dataName("arena", arena.id, arena.displayName), runtime.activeEvent ? dataName("arenaEvent", runtime.activeEvent.eventId, runtime.activeEvent.displayName) : null, activeAnomaly ? dataName("anomaly", activeAnomaly.id, activeAnomaly.displayName) : null]
+                  .filter(Boolean)
+                  .join(" / ")}
+              </span>
               <h1>{displayFrameName(frame.id, frame.displayName)}</h1>
             </div>
             <div className={target ? "target-strip target-strip-active" : "target-strip"}>
@@ -2619,6 +2677,13 @@ export function CombatArena() {
                   <span>{dangerCue.detail}</span>
                   <i style={{ width: `${clamp(dangerCue.progress, 0, 1) * 100}%` }} />
                 </div>
+              </div>
+            ) : null}
+            {activeAnomaly ? (
+              <div className="anomaly-hud-marker" aria-live="polite">
+                <small>{t("ui.anomaly.active")}</small>
+                <strong>{dataName("anomaly", activeAnomaly.id, activeAnomaly.displayName)}</strong>
+                <span>{anomalyRuleLabel(activeAnomaly.playerRule)}</span>
               </div>
             ) : null}
             {showDebugHud ? (
@@ -2713,7 +2778,7 @@ export function CombatArena() {
               <div className="resource-orb resource-orb-life">
                 <i style={{ height: `${playerIntegrity * 100}%` }} />
                 <div>
-                  <small>E</small>
+                  <small>{t("ui.resource.energyShort")}</small>
                   <strong>{formatPercent(playerIntegrity, 0)}</strong>
                 </div>
               </div>
@@ -2800,6 +2865,8 @@ export function CombatArena() {
                     <span>ω {round(playerOmega, 2)}</span>
                     <span>{t("ui.debug.attackFrequency")} {round(playerAttackFrequency, 2)}</span>
                     <span>{t("ui.debug.collisionDps")} {formatNumber(dpsBreakdown.collisionDps, 1)}</span>
+                    <span>{t("ui.damage.driveDps")} {formatNumber(dpsBreakdown.driveDps, 1)}</span>
+                    <span>{t("ui.damage.dotDps")} {formatNumber(dpsBreakdown.dotDps, 1)}</span>
                     <span>{t("ui.debug.fluxToEnergy")} {formatNumber(eSustain.energyPerSecond, 1)}/秒</span>
                     <span>{t("ui.debug.sustainFlux")} {formatNumber(eSustain.fluxPerSecond, 1)}/秒</span>
                     <span>{t("ui.debug.gate")} {driveGateStatus.unlocked ? t("ui.skill.ready") : t("ui.skill.locked")}</span>
@@ -2810,28 +2877,35 @@ export function CombatArena() {
                 <section className="inspection-card">
                   <div className="inspection-card-head">
                     <strong>{t("ui.section.damageBreakdown")}</strong>
-                    <span>{formatNumber(dpsBreakdown.collisionDps, 1)} DPS</span>
+                    <span>{formatNumber(dpsBreakdown.totalDps, 1)} DPS</span>
                   </div>
                   <div className="damage-pipeline">
                     <span>{t("ui.damage.base")} <strong>{formatNumber(dpsBreakdown.collisionSeed, 1)}</strong></span>
                     <span>{t("ui.damage.flat")} <strong>{formatNumber(dpsBreakdown.flatTotal, 1)}</strong></span>
                     <span>{t("ui.damage.increased")} <strong>{formatPercent(dpsBreakdown.increasedTotal - dpsBreakdown.reducedTotal, 0)}</strong></span>
                     <span>{t("ui.damage.moreLess")} <strong>x{round(dpsBreakdown.moreProduct * dpsBreakdown.lessProduct, 2)}</strong></span>
+                    <span>{t("ui.damage.conversion")} <strong>{formatNumber(dpsBreakdown.rawDamage, 1)}</strong></span>
+                    <span>{t("ui.damage.mitigation")} <strong>x{round(dpsBreakdown.mitigationMultiplier, 2)}</strong></span>
                     <span>{t("ui.damage.critEv")} <strong>x{round(dpsBreakdown.critExpectedMultiplier, 2)}</strong></span>
                     <span>{t("ui.damage.frequency")} <strong>{round(dpsBreakdown.attackFrequency, 2)}/秒</strong></span>
                   </div>
+                  <div className="damage-components">
+                    <span>{t("ui.damage.collisionDps")} <strong>{formatNumber(dpsBreakdown.collisionDps, 1)}</strong></span>
+                    <span>{t("ui.damage.driveDps")} <strong>{formatNumber(dpsBreakdown.driveDps, 1)}</strong></span>
+                    <span>{t("ui.damage.dotDps")} <strong>{formatNumber(dpsBreakdown.dotDps, 1)}</strong></span>
+                  </div>
                   <div className="modifier-status-list">
-                    {dpsBreakdown.lines.filter((line) => !["base", "crit", "frequency", "dps"].includes(line.type)).length > 0 ? (
-                      dpsBreakdown.lines
-                        .filter((line) => !["base", "crit", "frequency", "dps"].includes(line.type))
-                        .slice(0, 8)
-                        .map((line) => (
+                    {damageModifierLines.length > 0 ? (
+                      <>
+                        {damageModifierLines.length > 8 ? <span className="modifier-overflow-note">{t("ui.damage.moreModifiers", { count: damageModifierLines.length - 8 })}</span> : null}
+                        {damageModifierLines.map((line) => (
                           <span className={line.active ? "modifier-status modifier-active" : "modifier-status modifier-standby"} key={line.id}>
                             <small>{line.active ? t("ui.damage.active") : t("ui.damage.standby")}</small>
                             <strong>{term("modifier", line.type, line.type)} {statLabel(line.stat ?? "damage")} {formatPercent(line.value, 0)}</strong>
                             <em>{t("ui.damage.source")}: {displaySourceName(line.sourceId)}</em>
                           </span>
-                        ))
+                        ))}
+                      </>
                     ) : (
                       <span className="empty-drop">{t("ui.damage.noConditional")}</span>
                     )}
@@ -2845,12 +2919,12 @@ export function CombatArena() {
                   <div className="breakpoint-list">
                     {breakpointStatuses.length > 0 ? (
                       breakpointStatuses.map((status) => (
-                        <span className={status.triggered ? "breakpoint-line breakpoint-active" : "breakpoint-line breakpoint-waiting"} key={`${status.id}_${status.attr}_${status.op}`}>
+                        <span className={[status.triggered ? "breakpoint-line breakpoint-active" : "breakpoint-line breakpoint-waiting", status.penalty ? "breakpoint-penalty" : ""].filter(Boolean).join(" ")} key={`${status.id}_${status.attr}_${status.op}`}>
                           <strong>{displaySourceName(status.sourceId)}</strong>
                           <small>
                             {term("stat", status.attr)} {formatNumber(status.currentValue, status.attr === "spinEnergyRatio" || status.attr === "fluxRatio" ? 2 : 1)} / {status.op} {formatNumber(status.value, status.attr === "spinEnergyRatio" || status.attr === "fluxRatio" ? 2 : 1)}
                           </small>
-                          <em>{breakpointDeltaText(status)}</em>
+                          <em>{status.penalty ? `${t("ui.breakpoint.penaltyPrefix")} ${breakpointDeltaText(status)}` : breakpointDeltaText(status)}</em>
                         </span>
                       ))
                     ) : (

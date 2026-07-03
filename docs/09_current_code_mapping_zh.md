@@ -3,6 +3,8 @@
 日期：2026-06-30  
 狀態：Implementation Mapping v0.1
 
+> 歷史快照：本文件保留 2026-06-30 的落地切點。最新程式邊界、測試數與 schema 狀態請以 `docs/12_update_log_zh.md` 為準。
+
 ## 1. 可保留
 
 - `src/game/engine/topDamage.ts`：已有 base、flat、increased/reduced、more/less、conversion、extra-as、hit chance、crit EV、guard、resistance、penetration。

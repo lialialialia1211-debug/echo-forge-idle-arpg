@@ -49,6 +49,7 @@ const validDriveTags: DriveTag[] = [
 ];
 const validDamageTypes = ["impact", "heat", "glass", "static", "void"];
 const validCollisionKinds = ["scrape", "clash", "smash", "grind"];
+const validArenaAnomalyRules = ["noFluxSustain", "shrinkingArena", "heavyResonance"];
 
 describe("top ARPG data integrity", () => {
   it("keeps drive collision behavior data-driven in arena runtime", () => {
@@ -85,7 +86,7 @@ describe("top ARPG data integrity", () => {
     expect(circuitAtlasNodes.length).toBeGreaterThanOrEqual(12);
     expect(talentNodes.length).toBeGreaterThanOrEqual(90);
     expect(doctrines.length).toBeGreaterThanOrEqual(6);
-    expect(arenaAnomalies.length).toBeGreaterThanOrEqual(5);
+    expect(arenaAnomalies.length).toBeGreaterThanOrEqual(8);
     expect(namedRivals.length).toBeGreaterThanOrEqual(rivalMechanicIds.length);
     expect(circuitNetworkNodes.length).toBeGreaterThanOrEqual(12);
     expect(circuitNetworkNodes.length).toBeLessThanOrEqual(16);
@@ -192,6 +193,16 @@ describe("top ARPG data integrity", () => {
       expect(event.minTier).toBeGreaterThan(0);
       expect(event.weight).toBeGreaterThan(0);
       expect((event.rewardBias ?? []).every((bias) => validRewardBiasTargets.has(bias.target))).toBe(true);
+    }
+
+    for (const anomaly of arenaAnomalies) {
+      expect(anomaly.minTier).toBeGreaterThan(0);
+      expect(anomaly.enemyIntegrityMultiplier).toBeGreaterThanOrEqual(1);
+      expect(anomaly.enemyImpactMultiplier).toBeGreaterThanOrEqual(1);
+      expect(anomaly.rewardQuantity + anomaly.rewardRarity).toBeGreaterThan(0);
+      if (anomaly.playerRule) {
+        expect(validArenaAnomalyRules).toContain(anomaly.playerRule);
+      }
     }
 
     for (const modifier of enemyModifiers) {
