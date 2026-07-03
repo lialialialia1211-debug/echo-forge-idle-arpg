@@ -140,7 +140,7 @@ import {
 } from "./runtimeSelectors";
 import "./CombatArena.css";
 
-type ArenaScreen = "combat" | "map" | "workbench";
+type ArenaScreen = "home" | "combat" | "map" | "workbench";
 
 type ActivePanel = "loadout" | "inventory" | "skills" | "forge" | "talents";
 
@@ -954,7 +954,7 @@ export function CombatArena() {
   const devOptionsEnabled = useMemo(() => readDevOptionsEnabled(), []);
   const [arenaTuning, setArenaTuning] = useState<ArenaTuningConfig>(defaultArenaTuning);
   const [rendererMetrics, setRendererMetrics] = useState<ArenaRendererMetrics>(initialRendererMetrics);
-  const [screen, setScreen] = useState<ArenaScreen>("combat");
+  const [screen, setScreen] = useState<ArenaScreen>("home");
   const [activePanel, setActivePanel] = useState<ActivePanel>("loadout");
   const [tutorialReplayStepId, setTutorialReplayStepId] = useState<string | null>(null);
   const [inventoryFilter, setInventoryFilter] = useState<TopPartSlotId | "all">("all");
@@ -3085,6 +3085,234 @@ export function CombatArena() {
     setRunning((value) => !value);
   };
 
+  const startIdleFromHome = () => {
+    setScreen("combat");
+    if (!running && !runtimeDefeated) {
+      toggleRunning();
+    }
+  };
+
+  const renderHomePanel = () => {
+    const recentDropCount = lootNotices.filter((notice) => notice.tone === "drop").length;
+    const visibleDropCount = Math.max(runtime.drops.length, recentDropCount, offlineReport?.parts.length ?? 0);
+    const idleNode = selectedOfflineNodeId ? circuitNetworkNodes.find((node) => node.id === selectedOfflineNodeId) ?? null : recommendedOfflineNode;
+    const idleTargetName = idleNode ? dataName("network", idleNode.id, idleNode.displayName) : dataName("arena", arena.id, arena.displayName);
+    const progressTargetName = recommendedProgressNode ? dataName("network", recommendedProgressNode.id, recommendedProgressNode.displayName) : dataName("arena", arena.id, arena.displayName);
+    const nextRouteName = selectedArenaKey ? formatKeyTitle(selectedArenaKey) : bossProjection.successChance >= 0.5 ? "Boss 門可嘗試" : progressTargetName;
+    const selectedPartSignal = selectedPartRetention?.label ?? selectedPartVerdict?.label ?? (selectedPart ? displayPartName(selectedPart) : "尚未選取零件");
+    const offlineText = offlineReport
+      ? `${formatNumber(offlineReport.kills, 0)} 擊破 / ${offlineReport.parts.length} 件掉落`
+      : `${formatNumber(selectedRouteStrategy.offline.killsPerHour, 0)} 擊殺/時 / ${formatNumber(selectedRouteStrategy.offline.dropsPerHour, 1)} 件/時`;
+    const primaryScore = buildArchetypeProjection.scores.find((score) => score.id === buildArchetypeProjection.primary)?.score ?? 0;
+    const currentMainObjective =
+      chapterProgress.complete
+        ? "第一章已完成，開始挑選長線路線。"
+        : `${t("ui.chapter.cinder")} ${chapterProgress.done}/${chapterProgress.total}，下一步是推進可開放路線。`;
+    let primaryAction: {
+      tone: DecisionCueTone;
+      icon: ReactNode;
+      title: string;
+      detail: string;
+      button: string;
+      onClick: () => void;
+    };
+
+    if (offlineReport) {
+      primaryAction = {
+        tone: "rare",
+        icon: <PackageOpen size={22} aria-hidden />,
+        title: "收取離線戰利品",
+        detail: offlineText,
+        button: "收取",
+        onClick: openOfflineWorkbench,
+      };
+    } else if (running) {
+      primaryAction = {
+        tone: "good",
+        icon: <Pause size={22} aria-hidden />,
+        title: "正在自動掛機",
+        detail: `${dataName("arena", arena.id, arena.displayName)}，目前 ${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)} 擊破。`,
+        button: "查看戰鬥",
+        onClick: () => setScreen("combat"),
+      };
+    } else if (visibleDropCount > 0) {
+      primaryAction = {
+        tone: "rare",
+        icon: <PackageOpen size={22} aria-hidden />,
+        title: `收取 ${visibleDropCount} 件戰利品`,
+        detail: selectedPartSignal,
+        button: "整理戰利品",
+        onClick: () => openPanel("inventory"),
+      };
+    } else if (selectedPartVerdict?.action === "equip") {
+      primaryAction = {
+        tone: "good",
+        icon: <PackageOpen size={22} aria-hidden />,
+        title: "裝備推薦零件",
+        detail: selectedPartVerdict.detail,
+        button: "前往背包",
+        onClick: () => openPanel("inventory"),
+      };
+    } else if (selectedPartVerdict?.action === "forge" || canForgeSelectedPart) {
+      primaryAction = {
+        tone: "rare",
+        icon: <Hammer size={22} aria-hidden />,
+        title: "強化目前零件",
+        detail: selectedPartVerdict?.detail ?? "有可鍛造的零件可提升。",
+        button: "前往強化",
+        onClick: () => openPanel("forge"),
+      };
+    } else if (selectedArenaKey || bossProjection.successChance >= 0.5) {
+      primaryAction = {
+        tone: "rare",
+        icon: <MapIcon size={22} aria-hidden />,
+        title: "挑戰下一條路線",
+        detail: nextRouteName,
+        button: "查看路線",
+        onClick: openMap,
+      };
+    } else {
+      primaryAction = {
+        tone: "neutral",
+        icon: <Play size={22} aria-hidden />,
+        title: "開始掛機刷場",
+        detail: `${idleTargetName} 會自動戰鬥、掉落零件並推進章節。`,
+        button: "開始掛機",
+        onClick: startIdleFromHome,
+      };
+    }
+
+    return (
+      <section className="screen-panel home-screen-panel">
+        <div className="home-hub">
+          <section className={`home-primary home-primary-${primaryAction.tone}`}>
+            <div className="home-primary-head">
+              <small>主畫面</small>
+              <h1>鍛爐據點</h1>
+              <span>照著中央動作走，就能完成掛機、收裝、強化、挑戰下一關。</span>
+            </div>
+            <div className="home-primary-action">
+              <span className="home-primary-icon">{primaryAction.icon}</span>
+              <div>
+                <strong>{primaryAction.title}</strong>
+                <p>{primaryAction.detail}</p>
+              </div>
+              <button className="arena-button" onClick={primaryAction.onClick} type="button">
+                {primaryAction.button}
+              </button>
+            </div>
+            <div className="home-status-grid">
+              <span>
+                <small>掛機地點</small>
+                <strong>{idleTargetName}</strong>
+              </span>
+              <span>
+                <small>離線預估</small>
+                <strong>{offlineText}</strong>
+              </span>
+              <span>
+                <small>戰利品</small>
+                <strong>{inventory.length}/{inventoryCapacity}</strong>
+              </span>
+              <span>
+                <small>章節</small>
+                <strong>{chapterProgress.done}/{chapterProgress.total}</strong>
+              </span>
+            </div>
+          </section>
+
+          <section className="home-panel home-goals">
+            <div className="section-title">
+              <Radar size={17} aria-hidden />
+              <h2>目前目標</h2>
+              <span className="section-counter">{running ? "掛機中" : "待命"}</span>
+            </div>
+            <p>{currentMainObjective}</p>
+            <div className="home-goal-list">
+              <button className="home-goal-row" onClick={startIdleFromHome} type="button">
+                <Play size={16} aria-hidden />
+                <span>
+                  <strong>{running ? "查看戰鬥" : "開始掛機"}</strong>
+                  <small>{dataName("arena", arena.id, arena.displayName)}</small>
+                </span>
+              </button>
+              <button className="home-goal-row" onClick={() => openPanel("inventory")} type="button">
+                <PackageOpen size={16} aria-hidden />
+                <span>
+                  <strong>整理戰利品</strong>
+                  <small>{selectedPartSignal}</small>
+                </span>
+              </button>
+              <button className="home-goal-row" onClick={() => openPanel("forge")} type="button">
+                <Hammer size={16} aria-hidden />
+                <span>
+                  <strong>強化零件</strong>
+                  <small>{canForgeSelectedPart ? "目前有可用強化" : "查看材料與候選零件"}</small>
+                </span>
+              </button>
+              <button className="home-goal-row" onClick={openMap} type="button">
+                <MapIcon size={16} aria-hidden />
+                <span>
+                  <strong>挑戰路線</strong>
+                  <small>{progressTargetName}</small>
+                </span>
+              </button>
+            </div>
+          </section>
+
+          <section className="home-panel home-build">
+            <div className="section-title">
+              <Activity size={17} aria-hidden />
+              <h2>目前配置</h2>
+              <span className="section-counter">{buildArchetypeLabel(buildArchetypeProjection.primary)}</span>
+            </div>
+            <div className="home-build-main">
+              <strong>{displayFrameName(frame.id, frame.displayName)}</strong>
+              <span>{dataName("drive", drive.id, drive.displayName)} / {formatPercent(primaryScore, 0)} 成形</span>
+            </div>
+            <div className="home-stat-row">
+              <span>
+                <small>DPS</small>
+                <strong>{formatNumber(dpsBreakdown.totalDps, 0)}</strong>
+              </span>
+              <span>
+                <small>耐久</small>
+                <strong>{formatNumber(currentStats.maxSpinIntegrity + currentStats.guard, 0)}</strong>
+              </span>
+              <span>
+                <small>追蹤</small>
+                <strong>{formatNumber(currentStats.tracking, 0)}</strong>
+              </span>
+            </div>
+          </section>
+
+          <section className="home-panel home-route">
+            <div className="section-title">
+              <MapIcon size={17} aria-hidden />
+              <h2>下一條路</h2>
+              <span className="section-counter">{routeStrategyActionLabel(selectedRouteStrategy.action)}</span>
+            </div>
+            <p>{progressTargetName}</p>
+            <div className="home-stat-row">
+              <span>
+                <small>風險</small>
+                <strong>{formatPercent(selectedRouteStrategy.riskScore, 0)}</strong>
+              </span>
+              <span>
+                <small>獎勵</small>
+                <strong>{formatPercent(selectedRouteStrategy.rewardScore, 0)}</strong>
+              </span>
+              <span>
+                <small>清場</small>
+                <strong>{formatPercent(selectedRouteStrategy.clearSpeedScore, 0)}</strong>
+              </span>
+            </div>
+          </section>
+        </div>
+      </section>
+    );
+  };
+
   const renderLoadoutWorkbench = () => (
     <>
       {renderBuildSummaryPanel()}
@@ -3504,11 +3732,12 @@ export function CombatArena() {
         </div>
         <div className="arena-controls" aria-label={t("ui.aria.arenaControls")}>
           <div className="screen-tabs" aria-label={t("ui.aria.mainScreens")}>
+            <ScreenTab active={screen === "home"} icon={<Boxes size={15} aria-hidden />} label="據點" onClick={() => setScreen("home")} />
             <ScreenTab active={screen === "combat"} icon={<Swords size={15} aria-hidden />} label={t("ui.screen.combat")} onClick={() => setScreen("combat")} />
             <ScreenTab active={screen === "map"} icon={<MapIcon size={15} aria-hidden />} label={t("ui.screen.map")} onClick={openMap} tutorialAnchor="screen-map" />
             <ScreenTab active={screen === "workbench"} icon={<Hammer size={15} aria-hidden />} label={t("ui.screen.workbench")} onClick={() => setScreen("workbench")} />
           </div>
-          <button className={running ? "arena-button arena-button-live" : "arena-button"} data-tutorial-anchor="start-button" disabled={runtimeDefeated} onClick={toggleRunning} type="button">
+          <button className={running ? "arena-button arena-button-live" : "arena-button"} data-tutorial-anchor="start-button" disabled={runtimeDefeated} onClick={screen === "home" && !running ? startIdleFromHome : toggleRunning} type="button">
             {running ? <Pause size={16} aria-hidden /> : <Play size={16} aria-hidden />}
             {runtimeDefeated ? t("ui.state.defeated") : running ? t("ui.control.pause") : t("ui.control.start")}
           </button>
@@ -3579,6 +3808,8 @@ export function CombatArena() {
       {renderNextActionStrip()}
 
       <section className={`arena-layout arena-layout-${screen}`}>
+        {screen === "home" ? renderHomePanel() : null}
+
         {screen === "combat" ? (
         <section className={["arena-stage-panel", running ? "arena-stage-live" : "", currentArenaKey ? "arena-stage-keyed" : ""].filter(Boolean).join(" ")}>
           <div className="arena-stage-header">
