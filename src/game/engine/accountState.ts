@@ -24,6 +24,7 @@ export type AccountRuntimeState = {
   clearedRivalIds: string[];
   routeClears: Record<string, number>;
   totalKills: number;
+  seenTutorialIds: string[];
 };
 
 export type SaveTopLike = {
@@ -42,6 +43,7 @@ export type SaveTopLike = {
   clearedRivalIds: string[];
   routeClears: Record<string, number>;
   totalKills: number;
+  seenTutorialIds: string[];
   lastSettledAt: string;
 };
 
@@ -70,6 +72,7 @@ export function saveTopToAccountState(top: SaveTopLike, equipment: Record<TopPar
     clearedRivalIds: top.clearedRivalIds,
     routeClears: top.routeClears,
     totalKills: top.totalKills ?? 0,
+    seenTutorialIds: top.seenTutorialIds ?? [],
   };
 }
 
@@ -90,6 +93,7 @@ export function accountStateToSaveTop(state: AccountRuntimeState, lastSettledAt:
     clearedRivalIds: state.clearedRivalIds,
     routeClears: state.routeClears,
     totalKills: state.totalKills,
+    seenTutorialIds: state.seenTutorialIds,
     lastSettledAt,
   };
 }

@@ -19,7 +19,7 @@ import { collisionImpactSeedFromMass, effectiveCooldownFromOmega, resolveStatsPh
 import { createRng } from "./rng";
 import { resolveTopRuntimeStats } from "./topAssembly";
 import { resolveTopHit } from "./topDamage";
-import { rollDropOutcome } from "./topDropRolls";
+import { advanceDropPity, initialDropPityState, rollDropOutcome } from "./topDropRolls";
 import type {
   AilmentState,
   ArenaDrop,
@@ -49,8 +49,6 @@ const maxEvents = 8;
 const maxCombatEvents = 16;
 const maxEffects = 80;
 const maxDrops = 12;
-const minMapKillTarget = 150;
-const maxMapKillTarget = 200;
 const maxActiveSmallEnemies = 20;
 const bossPhaseTwoGateRatio = 0.66;
 const bossPhaseThreeGateRatio = 0.33;
@@ -241,7 +239,10 @@ function initialCooldownForBehavior(behaviorId: EnemyBehaviorId, rank: TopRuntim
 
 function createMapKillTarget(arenaId: string, seed: string, routeClears: number, arenaKey?: ArenaKey): number {
   const rng = createRng(`${seed}_${arenaId}_${arenaKey?.id ?? "open"}_${routeClears}_map_goal`);
-  return rng.int(minMapKillTarget, maxMapKillTarget);
+  const arena = getArenaCircuitDef(arenaId);
+  const tierKey = Math.min(4, Math.max(1, Math.floor(arena.tier))) as keyof typeof balanceConfig.progression.mapKillTargetByTier;
+  const range = balanceConfig.progression.mapKillTargetByTier[tierKey];
+  return rng.int(range.min, range.max);
 }
 
 function pushEvent(runtime: TopArenaRuntime, tone: ArenaLogEvent["tone"], text: string): TopArenaRuntime {
@@ -683,6 +684,7 @@ export function createTopArenaRuntime({
     enemies: [],
     effects: [],
     drops: [],
+    dropPity: initialDropPityState,
     events: initialEvents,
     combatEvents: [],
     lastCollision: undefined,
@@ -1730,16 +1732,21 @@ function handleDrops(runtime: TopArenaRuntime, enemy: TopRuntimeEntity): TopAren
     rewardQuantity,
     rewardRarity,
     rewardBias: [...(keyRisk?.rewardBias ?? []), ...(runtime.activeEvent?.rewardBias ?? [])],
+    pity: runtime.dropPity,
     x: enemy.x,
     y: enemy.y,
   });
+  const runtimeWithPity = {
+    ...runtime,
+    dropPity: advanceDropPity(runtime.dropPity, drop?.rarity ?? null),
+  };
 
   if (!drop) {
-    return runtime;
+    return runtimeWithPity;
   }
 
   return addEffect(
-    pushEvent({ ...runtime, drops: [drop, ...runtime.drops].slice(0, maxDrops) }, "drop", `${drop.rarity} ${drop.label} dropped`),
+    pushEvent({ ...runtimeWithPity, drops: [drop, ...runtimeWithPity.drops].slice(0, maxDrops) }, "drop", `${drop.rarity} ${drop.label} dropped`),
     {
       kind: "drop",
       x: enemy.x,

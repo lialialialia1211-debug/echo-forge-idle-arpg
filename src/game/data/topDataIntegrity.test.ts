@@ -5,6 +5,7 @@ import { arenaCircuits } from "./arenaCircuits";
 import { arenaAnomalies } from "./arenaAnomalies";
 import { arenaEvents } from "./arenaEvents";
 import { bossGates } from "./bossGates";
+import { chapters } from "./chapters";
 import { circuitAtlasNodes } from "./circuitAtlasNodes";
 import { circuitNetworkNodes } from "./circuitNetwork";
 import { doctrines } from "./doctrines";
@@ -13,15 +14,18 @@ import { enemyModifiers } from "./enemyModifiers";
 import { topEngravings } from "./engravings";
 import { namedRivals, rivalMechanicIds } from "./namedRivals";
 import { talentNodes } from "./talentNodes";
-import { topPartBases } from "./topPartBases";
+import { partSlotOrder, topPartBases } from "./topPartBases";
 import { topFrames } from "./topFrames";
+import { tutorialSteps } from "./tutorialSteps";
 import { tuningRunes } from "./tuningRunes";
 import { generateArenaKey, isArenaKeyLegal } from "../engine/arenaKeys";
 import { validateRuneLoadout } from "../engine/driveRuneValidation";
 import { resolveTopRuntimeStats } from "../engine/topAssembly";
+import { dropLabelOptions } from "../engine/topDropRolls";
 import { generateTopPart } from "../engine/topPartGeneration";
 import { isTopPartLegal } from "../engine/topCrafting";
 import type { DriveTag } from "../engine/topTypes";
+import { TALENT_NODE_SIZES, TALENT_WORLD_WIDTH, TALENT_WORLD_HEIGHT } from "../ui/arena/talentLayout";
 
 function expectUnique(ids: string[]) {
   expect(new Set(ids).size).toBe(ids.length);
@@ -74,6 +78,8 @@ describe("top ARPG data integrity", () => {
     expectUnique(doctrines.flatMap((entry) => entry.nodes.map((node) => node.id)));
     expectUnique(circuitNetworkNodes.map((entry) => entry.id));
     expectUnique(namedRivals.map((entry) => entry.id));
+    expectUnique(chapters.map((entry) => entry.id));
+    expectUnique(tutorialSteps.map((entry) => entry.id));
   });
 
   it("has enough content for the first vertical slice", () => {
@@ -277,6 +283,35 @@ describe("top ARPG data integrity", () => {
     expect(talentNodes.some((node) => visit(node.id))).toBe(false);
   });
 
+  it("keeps drop label slot weights normalized", () => {
+    for (const slot of partSlotOrder) {
+      const total = dropLabelOptions.filter((option) => option.target === slot).reduce((sum, option) => sum + option.weight, 0);
+      expect(total).toBeGreaterThanOrEqual(1.9);
+      expect(total).toBeLessThanOrEqual(2.1);
+    }
+  });
+
+  it("keeps talent node centers far enough apart on the fixed world canvas", () => {
+    const overlaps: string[] = [];
+    for (let leftIndex = 0; leftIndex < talentNodes.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < talentNodes.length; rightIndex += 1) {
+        const left = talentNodes[leftIndex];
+        const right = talentNodes[rightIndex];
+        const leftSize = TALENT_NODE_SIZES[left.kind];
+        const rightSize = TALENT_NODE_SIZES[right.kind];
+        const dx = ((left.position.x - right.position.x) / 100) * TALENT_WORLD_WIDTH;
+        const dy = ((left.position.y - right.position.y) / 100) * TALENT_WORLD_HEIGHT;
+        const distance = Math.hypot(dx, dy);
+        const minDistance = (leftSize.width + rightSize.width) / 2 + 8;
+        if (distance < minDistance) {
+          overlaps.push(`${left.id} <-> ${right.id}: ${distance.toFixed(1)} < ${minDistance}`);
+        }
+      }
+    }
+
+    expect(overlaps).toEqual([]);
+  });
+
   it("keeps doctrines tied to valid frames with legal nodes", () => {
     const frameIds = new Set(topFrames.map((entry) => entry.id));
 
@@ -370,6 +405,35 @@ describe("top ARPG data integrity", () => {
     expect(reachable.size).toBe(circuitNetworkNodes.length);
     expect(circuitNetworkNodes.filter((node) => node.anomalyId).length).toBeGreaterThanOrEqual(8);
     expect(circuitNetworkNodes.some((node) => visit(node.id))).toBe(false);
+  });
+
+  it("keeps chapter one references valid", () => {
+    const networkIds = new Set(circuitNetworkNodes.map((entry) => entry.id));
+    const rivalIds = new Set(namedRivals.map((entry) => entry.id));
+    const bossGateIds = new Set(bossGates.map((entry) => entry.id));
+
+    expect(chapters).toHaveLength(1);
+    for (const chapter of chapters) {
+      expect(chapter.displayNameKey).toBeTruthy();
+      expect(chapter.nodeIds.every((nodeId) => networkIds.has(nodeId))).toBe(true);
+      expect(chapter.rivalIds.every((rivalId) => rivalIds.has(rivalId))).toBe(true);
+      expect(bossGateIds.has(chapter.bossGateId)).toBe(true);
+    }
+  });
+
+  it("keeps tutorial steps data-driven and keyed", () => {
+    const validTriggers = new Set(["welcome", "firstDrop", "firstEquip", "firstTalent", "firstForge", "firstRune", "doctrine", "mapUnlock", "rivalGate", "firstKey", "firstAnomaly", "bossGate"]);
+    const validAnchors = new Set(["start-button", "loot-notice", "part-inspector", "tab-talents", "tab-forge", "tab-skills", "doctrine-strip", "screen-map", "network-detail", "arena-keys", "boss-gate"]);
+
+    expect(tutorialSteps).toHaveLength(12);
+    for (const step of tutorialSteps) {
+      expect(step.titleKey).toMatch(/^tutorial\./);
+      expect(step.bodyKey).toMatch(/^tutorial\./);
+      expect(validTriggers.has(step.trigger)).toBe(true);
+      if (step.anchor) {
+        expect(validAnchors.has(step.anchor)).toBe(true);
+      }
+    }
   });
 
   it("keeps named rivals as legal data-driven builds", () => {

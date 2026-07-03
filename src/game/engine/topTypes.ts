@@ -561,6 +561,11 @@ export type ArenaDrop = {
   age: number;
 };
 
+export type ArenaDropPityState = {
+  killsSinceTuned: number;
+  killsSinceEngraved: number;
+};
+
 export type ArenaLogEvent = {
   id: string;
   tone: "hit" | "skill" | "kill" | "drop" | "danger" | "reward";
@@ -612,6 +617,7 @@ export type TopArenaRuntime = {
   enemies: TopRuntimeEntity[];
   effects: ArenaEffect[];
   drops: ArenaDrop[];
+  dropPity: ArenaDropPityState;
   events: ArenaLogEvent[];
   combatEvents: CombatEvent[];
   lastCollision?: TopCollisionEvent;

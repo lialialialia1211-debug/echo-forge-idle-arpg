@@ -21,6 +21,7 @@ function createState(): AccountRuntimeState {
     clearedRivalIds: [],
     routeClears: {},
     totalKills: 0,
+    seenTutorialIds: [],
   };
 }
 

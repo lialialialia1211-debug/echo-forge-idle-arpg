@@ -10,6 +10,7 @@ import { talentNodes } from "../data/talentNodes";
 import { createStarterEquipment, createStarterInventory, partSlotOrder } from "../data/topParts";
 import { topPartBases } from "../data/topPartBases";
 import { topFrames } from "../data/topFrames";
+import { tutorialStepIds } from "../data/tutorialSteps";
 import { isArenaKeyLegal } from "../engine/arenaKeys";
 import { validateRuneLoadout } from "../engine/driveRuneValidation";
 import { isTopPartLegal } from "../engine/topCrafting";
@@ -33,17 +34,24 @@ type LegacyV1Save = {
 
 type LegacyV2Save = Omit<AccountSave, "schemaVersion" | "top"> & {
   schemaVersion: 2;
-  top: Omit<AccountSave["top"], "totalKills" | "doctrineId" | "clearedRivalIds"> & Partial<Pick<AccountSave["top"], "totalKills" | "doctrineId" | "clearedRivalIds">>;
+  top: Omit<AccountSave["top"], "totalKills" | "doctrineId" | "clearedRivalIds" | "seenTutorialIds"> &
+    Partial<Pick<AccountSave["top"], "totalKills" | "doctrineId" | "clearedRivalIds" | "seenTutorialIds">>;
 };
 
 type LegacyV3Save = Omit<AccountSave, "schemaVersion" | "top"> & {
   schemaVersion: 3;
-  top: Omit<AccountSave["top"], "doctrineId" | "clearedRivalIds"> & Partial<Pick<AccountSave["top"], "doctrineId" | "clearedRivalIds">>;
+  top: Omit<AccountSave["top"], "doctrineId" | "clearedRivalIds" | "seenTutorialIds"> &
+    Partial<Pick<AccountSave["top"], "doctrineId" | "clearedRivalIds" | "seenTutorialIds">>;
 };
 
 type LegacyV4Save = Omit<AccountSave, "schemaVersion" | "top"> & {
   schemaVersion: 4;
-  top: Omit<AccountSave["top"], "clearedRivalIds"> & Partial<Pick<AccountSave["top"], "clearedRivalIds">>;
+  top: Omit<AccountSave["top"], "clearedRivalIds" | "seenTutorialIds"> & Partial<Pick<AccountSave["top"], "clearedRivalIds" | "seenTutorialIds">>;
+};
+
+type LegacyV5Save = Omit<AccountSave, "schemaVersion" | "top"> & {
+  schemaVersion: 5;
+  top: Omit<AccountSave["top"], "seenTutorialIds"> & Partial<Pick<AccountSave["top"], "seenTutorialIds">>;
 };
 
 type SavedTopPart = AccountSave["top"]["inventory"][number];
@@ -74,6 +82,7 @@ function starterTopStateForLegacy(save: LegacyV1Save): AccountSave["top"] {
     clearedRivalIds: [],
     routeClears: {},
     totalKills: 0,
+    seenTutorialIds: [],
     lastSettledAt: save.lastSavedAt,
   };
 }
@@ -94,6 +103,10 @@ function isLegacyV4Save(input: unknown): input is LegacyV4Save {
   return Boolean(input && typeof input === "object" && "schemaVersion" in input && (input as { schemaVersion?: unknown }).schemaVersion === 4);
 }
 
+function isLegacyV5Save(input: unknown): input is LegacyV5Save {
+  return Boolean(input && typeof input === "object" && "schemaVersion" in input && (input as { schemaVersion?: unknown }).schemaVersion === 5);
+}
+
 const defaultFrameId = "frame_swift_razor";
 const defaultArenaId = "arena_cinder_crucible";
 const frameIds = new Set(topFrames.map((entry) => entry.id));
@@ -106,6 +119,7 @@ const doctrineIds = new Set(doctrines.map((entry) => entry.id));
 const arenaKeyAffixIds = new Set(arenaKeyAffixes.map((entry) => entry.id));
 const bossGateIds = new Set(bossGates.map((entry) => entry.id));
 const rivalIds = new Set(namedRivals.map((entry) => entry.id));
+const tutorialIds = new Set(tutorialStepIds);
 
 function clampCurrency(value: number): number {
   return Math.max(0, Math.floor(value));
@@ -192,6 +206,10 @@ function sanitizeDoctrineId(doctrineId: string | null | undefined, frameId: stri
   return doctrines.find((entry) => entry.id === doctrineId)?.frameId === frameId ? doctrineId : null;
 }
 
+function sanitizeTutorialIds(seenTutorialIds: string[]): string[] {
+  return [...new Set(seenTutorialIds.filter((tutorialId) => tutorialIds.has(tutorialId)))];
+}
+
 export function sanitizeAccountSave(save: AccountSave): AccountSave {
   const selectedFrameId = frameIds.has(save.top.selectedFrameId) ? save.top.selectedFrameId : defaultFrameId;
   const selectedDriveId = driveIds.has(save.top.selectedDriveId) ? save.top.selectedDriveId : driveForFrame(selectedFrameId);
@@ -222,6 +240,7 @@ export function sanitizeAccountSave(save: AccountSave): AccountSave {
       clearedRivalIds: save.top.clearedRivalIds.filter((rivalId) => rivalIds.has(rivalId)),
       routeClears: sanitizeRouteClears(save.top.routeClears),
       totalKills: Math.max(0, Math.floor(save.top.totalKills ?? 0)),
+      seenTutorialIds: sanitizeTutorialIds(save.top.seenTutorialIds),
     },
   };
 }
@@ -230,7 +249,7 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV1Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 5,
+      schemaVersion: 6,
       top: starterTopStateForLegacy(input),
     }));
   }
@@ -238,12 +257,13 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV2Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 5,
+      schemaVersion: 6,
       top: {
         ...input.top,
         totalKills: input.top.totalKills ?? 0,
         doctrineId: input.top.doctrineId ?? null,
         clearedRivalIds: input.top.clearedRivalIds ?? [],
+        seenTutorialIds: input.top.seenTutorialIds ?? [],
       },
     }));
   }
@@ -251,11 +271,12 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV3Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 5,
+      schemaVersion: 6,
       top: {
         ...input.top,
         doctrineId: input.top.doctrineId ?? null,
         clearedRivalIds: input.top.clearedRivalIds ?? [],
+        seenTutorialIds: input.top.seenTutorialIds ?? [],
       },
     }));
   }
@@ -263,10 +284,22 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV4Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 5,
+      schemaVersion: 6,
       top: {
         ...input.top,
         clearedRivalIds: input.top.clearedRivalIds ?? [],
+        seenTutorialIds: input.top.seenTutorialIds ?? [],
+      },
+    }));
+  }
+
+  if (isLegacyV5Save(input)) {
+    return sanitizeAccountSave(accountSaveSchema.parse({
+      ...input,
+      schemaVersion: 6,
+      top: {
+        ...input.top,
+        seenTutorialIds: input.top.seenTutorialIds ?? [],
       },
     }));
   }

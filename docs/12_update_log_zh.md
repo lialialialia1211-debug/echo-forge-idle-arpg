@@ -50,3 +50,11 @@ QA 站使用 GitHub Pages workflow `Deploy QA Site`。本次變更 push 到 `mai
 
 https://lialialialia1211-debug.github.io/echo-forge-idle-arpg/
 
+## 2026-07-03 第一章節奏與教學同步
+
+- 新增第一章資料 `chapters.ts`：4 個 network 節點 + 1 個 Rim Warden + 1 個 Boss Gate，Map 顯示 N/6 進度。
+- 掉落曲線改為 `balanceConfig.drops.rarityWeightsByTier` + `rarityExponent 0.7`，並加入 12/50 kill pity。
+- T1/T2/T3/T4+ 清圖目標改為 60-80 / 90-120 / 120-160 / 150-200；完圖給 ash 10×tier、glass 2×tier。
+- Rim Warden 降為 2 符文、3 天賦、無教義；rival/boss 首通由 reducer 防重複發放獎勵。
+- Save schema 更新到 v6，新增 `seenTutorialIds` 與 migration/sanitize。
+- 新增 12 張教學卡、anchor 高亮與「重看教學」入口；天賦盤改用 1760×1200 固定世界畫布並加入不重疊測試。

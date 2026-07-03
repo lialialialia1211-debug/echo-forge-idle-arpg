@@ -8,7 +8,7 @@ describe("save schema", () => {
     const save = createNewAccountSave("ironbound");
     const parsed = accountSaveSchema.parse(save);
 
-    expect(parsed.schemaVersion).toBe(5);
+    expect(parsed.schemaVersion).toBe(6);
     expect(parsed.accountId).toBeNull();
     expect(parsed.roster[0].classId).toBe("ironbound");
     expect(parsed.roster[0].build.supportIds.length).toBeGreaterThan(0);
@@ -18,6 +18,7 @@ describe("save schema", () => {
     expect(parsed.top.doctrineId).toBeNull();
     expect(parsed.top.clearedRivalIds).toEqual([]);
     expect(parsed.top.totalKills).toBe(0);
+    expect(parsed.top.seenTutorialIds).toEqual([]);
     expect(parsed.top.wallet.ash).toBeGreaterThanOrEqual(12);
     expect(parsed.top.wallet.glass).toBeGreaterThanOrEqual(2);
   });
@@ -58,12 +59,13 @@ describe("save schema", () => {
       lastSavedAt: now,
     });
 
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.top.selectedFrameId).toBe("frame_swift_razor");
     expect(migrated.top.wallet.ash).toBe(3);
     expect(migrated.top.circuitAtlasNodeIds).toEqual([]);
     expect(migrated.top.doctrineId).toBeNull();
     expect(migrated.top.totalKills).toBe(0);
+    expect(migrated.top.seenTutorialIds).toEqual([]);
   });
 
   it("migrates structurally valid v2 saves without totalKills", () => {
@@ -80,13 +82,14 @@ describe("save schema", () => {
       },
     });
 
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.top.totalKills).toBe(0);
     expect(migrated.top.talentIds).toEqual(["talent_iron_rotation"]);
     expect(migrated.top.doctrineId).toBeNull();
+    expect(migrated.top.seenTutorialIds).toEqual([]);
   });
 
-  it("migrates v3 saves to v5 with doctrine and rival defaults", () => {
+  it("migrates v3 saves to v6 with doctrine, rival, and tutorial defaults", () => {
     const save = createNewAccountSave("veilrunner");
     const migrated = migrateUnknownSave({
       ...save,
@@ -98,13 +101,14 @@ describe("save schema", () => {
       },
     });
 
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.top.totalKills).toBe(44);
     expect(migrated.top.doctrineId).toBeNull();
     expect(migrated.top.clearedRivalIds).toEqual([]);
+    expect(migrated.top.seenTutorialIds).toEqual([]);
   });
 
-  it("migrates v4 saves to v5 with cleared rival defaults", () => {
+  it("migrates v4 saves to v6 with cleared rival and tutorial defaults", () => {
     const save = createNewAccountSave("veilrunner");
     const topWithoutClearedRivals: Partial<typeof save.top> = { ...save.top };
     delete topWithoutClearedRivals.clearedRivalIds;
@@ -119,28 +123,32 @@ describe("save schema", () => {
       },
     });
 
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.top.totalKills).toBe(137);
     expect(migrated.top.doctrineId).toBe("doctrine_swift_razor_edge");
     expect(migrated.top.clearedRivalIds).toEqual([]);
+    expect(migrated.top.seenTutorialIds).toEqual([]);
   });
 
-  it("keeps totalKills, legal doctrine, and legal rivals during v5 round trips", () => {
+  it("migrates v5 saves and sanitizes tutorial ids during round trips", () => {
     const save = createNewAccountSave("veilrunner");
     const migrated = migrateUnknownSave({
       ...save,
+      schemaVersion: 5,
       top: {
         ...save.top,
         totalKills: 137,
         doctrineId: "doctrine_swift_razor_edge",
         clearedRivalIds: ["rival_sable_reflector"],
+        seenTutorialIds: ["tut_welcome", "tut_welcome", "missing_tutorial", "tut_first_drop"],
       },
     });
 
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.top.totalKills).toBe(137);
     expect(migrated.top.doctrineId).toBe("doctrine_swift_razor_edge");
     expect(migrated.top.clearedRivalIds).toEqual(["rival_sable_reflector"]);
+    expect(migrated.top.seenTutorialIds).toEqual(["tut_welcome", "tut_first_drop"]);
   });
 
   it("sanitizes structurally valid v3 saves with stale top data IDs", () => {
@@ -214,6 +222,7 @@ describe("save schema", () => {
     expect(migrated.top.clearedRivalIds).toEqual(["rival_sable_reflector"]);
     expect(migrated.top.routeClears).toEqual({ arena_cinder_crucible: 0 });
     expect(migrated.top.totalKills).toBe(0);
+    expect(migrated.top.seenTutorialIds).toEqual([]);
     expect(migrated.top.wallet.ash).toBe(0);
     expect(migrated.top.wallet.glass).toBe(1);
     expect(migrated.currencies.ash).toBe(0);

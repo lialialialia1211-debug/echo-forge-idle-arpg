@@ -350,6 +350,58 @@
   color: var(--violet);
 }
 
+.arena-button-secondary {
+  border-color: rgba(230, 215, 181, 0.14);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.tutorial-anchor-active {
+  outline: 2px solid rgba(217, 165, 84, 0.9);
+  outline-offset: 3px;
+  box-shadow:
+    0 0 0 5px rgba(217, 165, 84, 0.12),
+    0 0 24px rgba(217, 165, 84, 0.22);
+}
+
+.tutorial-card {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 80;
+  width: min(360px, calc(100vw - 28px));
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(217, 165, 84, 0.34);
+  border-radius: 8px;
+  background: rgba(12, 14, 15, 0.96);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
+  padding: 12px;
+}
+
+.tutorial-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tutorial-card-head span {
+  color: var(--brass);
+  font-size: 0.72rem;
+}
+
+.tutorial-card > strong {
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.tutorial-card p {
+  margin: 0;
+  color: var(--soft);
+  font-size: 0.84rem;
+  line-height: 1.48;
+}
+
 .speed-tabs {
   min-height: 38px;
   overflow: hidden;
@@ -440,43 +492,60 @@
   overflow: auto;
 }
 
-.route-main-column > .workbench-section:nth-child(1) {
+.route-quick-row {
   flex: 0 0 auto;
-  max-height: 110px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
-.route-main-column > .workbench-section:nth-child(2) {
-  flex: 0 0 auto;
-  max-height: 112px;
-}
-
-.route-main-column > .workbench-section:nth-child(3) {
-  flex: 1 1 auto;
-}
-
-.route-main-column .atlas-board {
-  min-height: 220px;
-  height: clamp(220px, 27vh, 292px);
-}
-
-.route-main-column .atlas-detail-panel {
-  max-height: 150px;
+.route-quick-row > .workbench-section {
+  min-height: 0;
+  margin: 0;
   overflow: auto;
 }
 
-.route-side-column > .workbench-section:nth-child(1) {
-  flex: 0 0 auto;
-  max-height: 150px;
+.route-main-column > .route-atlas-section {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.route-side-column > .workbench-section:nth-child(2) {
+.route-main-column .atlas-board {
+  flex: 1 1 auto;
+  min-height: 360px;
+  height: auto;
+}
+
+.route-main-column .atlas-detail-panel {
+  flex: 0 0 auto;
+  max-height: 140px;
+  overflow: auto;
+}
+
+.route-side-column > .route-node-detail-section {
+  flex: 0 0 auto;
+  max-height: 230px;
+}
+
+.route-side-column > .route-keys-section {
+  flex: 0 0 auto;
+  max-height: 172px;
+}
+
+.route-side-column > .route-boss-section {
   flex: 0 0 auto;
   max-height: 132px;
 }
 
-.route-side-column > .workbench-section:nth-child(3),
-.route-side-column > .workbench-section:nth-child(4) {
+.route-side-column > .route-network-section {
   flex: 1 1 0;
+  min-height: 160px;
+}
+
+.route-side-column > .route-clears-section {
+  flex: 0 0 auto;
 }
 
 .screen-panel-head {
@@ -2665,8 +2734,11 @@
 
 .talent-board-viewport {
   position: absolute;
-  inset: 0;
-  transform: translate(var(--talent-tree-x), var(--talent-tree-y)) scale(var(--talent-tree-scale));
+  left: 50%;
+  top: 50%;
+  width: var(--talent-world-width);
+  height: var(--talent-world-height);
+  transform: translate(calc(-50% + var(--talent-tree-x)), calc(-50% + var(--talent-tree-y))) scale(var(--talent-tree-scale));
   transform-origin: 50% 50%;
 }
 
@@ -2754,11 +2826,14 @@
     linear-gradient(145deg, rgba(255, 255, 255, 0.035), rgba(0, 0, 0, 0.18));
 }
 
-.talent-links {
+.talent-links,
+.network-map-links {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .talent-link {
@@ -2770,6 +2845,17 @@
 .talent-link-active {
   stroke: rgba(101, 198, 176, 0.62);
   stroke-width: 2.3;
+}
+
+.network-map-link {
+  stroke: rgba(230, 215, 181, 0.18);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.network-map-link-active {
+  stroke: rgba(217, 165, 84, 0.5);
+  stroke-width: 2;
 }
 
 .talent-node {
@@ -2799,6 +2885,7 @@
   text-align: center;
   transform: translate(-50%, -50%);
   cursor: pointer;
+  z-index: 2;
 }
 
 .atlas-node small {
@@ -2830,6 +2917,71 @@
 
 .atlas-node-locked {
   opacity: 0.52;
+}
+
+.network-map-node {
+  position: absolute;
+  left: var(--network-x);
+  top: var(--network-y);
+  width: 104px;
+  min-height: 48px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  border: 1px solid rgba(230, 215, 181, 0.15);
+  border-radius: 7px;
+  background: rgba(7, 9, 10, 0.88);
+  color: var(--text);
+  padding: 7px;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  z-index: 3;
+}
+
+.network-map-node small {
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.network-map-node strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  font-size: 0.68rem;
+  line-height: 1.12;
+}
+
+.network-map-node-unlocked {
+  border-color: rgba(101, 198, 176, 0.4);
+  background: rgba(101, 198, 176, 0.09);
+}
+
+.network-map-node-anomaly {
+  box-shadow: inset 0 0 0 1px rgba(182, 140, 255, 0.3);
+}
+
+.network-map-node-rival,
+.network-map-node-gate {
+  border-color: rgba(217, 165, 84, 0.46);
+}
+
+.network-map-node-locked {
+  opacity: 0.48;
+}
+
+.network-map-node:hover,
+.network-map-node-selected {
+  border-color: rgba(217, 165, 84, 0.7);
+  background: rgba(217, 165, 84, 0.14);
+  box-shadow:
+    0 0 0 2px rgba(217, 165, 84, 0.12),
+    0 0 22px rgba(217, 165, 84, 0.16);
+  opacity: 1;
 }
 
 .talent-board .talent-node {
@@ -3029,6 +3181,62 @@
 
 .forge-action-grid {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.chapter-progress-strip {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  border: 1px solid rgba(230, 215, 181, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 8px;
+}
+
+.chapter-progress-strip div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.chapter-progress-strip small {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.chapter-progress-strip strong,
+.chapter-progress-strip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chapter-progress-strip span {
+  color: var(--brass);
+  font-size: 0.76rem;
+}
+
+.chapter-progress-strip > i {
+  grid-column: 1 / -1;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(230, 215, 181, 0.11);
+}
+
+.chapter-progress-strip > i > b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--teal), var(--brass));
+}
+
+.chapter-progress-complete {
+  border-color: rgba(101, 198, 176, 0.32);
 }
 
 .forge-action,
@@ -3263,6 +3471,16 @@
     min-height: 100vh;
     overflow: auto;
     padding-bottom: 74px;
+  }
+
+  .tutorial-card {
+    right: 10px;
+    bottom: 10px;
+    width: calc(100vw - 20px);
+  }
+
+  .chapter-progress-strip {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .arena-topbar {
@@ -3625,15 +3843,6 @@
 
   .talent-board {
     min-height: 560px;
-  }
-
-  .talent-board-viewport {
-    inset: auto;
-    left: 50%;
-    top: 50%;
-    width: 860px;
-    height: 860px;
-    transform: translate(calc(-50% + var(--talent-tree-x)), calc(-50% + var(--talent-tree-y))) scale(var(--talent-tree-scale));
   }
 
   .talent-board-controls {

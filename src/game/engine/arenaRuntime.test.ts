@@ -50,8 +50,8 @@ describe("top arena runtime", () => {
     const next = stepTopArenaRuntime(runtime, 0.25);
 
     expect(next.enemies).toHaveLength(1);
-    expect(next.mapKillTarget).toBeGreaterThanOrEqual(150);
-    expect(next.mapKillTarget).toBeLessThanOrEqual(200);
+    expect(next.mapKillTarget).toBeGreaterThanOrEqual(60);
+    expect(next.mapKillTarget).toBeLessThanOrEqual(80);
     expect(next.events.some((event) => event.text.includes("enters the basin"))).toBe(true);
   });
 
@@ -1347,8 +1347,8 @@ describe("top arena runtime", () => {
     const lowPressure = settle(0.55);
     const highPressure = settle(1.65);
 
-    expect(baseRuntime.mapKillTarget).toBeGreaterThanOrEqual(150);
-    expect(baseRuntime.mapKillTarget).toBeLessThanOrEqual(200);
+    expect(baseRuntime.mapKillTarget).toBeGreaterThanOrEqual(60);
+    expect(baseRuntime.mapKillTarget).toBeLessThanOrEqual(80);
     expect(highPressure.enemies.length).toBeGreaterThan(lowPressure.enemies.length);
     expect(highPressure.enemies.length).toBeGreaterThanOrEqual(10);
   });
@@ -1430,7 +1430,7 @@ describe("top arena runtime", () => {
     expect(highLaunch.effects.some((effect) => effect.kind === "shockwave")).toBe(true);
   });
 
-  it("signals the final boss once the 150-200 rival clear is complete", () => {
+  it("signals the final boss once the tier map clear target is complete", () => {
     const runtime = createTopArenaRuntime({
       arenaId: "arena_red_chancel_disk",
       frameId: "frame_swift_razor",

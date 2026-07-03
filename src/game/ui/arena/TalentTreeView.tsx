@@ -1,7 +1,8 @@
 import { LocateFixed, ZoomIn, ZoomOut } from "lucide-react";
-import { useMemo, useRef, useState, type CSSProperties, type PointerEvent, type WheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type WheelEvent } from "react";
 import type { TalentNodeDef } from "../../engine/topTypes";
 import { dataName, t } from "../../locale/zh-Hant";
+import { TALENT_WORLD_HEIGHT, TALENT_WORLD_PADDING, TALENT_WORLD_WIDTH } from "./talentLayout";
 
 type TalentTreeViewProps = {
   nodes: TalentNodeDef[];
@@ -17,6 +18,11 @@ type TalentTreeViewState = {
   scale: number;
 };
 
+type TalentBoardSize = {
+  width: number;
+  height: number;
+};
+
 type DragState = {
   pointerId: number;
   startX: number;
@@ -26,6 +32,7 @@ type DragState = {
   dragging: boolean;
 };
 
+const initialBoardSize: TalentBoardSize = { width: 0, height: 0 };
 const initialView: TalentTreeViewState = { x: 0, y: 0, scale: 1 };
 export const TALENT_DRAG_THRESHOLD_PX = 6;
 
@@ -37,10 +44,35 @@ export function shouldStartTalentDrag(startX: number, startY: number, currentX: 
   return Math.hypot(currentX - startX, currentY - startY) >= threshold;
 }
 
+function fitScaleForBoard(boardSize: TalentBoardSize): number {
+  if (boardSize.width <= 0 || boardSize.height <= 0) {
+    return 1;
+  }
+  return clamp(Math.min(boardSize.width / TALENT_WORLD_WIDTH, boardSize.height / TALENT_WORLD_HEIGHT) * 0.96, 0.28, 1);
+}
+
+function clampTalentView(view: TalentTreeViewState, boardSize: TalentBoardSize): TalentTreeViewState {
+  if (boardSize.width <= 0 || boardSize.height <= 0) {
+    return view;
+  }
+  const scaledWorldWidth = TALENT_WORLD_WIDTH * view.scale;
+  const scaledWorldHeight = TALENT_WORLD_HEIGHT * view.scale;
+  const maxX = Math.max(0, (scaledWorldWidth - boardSize.width) / 2 + TALENT_WORLD_PADDING);
+  const maxY = Math.max(0, (scaledWorldHeight - boardSize.height) / 2 + TALENT_WORLD_PADDING);
+  return {
+    ...view,
+    x: clamp(view.x, -maxX, maxX),
+    y: clamp(view.y, -maxY, maxY),
+  };
+}
+
 export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUseTalent, onSelectTalent }: TalentTreeViewProps) {
   const [view, setView] = useState<TalentTreeViewState>(initialView);
+  const [boardSize, setBoardSize] = useState<TalentBoardSize>(initialBoardSize);
   const [dragging, setDragging] = useState(false);
+  const boardRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const fitInitializedRef = useRef(false);
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const activeSet = new Set(activeTalentIds);
   const clusterRegions = useMemo(() => {
@@ -62,8 +94,34 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
     });
   }, [nodes]);
 
+  const fitScale = fitScaleForBoard(boardSize);
+
+  useEffect(() => {
+    const board = boardRef.current;
+    if (!board) {
+      return;
+    }
+    const updateSize = () => {
+      setBoardSize({ width: board.clientWidth, height: board.clientHeight });
+    };
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(board);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    setView((current) => {
+      if (!fitInitializedRef.current && boardSize.width > 0 && boardSize.height > 0) {
+        fitInitializedRef.current = true;
+        return clampTalentView({ x: 0, y: 0, scale: fitScale }, boardSize);
+      }
+      return clampTalentView({ ...current, scale: Math.max(current.scale, fitScale) }, boardSize);
+    });
+  }, [boardSize.height, boardSize.width, fitScale]);
+
   const adjustScale = (delta: number) => {
-    setView((current) => ({ ...current, scale: clamp(current.scale + delta, 0.62, 1.85) }));
+    setView((current) => clampTalentView({ ...current, scale: clamp(current.scale + delta, fitScale, 1.85) }, boardSize));
   };
 
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
@@ -102,11 +160,7 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
     const dx = event.clientX - drag.lastX;
     const dy = event.clientY - drag.lastY;
     dragRef.current = { ...drag, lastX: event.clientX, lastY: event.clientY, dragging: true };
-    setView((current) => ({
-      ...current,
-      x: clamp(current.x + dx, -420, 420),
-      y: clamp(current.y + dy, -420, 420),
-    }));
+    setView((current) => clampTalentView({ ...current, x: current.x + dx, y: current.y + dy }, boardSize));
   };
 
   const endDrag = (event: PointerEvent<HTMLDivElement>) => {
@@ -122,6 +176,8 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
   };
 
   const viewportStyle = {
+    "--talent-world-width": `${TALENT_WORLD_WIDTH}px`,
+    "--talent-world-height": `${TALENT_WORLD_HEIGHT}px`,
     "--talent-tree-x": `${view.x}px`,
     "--talent-tree-y": `${view.y}px`,
     "--talent-tree-scale": view.scale,
@@ -131,6 +187,7 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
     <div
       aria-label="天賦盤"
       className={dragging ? "talent-board talent-board-dragging" : "talent-board"}
+      ref={boardRef}
       onPointerCancel={endDrag}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -145,7 +202,7 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
         <button aria-label="放大" onClick={() => adjustScale(0.14)} title="放大" type="button">
           <ZoomIn size={15} aria-hidden />
         </button>
-        <button aria-label={t("ui.control.reset")} onClick={() => setView(initialView)} title={t("ui.control.reset")} type="button">
+        <button aria-label={t("ui.control.reset")} onClick={() => setView(clampTalentView({ ...initialView, scale: fitScale }, boardSize))} title={t("ui.control.reset")} type="button">
           <LocateFixed size={15} aria-hidden />
         </button>
       </div>

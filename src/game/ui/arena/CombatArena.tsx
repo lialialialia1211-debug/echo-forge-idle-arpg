@@ -25,6 +25,7 @@ import {
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { arenaCircuits, getArenaCircuitDef } from "../../data/arenaCircuits";
 import { getArenaAnomalyDef } from "../../data/arenaAnomalies";
+import { chapters } from "../../data/chapters";
 import { circuitAtlasNodes, getCircuitAtlasNodeDef } from "../../data/circuitAtlasNodes";
 import { circuitNetworkNodes } from "../../data/circuitNetwork";
 import { doctrineForFrame, getDoctrineDef } from "../../data/doctrines";
@@ -32,6 +33,7 @@ import { driveCores, getDriveCoreDef } from "../../data/driveCores";
 import { getNamedRivalDef, namedRivals } from "../../data/namedRivals";
 import { talentNodes, getTalentNodeDef } from "../../data/talentNodes";
 import { getTopFrameDef, topFrames } from "../../data/topFrames";
+import { tutorialSteps, type TutorialStepDef, type TutorialTrigger } from "../../data/tutorialSteps";
 import {
   createPartFromArenaDrop,
   createStarterEquipment,
@@ -91,6 +93,7 @@ import type {
   BossGateFailureReason,
   CombatEvent,
   CircuitAtlasNodeDef,
+  CircuitNetworkNodeDef,
   DoctrineDef,
   TalentNodeDef,
   TopArenaRuntime,
@@ -227,6 +230,25 @@ const atlasNodePositions: Record<string, { x: number; y: number }> = {
   atlas_storm_divider: { x: 78, y: 28 },
   atlas_boss_lantern: { x: 24, y: 24 },
   atlas_last_gate: { x: 50, y: 10 },
+};
+
+const networkNodePositions: Record<string, { x: number; y: number }> = {
+  network_cinder_gate: { x: 12, y: 76 },
+  network_molten_spur: { x: 25, y: 62 },
+  network_glass_branch: { x: 26, y: 84 },
+  network_rim_fortress: { x: 40, y: 82 },
+  network_brass_judicator: { x: 53, y: 70 },
+  network_molten_bastion: { x: 68, y: 58 },
+  network_flux_monsoon: { x: 66, y: 82 },
+  network_magnet_well: { x: 78, y: 78 },
+  network_lattice_slip: { x: 86, y: 63 },
+  network_phase_lattice: { x: 92, y: 48 },
+  network_orbit_confluence: { x: 55, y: 90 },
+  network_chancel_apex: { x: 78, y: 39 },
+  network_mapwright_accord: { x: 72, y: 24 },
+  network_null_tide: { x: 58, y: 12 },
+  network_compression_ring: { x: 84, y: 13 },
+  network_resonant_crush: { x: 70, y: 6 },
 };
 
 const rarityRank: Record<TopPartRarity, number> = {
@@ -674,21 +696,40 @@ function StatPill({
   );
 }
 
-function PanelTab({ active, icon, label, onClick }: { active: boolean; icon: ReactNode; label: string; onClick: () => void }) {
+function PanelTab({ active, icon, label, onClick, tutorialAnchor }: { active: boolean; icon: ReactNode; label: string; onClick: () => void; tutorialAnchor?: string }) {
   return (
-    <button aria-label={label} className={active ? "panel-tab panel-tab-active" : "panel-tab"} onClick={onClick} title={label} type="button">
+    <button aria-label={label} className={active ? "panel-tab panel-tab-active" : "panel-tab"} data-tutorial-anchor={tutorialAnchor} onClick={onClick} title={label} type="button">
       {icon}
       <span aria-hidden>{label}</span>
     </button>
   );
 }
 
-function ScreenTab({ active, icon, label, onClick }: { active: boolean; icon: ReactNode; label: string; onClick: () => void }) {
+function ScreenTab({ active, icon, label, onClick, tutorialAnchor }: { active: boolean; icon: ReactNode; label: string; onClick: () => void; tutorialAnchor?: string }) {
   return (
-    <button aria-label={label} className={active ? "screen-tab screen-tab-active" : "screen-tab"} onClick={onClick} title={label} type="button">
+    <button aria-label={label} className={active ? "screen-tab screen-tab-active" : "screen-tab"} data-tutorial-anchor={tutorialAnchor} onClick={onClick} title={label} type="button">
       {icon}
       <span>{label}</span>
     </button>
+  );
+}
+
+function TutorialCard({ replaying, step, onDismiss, onSkip }: { replaying: boolean; step: TutorialStepDef; onDismiss: () => void; onSkip: () => void }) {
+  return (
+    <aside className="tutorial-card" role="status" aria-live="polite">
+      <div className="tutorial-card-head">
+        <span>{replaying ? t("ui.tutorial.replay") : t("ui.chapter.cinder")}</span>
+        <button className="icon-button" aria-label={t("ui.tutorial.skip")} onClick={onSkip} type="button">
+          <X size={14} aria-hidden />
+        </button>
+      </div>
+      <strong>{t(step.titleKey)}</strong>
+      <p>{t(step.bodyKey)}</p>
+      <button className="arena-button" onClick={onDismiss} type="button">
+        <Sparkles size={15} aria-hidden />
+        {t("ui.tutorial.next")}
+      </button>
+    </aside>
   );
 }
 
@@ -756,7 +797,7 @@ export function CombatArena() {
   );
   const saveShellRef = useRef(initialSave);
   const [account, dispatchAccount] = useReducer(accountReducer, initialAccountState);
-  const { frameId, driveId, arenaId, equipment, inventory, runeSlots, talentIds, circuitAtlasNodeIds, doctrineId, wallet, arenaKeys, clearedBossGateIds, clearedRivalIds, routeClears, totalKills } = account;
+  const { frameId, driveId, arenaId, equipment, inventory, runeSlots, talentIds, circuitAtlasNodeIds, doctrineId, wallet, arenaKeys, clearedBossGateIds, clearedRivalIds, routeClears, totalKills, seenTutorialIds } = account;
   const [speed, setSpeed] = useState(1);
   const [running, setRunning] = useState(false);
   const [showDebugHud, setShowDebugHud] = useState(false);
@@ -765,15 +806,18 @@ export function CombatArena() {
   const [rendererMetrics, setRendererMetrics] = useState<ArenaRendererMetrics>(initialRendererMetrics);
   const [screen, setScreen] = useState<ArenaScreen>("combat");
   const [activePanel, setActivePanel] = useState<ActivePanel>("loadout");
+  const [tutorialReplayStepId, setTutorialReplayStepId] = useState<string | null>(null);
   const [inventoryFilter, setInventoryFilter] = useState<TopPartSlotId | "all">("all");
   const [selectedPartId, setSelectedPartId] = useState(initialInventory[0]?.id ?? initialEquipment.core.id);
   const [selectedRuneSocket, setSelectedRuneSocket] = useState(0);
   const [selectedTalentId, setSelectedTalentId] = useState(talentNodes[0].id);
   const [selectedAtlasNodeId, setSelectedAtlasNodeId] = useState(circuitAtlasNodes[0].id);
+  const [selectedNetworkNodeId, setSelectedNetworkNodeId] = useState(circuitNetworkNodes[0].id);
   const [selectedArenaKeyId, setSelectedArenaKeyId] = useState<string | null>((initialSave.top.arenaKeys as ArenaKey[])[0]?.id ?? null);
   const [selectedOfflineNodeId, setSelectedOfflineNodeId] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [doctrineExpanded, setDoctrineExpanded] = useState(false);
+  const [clearsExpanded, setClearsExpanded] = useState(false);
   const [currentArenaKey, setCurrentArenaKey] = useState<ArenaKey | null>(null);
   const [activeAnomalyId, setActiveAnomalyId] = useState<string | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
@@ -947,6 +991,20 @@ export function CombatArena() {
 
     return new Set(circuitNetworkNodes.filter((node) => isUnlocked(node.id)).map((node) => node.id));
   }, [clearedBossGateIds, clearedRivalIds]);
+  const chapterOne = chapters[0]!;
+  const chapterProgress = useMemo(() => {
+    const nodeDone = chapterOne.nodeIds.filter((nodeId) => unlockedCircuitNodeIds.has(nodeId)).length;
+    const rivalDone = chapterOne.rivalIds.filter((rivalId) => clearedRivalIds.includes(rivalId)).length;
+    const bossDone = clearedBossGateIds.includes(chapterOne.bossGateId) ? 1 : 0;
+    const total = chapterOne.nodeIds.length + chapterOne.rivalIds.length + 1;
+    const done = nodeDone + rivalDone + bossDone;
+    return {
+      done,
+      total,
+      ratio: total > 0 ? done / total : 0,
+      complete: done >= total,
+    };
+  }, [chapterOne, clearedBossGateIds, clearedRivalIds, unlockedCircuitNodeIds]);
 
   const resetArena = useCallback(
     (
@@ -1017,6 +1075,10 @@ export function CombatArena() {
     setInspectorOpen(true);
   };
 
+  const inspectNetworkNode = (nodeId: string) => {
+    setSelectedNetworkNodeId(nodeId);
+  };
+
   const inspectArenaKey = (keyId: string) => {
     setSelectedArenaKeyId(keyId);
     setInspectorOpen(true);
@@ -1028,6 +1090,7 @@ export function CombatArena() {
       return;
     }
     setSelectedOfflineNodeId(node.id);
+    setSelectedNetworkNodeId(node.id);
     if (node.arenaId !== arenaId) {
       selectArena(node.arenaId);
     }
@@ -1477,7 +1540,7 @@ export function CombatArena() {
     const now = new Date().toISOString();
     const nextSave = {
       ...saveShellRef.current,
-      schemaVersion: 5 as const,
+      schemaVersion: 6 as const,
       currencies: {
         ...saveShellRef.current.currencies,
         ash: account.wallet.ash,
@@ -1572,6 +1635,89 @@ export function CombatArena() {
       tone,
     };
   }, [bossProjection.successChance, dangerCue, defeatCauseDetail, defeatCauseLabel, running, runtime.bossSpawned, runtime.drops, runtime.kills, runtime.mapKillTarget, runtime.mapKills, runtime.routeClears, runtimeDefeated, runtimeError, selectedPartVerdict]);
+  const activeTutorialStep = useMemo(() => {
+    if (tutorialReplayStepId) {
+      return tutorialSteps.find((step) => step.id === tutorialReplayStepId) ?? null;
+    }
+    const selectedNetworkNode = circuitNetworkNodes.find((node) => node.id === selectedNetworkNodeId);
+    const hasUnlockedRivalGate = circuitNetworkNodes.some((node) => Boolean(node.unlocksRivalId && unlockedCircuitNodeIds.has(node.id) && !clearedRivalIds.includes(node.unlocksRivalId)));
+    const hasUnlockedAnomaly = circuitNetworkNodes.some((node) => Boolean(node.anomalyId && unlockedCircuitNodeIds.has(node.id)));
+    const triggers: Record<TutorialTrigger, boolean> = {
+      welcome: true,
+      firstDrop: runtime.drops.length > 0 || lootNotices.some((notice) => notice.tone === "drop"),
+      firstEquip: selectedPartVerdict?.action === "equip",
+      firstTalent: totalKills >= 5 && availableTalentPoints > 0,
+      firstForge: Boolean(selectedPart && canApplyForgeAction("upgrade", selectedPart) && canSpend(wallet, forgeActionCost("upgrade", selectedPart))),
+      firstRune: activePanel === "skills" || runeSlots.some(Boolean),
+      doctrine: activePanel === "talents" || doctrineId !== null,
+      mapUnlock: screen === "map" || chapterProgress.done > 1,
+      rivalGate: hasUnlockedRivalGate || Boolean(selectedNetworkNode?.unlocksRivalId || selectedNetworkNode?.requiredRivalId),
+      firstKey: arenaKeys.length > 0,
+      firstAnomaly: hasUnlockedAnomaly || Boolean(selectedNetworkNode?.anomalyId),
+      bossGate: bossProjection.successChance >= 0.5 || clearedBossGateIds.includes(chapterOne.bossGateId),
+    };
+    return tutorialSteps.find((step) => triggers[step.trigger] && !seenTutorialIds.includes(step.id)) ?? null;
+  }, [
+    activePanel,
+    arenaKeys.length,
+    availableTalentPoints,
+    bossProjection.successChance,
+    chapterOne.bossGateId,
+    chapterProgress.done,
+    clearedBossGateIds,
+    clearedRivalIds,
+    doctrineId,
+    lootNotices,
+    runeSlots,
+    runtime.drops.length,
+    screen,
+    seenTutorialIds,
+    selectedNetworkNodeId,
+    selectedPart,
+    selectedPartVerdict,
+    tutorialReplayStepId,
+    unlockedCircuitNodeIds,
+    wallet,
+    totalKills,
+  ]);
+  const activeTutorialAnchor = activeTutorialStep?.anchor ?? null;
+
+  useEffect(() => {
+    const nodes = document.querySelectorAll<HTMLElement>("[data-tutorial-anchor]");
+    nodes.forEach((node) => {
+      node.classList.toggle("tutorial-anchor-active", Boolean(activeTutorialAnchor) && node.dataset.tutorialAnchor === activeTutorialAnchor);
+    });
+    return () => {
+      nodes.forEach((node) => node.classList.remove("tutorial-anchor-active"));
+    };
+  }, [activeTutorialAnchor]);
+
+  const startTutorialReplay = () => {
+    dispatchAccount({ type: "resetTutorialSeen" });
+    setTutorialReplayStepId(tutorialSteps[0]?.id ?? null);
+  };
+
+  const dismissTutorial = () => {
+    if (!activeTutorialStep) {
+      return;
+    }
+    if (tutorialReplayStepId) {
+      const currentIndex = tutorialSteps.findIndex((step) => step.id === activeTutorialStep.id);
+      setTutorialReplayStepId(tutorialSteps[currentIndex + 1]?.id ?? null);
+      return;
+    }
+    dispatchAccount({ type: "markTutorialSeen", tutorialId: activeTutorialStep.id });
+  };
+
+  const skipTutorial = () => {
+    if (tutorialReplayStepId) {
+      setTutorialReplayStepId(null);
+      return;
+    }
+    if (activeTutorialStep) {
+      dispatchAccount({ type: "markTutorialSeen", tutorialId: activeTutorialStep.id });
+    }
+  };
 
   const renderBuildSummaryPanel = () => (
     <section className="workbench-section build-summary-section">
@@ -1590,7 +1736,7 @@ export function CombatArena() {
   );
 
   const renderSelectedPartInspector = ({ title = t("ui.section.selectedPart"), showForgeAction = true }: { title?: string; showForgeAction?: boolean } = {}) => (
-    <section className="workbench-section part-inspector-section">
+    <section className="workbench-section part-inspector-section" data-tutorial-anchor="part-inspector">
       <div className="section-title">
         <Gem size={17} aria-hidden />
         <h2>{title}</h2>
@@ -1751,7 +1897,7 @@ export function CombatArena() {
       </section>
 
       {lootNotices.length > 0 ? (
-        <section className="workbench-section loot-history-section">
+        <section className="workbench-section loot-history-section" data-tutorial-anchor="loot-notice">
           <div className="section-title">
             <PackageOpen size={17} aria-hidden />
             <h2>{t("ui.section.recentLoot")}</h2>
@@ -1948,6 +2094,76 @@ export function CombatArena() {
     </>
   );
 
+  const renderNetworkNodeDetail = (node: CircuitNetworkNodeDef) => {
+    const unlocked = unlockedCircuitNodeIds.has(node.id);
+    const routeArena = getArenaCircuitDef(node.arenaId);
+    const anomaly = node.anomalyId ? getArenaAnomalyDef(node.anomalyId) : null;
+    const unlocksRival = node.unlocksRivalId ? rivalById.get(node.unlocksRivalId) : null;
+    const requiredRival = node.requiredRivalId ? rivalById.get(node.requiredRivalId) : null;
+    const rivalCleared = unlocksRival ? clearedRivalIds.includes(unlocksRival.id) : false;
+    const bossGateCleared = node.requiredBossGateId ? clearedBossGateIds.includes(node.requiredBossGateId) : false;
+
+    return (
+      <section className="workbench-section route-node-detail-section" data-tutorial-anchor="network-detail">
+        <div className="section-title">
+          <MapIcon size={17} aria-hidden />
+          <h2>{dataName("network", node.id, node.displayName)}</h2>
+          <span className="section-counter">{unlocked ? t("ui.route.open") : t("ui.route.locked")}</span>
+        </div>
+        <p>{dataDescription("network", node.id, node.description)}</p>
+        <div className="route-node-meta">
+          <span>
+            {t("ui.section.circuit")} <strong>T{routeArena.tier} {dataName("arena", routeArena.id, routeArena.displayName)}</strong>
+          </span>
+          {anomaly ? (
+            <span>
+              {t("ui.anomaly.active")} <strong>{dataName("anomaly", anomaly.id, anomaly.displayName)}</strong>
+              <small>{anomalyRuleLabel(anomaly.playerRule)} / {formatPercent(anomaly.rewardQuantity + anomaly.rewardRarity, 0)} {t("ui.route.reward")}</small>
+            </span>
+          ) : null}
+          {unlocksRival ? (
+            <span>
+              {t("ui.route.rivals")} <strong>{dataName("rival", unlocksRival.id, unlocksRival.displayName)}</strong>
+              <small>{rivalCleared ? t("ui.route.cleared") : t("ui.route.duel")}</small>
+            </span>
+          ) : null}
+          {requiredRival ? (
+            <span>
+              {t("ui.talent.requirement")} <strong>{dataName("rival", requiredRival.id, requiredRival.displayName)}</strong>
+            </span>
+          ) : null}
+          {node.requiredBossGateId ? (
+            <span>
+              {t("ui.section.bossGate")} <strong>{bossGateCleared ? t("ui.route.cleared") : t("ui.route.locked")}</strong>
+            </span>
+          ) : null}
+        </div>
+        <div className="route-node-actions">
+          <button className="arena-button" disabled={!unlocked || node.arenaId === arenaId} onClick={() => selectArena(node.arenaId)} type="button">
+            <Radar size={15} aria-hidden />
+            {t("ui.next.chooseRoute")}
+          </button>
+          {anomaly ? (
+            <button className="arena-button" disabled={!unlocked} onClick={() => startAnomalyRoute(anomaly.id, node.arenaId)} type="button">
+              <Zap size={15} aria-hidden />
+              {dataName("anomaly", anomaly.id, anomaly.displayName)}
+            </button>
+          ) : null}
+          {unlocksRival ? (
+            <button className="arena-button" disabled={!unlocked || rivalCleared} onClick={() => startRivalDuel(unlocksRival.id)} type="button">
+              <Swords size={15} aria-hidden />
+              {rivalCleared ? t("ui.route.cleared") : t("ui.route.duel")}
+            </button>
+          ) : null}
+          <button className="arena-button" disabled={!unlocked} onClick={() => selectOfflineNode(node.id)} type="button">
+            <RotateCcw size={15} aria-hidden />
+            {selectedOfflineNodeId === node.id ? t("ui.route.offlineSet") : t("ui.route.offline")}
+          </button>
+        </div>
+      </section>
+    );
+  };
+
   const renderRoutePanel = () => (
     <>
       <section className="workbench-section route-overview-section">
@@ -1964,10 +2180,21 @@ export function CombatArena() {
           <StatPill icon={<Zap size={15} />} label={t("ui.section.breachRail")} value={routeMechanic ? formatPercent(routeMechanicProgress, 0) : "關閉"} tone={routeMechanic?.stabilized ? "good" : routeMechanic?.active ? "rare" : "warn"} />
           <StatPill icon={<Network size={15} />} label={t("ui.section.circuitAtlas")} value={`${availableAtlasPoints}/${atlasPoints}`} tone="good" />
         </div>
+        <div className={chapterProgress.complete ? "chapter-progress-strip chapter-progress-complete" : "chapter-progress-strip"}>
+          <div>
+            <small>{t("ui.chapter.objectives")}</small>
+            <strong>{t("ui.chapter.cinder")}</strong>
+          </div>
+          <span>{t(chapterProgress.complete ? "ui.chapter.complete" : "ui.chapter.progress", { done: chapterProgress.done, total: chapterProgress.total })}</span>
+          <i aria-hidden>
+            <b style={{ width: `${chapterProgress.ratio * 100}%` }} />
+          </i>
+        </div>
       </section>
 
       <div className="route-content-column route-main-column">
-      <section className="workbench-section">
+      <div className="route-quick-row">
+      <section className="workbench-section route-circuit-section">
         <div className="section-title">
           <Radar size={17} aria-hidden />
           <h2>{t("ui.section.circuit")}</h2>
@@ -1983,7 +2210,7 @@ export function CombatArena() {
         </div>
       </section>
 
-      <section className="workbench-section">
+      <section className="workbench-section route-breach-section">
         <div className="section-title">
           <Zap size={17} aria-hidden />
           <h2>{t("ui.section.breachRail")}</h2>
@@ -2003,8 +2230,9 @@ export function CombatArena() {
           </div>
         </div>
       </section>
+      </div>
 
-      <section className="workbench-section">
+      <section className="workbench-section route-atlas-section">
         <div className="section-title">
           <Network size={17} aria-hidden />
           <h2>{t("ui.section.circuitAtlas")}</h2>
@@ -2056,6 +2284,47 @@ export function CombatArena() {
                     </button>
                   );
                 })}
+                <svg className="network-map-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+                  {circuitNetworkNodes.flatMap((node) =>
+                    (node.requiredNodeIds ?? []).map((requiredId) => {
+                      const from = networkNodePositions[requiredId];
+                      const to = networkNodePositions[node.id];
+                      const active = unlockedCircuitNodeIds.has(requiredId) && unlockedCircuitNodeIds.has(node.id);
+                      return from && to ? <line className={active ? "network-map-link network-map-link-active" : "network-map-link"} key={`${requiredId}-${node.id}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} /> : null;
+                    }),
+                  )}
+                </svg>
+                {circuitNetworkNodes.map((node) => {
+                  const unlocked = unlockedCircuitNodeIds.has(node.id);
+                  const selected = selectedNetworkNodeId === node.id;
+                  const anomaly = node.anomalyId ? getArenaAnomalyDef(node.anomalyId) : null;
+                  const rival = node.unlocksRivalId ? rivalById.get(node.unlocksRivalId) : null;
+                  const position = networkNodePositions[node.id] ?? { x: 50, y: 50 };
+                  const networkClass = [
+                    "network-map-node",
+                    unlocked ? "network-map-node-unlocked" : "network-map-node-locked",
+                    selected ? "network-map-node-selected" : "",
+                    anomaly ? "network-map-node-anomaly" : "",
+                    rival ? "network-map-node-rival" : "",
+                    node.requiredBossGateId ? "network-map-node-gate" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ");
+
+                  return (
+                    <button
+                      aria-pressed={selected}
+                      className={networkClass}
+                      key={node.id}
+                      onClick={() => inspectNetworkNode(node.id)}
+                      style={{ "--network-x": `${position.x}%`, "--network-y": `${position.y}%` } as CSSProperties}
+                      type="button"
+                    >
+                      <small>{unlocked ? t("ui.route.open") : t("ui.route.locked")}</small>
+                      <strong>{dataName("network", node.id, node.displayName)}</strong>
+                    </button>
+                  );
+                })}
               </div>
               <div className="talent-detail-panel atlas-detail-panel">
                 <div className="talent-detail-header">
@@ -2083,7 +2352,8 @@ export function CombatArena() {
       </div>
 
       <div className="route-content-column route-side-column">
-      <section className="workbench-section">
+      {renderNetworkNodeDetail(circuitNetworkNodes.find((node) => node.id === selectedNetworkNodeId) ?? circuitNetworkNodes[0]!)}
+      <section className="workbench-section route-keys-section" data-tutorial-anchor="arena-keys">
         <div className="section-title">
           <PackageOpen size={17} aria-hidden />
           <h2>{t("ui.section.arenaKeys")}</h2>
@@ -2144,7 +2414,7 @@ export function CombatArena() {
         ) : null}
       </section>
 
-      <section className="workbench-section">
+      <section className="workbench-section route-boss-section" data-tutorial-anchor="boss-gate">
         <div className="section-title">
           <Network size={17} aria-hidden />
           <h2>{t("ui.section.bossGate")}</h2>
@@ -2167,7 +2437,7 @@ export function CombatArena() {
         </button>
       </section>
 
-      <section className="workbench-section">
+      <section className="workbench-section route-network-section">
         <div className="section-title">
           <MapIcon size={17} aria-hidden />
           <h2>{t("ui.section.circuitNetwork")}</h2>
@@ -2208,19 +2478,28 @@ export function CombatArena() {
         </div>
       </section>
 
-      <section className="workbench-section">
+      <section className="workbench-section route-clears-section">
         <div className="section-title">
           <Radar size={17} aria-hidden />
           <h2>{t("ui.section.clears")}</h2>
+          <button className="section-counter section-counter-button" onClick={() => setClearsExpanded((value) => !value)} type="button">
+            {clearsExpanded ? t("ui.control.collapse") : t("ui.control.expand")}
+          </button>
         </div>
-        <div className="route-clear-list">
-          {arenaCircuits.map((entry) => (
-            <div className="route-clear-line" key={entry.id}>
-              <span>{dataName("arena", entry.id, entry.displayName)}</span>
-              <strong>{routeClears[entry.id] ?? 0}</strong>
-            </div>
-          ))}
-        </div>
+        {clearsExpanded ? (
+          <div className="route-clear-list">
+            {arenaCircuits.map((entry) => (
+              <div className="route-clear-line" key={entry.id}>
+                <span>{dataName("arena", entry.id, entry.displayName)}</span>
+                <strong>{routeClears[entry.id] ?? 0}</strong>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="route-clear-list route-clear-list-collapsed">
+            <span className="empty-drop">{arenaCircuits.length} {t("ui.section.circuit")} / {t("ui.control.expand")}</span>
+          </div>
+        )}
       </section>
       </div>
     </>
@@ -2279,7 +2558,7 @@ export function CombatArena() {
           <h2>{t("ui.section.talents")}</h2>
           <span className="section-counter">{availableTalentPoints}/{talentPoints}</span>
         </div>
-        <div className="talent-doctrine-strip">
+        <div className="talent-doctrine-strip" data-tutorial-anchor="doctrine-strip">
           <div>
             <small>{displayFrameName(frame.id, frame.displayName)}</small>
             <strong>{selectedDoctrine ? dataName("doctrine", selectedDoctrine.id, selectedDoctrine.displayName) : t("ui.talent.noDoctrine")}</strong>
@@ -2664,12 +2943,16 @@ export function CombatArena() {
         <div className="arena-controls" aria-label={t("ui.aria.arenaControls")}>
           <div className="screen-tabs" aria-label={t("ui.aria.mainScreens")}>
             <ScreenTab active={screen === "combat"} icon={<Swords size={15} aria-hidden />} label={t("ui.screen.combat")} onClick={() => setScreen("combat")} />
-            <ScreenTab active={screen === "map"} icon={<MapIcon size={15} aria-hidden />} label={t("ui.screen.map")} onClick={openMap} />
+            <ScreenTab active={screen === "map"} icon={<MapIcon size={15} aria-hidden />} label={t("ui.screen.map")} onClick={openMap} tutorialAnchor="screen-map" />
             <ScreenTab active={screen === "workbench"} icon={<Hammer size={15} aria-hidden />} label={t("ui.screen.workbench")} onClick={() => setScreen("workbench")} />
           </div>
-          <button className={running ? "arena-button arena-button-live" : "arena-button"} disabled={runtimeDefeated} onClick={toggleRunning} type="button">
+          <button className={running ? "arena-button arena-button-live" : "arena-button"} data-tutorial-anchor="start-button" disabled={runtimeDefeated} onClick={toggleRunning} type="button">
             {running ? <Pause size={16} aria-hidden /> : <Play size={16} aria-hidden />}
             {runtimeDefeated ? t("ui.state.defeated") : running ? t("ui.control.pause") : t("ui.control.start")}
+          </button>
+          <button className="arena-button arena-button-secondary" onClick={startTutorialReplay} type="button">
+            <Sparkles size={16} aria-hidden />
+            {t("ui.tutorial.replay")}
           </button>
           <button className="arena-button" onClick={() => resetArena()} type="button">
             <RotateCcw size={16} aria-hidden />
@@ -2837,7 +3120,7 @@ export function CombatArena() {
               </div>
             ) : null}
             {lootNotices.length > 0 ? (
-              <div className="loot-toast-stack" aria-live="polite">
+              <div className="loot-toast-stack" data-tutorial-anchor="loot-notice" aria-live="polite">
                 {lootNotices.slice(0, 4).map((notice) => (
                   <div className={["loot-toast", `loot-toast-${notice.tone}`, notice.rarity ? `loot-toast-rarity-${notice.rarity}` : ""].filter(Boolean).join(" ")} key={notice.id}>
                     {notice.text}
@@ -3070,9 +3353,9 @@ export function CombatArena() {
           <nav className="panel-tabs" aria-label={t("ui.aria.workbench")}>
             <PanelTab active={activePanel === "loadout"} icon={<CircleDot size={15} aria-hidden />} label={t("ui.panel.loadout")} onClick={() => openPanel("loadout")} />
             <PanelTab active={activePanel === "inventory"} icon={<PackageOpen size={15} aria-hidden />} label={t("ui.panel.inventory")} onClick={() => openPanel("inventory")} />
-            <PanelTab active={activePanel === "skills"} icon={<Sparkles size={15} aria-hidden />} label={t("ui.panel.skills")} onClick={() => openPanel("skills")} />
-            <PanelTab active={activePanel === "forge"} icon={<Recycle size={15} aria-hidden />} label={t("ui.panel.forge")} onClick={() => openPanel("forge")} />
-            <PanelTab active={activePanel === "talents"} icon={<Network size={15} aria-hidden />} label={t("ui.panel.talents")} onClick={() => openPanel("talents")} />
+            <PanelTab active={activePanel === "skills"} icon={<Sparkles size={15} aria-hidden />} label={t("ui.panel.skills")} onClick={() => openPanel("skills")} tutorialAnchor="tab-skills" />
+            <PanelTab active={activePanel === "forge"} icon={<Recycle size={15} aria-hidden />} label={t("ui.panel.forge")} onClick={() => openPanel("forge")} tutorialAnchor="tab-forge" />
+            <PanelTab active={activePanel === "talents"} icon={<Network size={15} aria-hidden />} label={t("ui.panel.talents")} onClick={() => openPanel("talents")} tutorialAnchor="tab-talents" />
           </nav>
           {showTuningHud ? renderTuningPanel() : null}
           <div className="workbench-content">
@@ -3081,6 +3364,9 @@ export function CombatArena() {
         </aside>
         ) : null}
       </section>
+      {activeTutorialStep ? (
+        <TutorialCard replaying={Boolean(tutorialReplayStepId)} step={activeTutorialStep} onDismiss={dismissTutorial} onSkip={skipTutorial} />
+      ) : null}
     </main>
   );
 }

@@ -69,9 +69,8 @@ export const namedRivals: NamedRivalDef[] = [
     frameId: "frame_swift_razor",
     driveId: "drive_razor_rebound",
     loadout: {
-      runeIds: ["rune_bite_return", "rune_overclock_pin", "rune_bloodless_line", "rune_deep_bearing"],
-      talentIds: ["talent_iron_rotation", "talent_razor_geometry", "talent_impact_entry", "talent_impact_notable", "talent_guard_entry", "talent_guard_notable"],
-      doctrineId: "doctrine_swift_orbit_duelist",
+      runeIds: ["rune_bite_return", "rune_deep_bearing"],
+      talentIds: ["talent_iron_rotation", "talent_razor_geometry", "talent_impact_entry"],
     },
     mechanicId: "ringWard",
     circuitNodeId: "network_glass_branch",

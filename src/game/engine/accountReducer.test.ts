@@ -23,6 +23,7 @@ function createState(overrides: Partial<AccountRuntimeState> = {}): AccountRunti
     clearedRivalIds: [],
     routeClears: {},
     totalKills: 0,
+    seenTutorialIds: [],
     ...overrides,
   };
 }
@@ -78,6 +79,10 @@ describe("accountReducer", () => {
     expect(arenaSelected.arenaId).toBe("arena_red_chancel_disk");
     expect(cleared.clearedBossGateIds).toEqual(["boss_gate_brass_judicator"]);
     expect(repeated.clearedBossGateIds).toEqual(["boss_gate_brass_judicator"]);
+    expect(cleared.wallet).toEqual({ ash: 100, glass: 105, echo: 11 });
+    expect(repeated.wallet).toEqual(cleared.wallet);
+    expect(cleared.inventory.some((item) => item.sourceDropId === "first_clear_boss_gate_brass_judicator" && item.rarity === "engraved")).toBe(true);
+    expect(repeated.inventory.filter((item) => item.sourceDropId === "first_clear_boss_gate_brass_judicator")).toHaveLength(1);
   });
 
   it("clears named rivals idempotently", () => {
@@ -87,6 +92,21 @@ describe("accountReducer", () => {
 
     expect(cleared.clearedRivalIds).toEqual(["rival_sable_reflector"]);
     expect(repeated.clearedRivalIds).toEqual(["rival_sable_reflector"]);
+    expect(cleared.wallet).toEqual({ ash: 100, glass: 100, echo: 11 });
+    expect(repeated.wallet).toEqual(cleared.wallet);
+    expect(cleared.inventory.some((item) => item.sourceDropId === "first_clear_rival_sable_reflector" && item.rarity === "engraved")).toBe(true);
+    expect(repeated.inventory.filter((item) => item.sourceDropId === "first_clear_rival_sable_reflector")).toHaveLength(1);
+  });
+
+  it("marks tutorial steps as seen idempotently", () => {
+    const state = createState();
+    const seen = accountReducer(state, { type: "markTutorialSeen", tutorialId: "tut_welcome" });
+    const repeated = accountReducer(seen, { type: "markTutorialSeen", tutorialId: "tut_welcome" });
+    const reset = accountReducer(repeated, { type: "resetTutorialSeen" });
+
+    expect(seen.seenTutorialIds).toEqual(["tut_welcome"]);
+    expect(repeated.seenTutorialIds).toEqual(["tut_welcome"]);
+    expect(reset.seenTutorialIds).toEqual([]);
   });
 
   it("equips a part and returns the replaced part to inventory", () => {
@@ -208,7 +228,7 @@ describe("accountReducer", () => {
     const paid = accountReducer(killed, { type: "addWallet", wallet: { ash: 3, glass: 0, echo: 1 } });
 
     expect(paid.inventory[0].id).toBe("crafted_source");
-    expect(paid.wallet).toEqual({ ash: 4, glass: 7, echo: 2 });
+    expect(paid.wallet).toEqual({ ash: 14, glass: 9, echo: 2 });
     expect(paid.arenaKeys).toHaveLength(2);
     expect(paid.routeClears.arena_cinder_crucible).toBe(1);
     expect(paid.totalKills).toBe(12);

@@ -1,14 +1,17 @@
 import { circuitAtlasNodes, getCircuitAtlasNodeDef } from "../data/circuitAtlasNodes";
+import { circuitNetworkNodes } from "../data/circuitNetwork";
 import { getDoctrineDef } from "../data/doctrines";
 import { getDriveCoreDef } from "../data/driveCores";
 import { getArenaCircuitDef } from "../data/arenaCircuits";
 import { getBossGateDef } from "../data/bossGates";
+import { balanceConfig } from "../data/balanceConfig";
 import { getNamedRivalDef } from "../data/namedRivals";
 import { getTalentNodeDef, talentNodes } from "../data/talentNodes";
 import { getTopFrameDef } from "../data/topFrames";
 import { isRuneCompatible, tuningRunes } from "../data/tuningRunes";
 import { validateRuneLoadout } from "./driveRuneValidation";
 import { salvageTopPart, type TopCraftResult, type TopForgeWallet } from "./topCrafting";
+import { generateTopPart } from "./topPartGeneration";
 import type { ArenaKey, TopPartInstance } from "./topTypes";
 import { compactRuneSlots, type AccountRuntimeState, type AccountWallet } from "./accountState";
 
@@ -38,7 +41,9 @@ export type AccountAction =
   | { type: "ingestDrops"; parts: TopPartInstance[]; capacity?: number }
   | { type: "addWallet"; wallet: AccountWallet }
   | { type: "addKills"; amount: number }
-  | { type: "addRouteClear"; arenaId: string; keys: ArenaKey[] };
+  | { type: "addRouteClear"; arenaId: string; keys: ArenaKey[] }
+  | { type: "markTutorialSeen"; tutorialId: string }
+  | { type: "resetTutorialSeen" };
 
 export function addWallet(left: AccountWallet, right: AccountWallet): AccountWallet {
   return {
@@ -82,6 +87,74 @@ export function mergeInventoryParts(incoming: TopPartInstance[], current: TopPar
 
 export function salvageParts(parts: TopPartInstance[]): AccountWallet {
   return parts.reduce<AccountWallet>((wallet, part) => addWallet(wallet, salvageTopPart(part)), { ash: 0, glass: 0, echo: 0 });
+}
+
+function addWalletTimes(wallet: AccountWallet, reward: AccountWallet, times: number): AccountWallet {
+  return {
+    ash: wallet.ash + reward.ash * times,
+    glass: wallet.glass + reward.glass * times,
+    echo: wallet.echo + reward.echo * times,
+  };
+}
+
+function addRewardParts(state: AccountRuntimeState, parts: TopPartInstance[]): AccountRuntimeState {
+  if (parts.length === 0) {
+    return state;
+  }
+  const merged = mergeInventoryParts(parts, state.inventory, inventoryCapacity);
+  return {
+    ...state,
+    inventory: merged.items,
+    wallet: merged.overflow.length > 0 ? addWallet(state.wallet, salvageParts(merged.overflow)) : state.wallet,
+  };
+}
+
+function createRivalFirstClearPart(rivalId: string): TopPartInstance | null {
+  const rival = getNamedRivalDef(rivalId);
+  const baseId = rival.uniqueDropBaseIds[0];
+  if (!baseId) {
+    return null;
+  }
+  const node = circuitNetworkNodes.find((entry) => entry.id === rival.circuitNodeId);
+  const arena = node ? getArenaCircuitDef(node.arenaId) : getArenaCircuitDef("arena_cinder_crucible");
+  return generateTopPart({
+    id: `first_clear_${rival.id}_${baseId}`,
+    baseId,
+    rarity: balanceConfig.drops.firstClear.rival.rarity,
+    itemLevel: Math.max(balanceConfig.drops.firstClear.rival.itemLevel, arena.enemyLevel),
+    seed: `first_clear_${rival.id}_${baseId}`,
+    arenaId: arena.id,
+    enemyLevel: arena.enemyLevel,
+    source: "drop",
+    sourceDropId: `first_clear_${rival.id}`,
+    locked: true,
+  });
+}
+
+function createBossGateFirstClearPart(gateId: string): TopPartInstance {
+  const gate = getBossGateDef(gateId);
+  const arena = getArenaCircuitDef(gate.arenaId);
+  return generateTopPart({
+    id: `first_clear_${gate.id}_${balanceConfig.drops.firstClear.bossGate.baseId}`,
+    baseId: balanceConfig.drops.firstClear.bossGate.baseId,
+    rarity: balanceConfig.drops.firstClear.bossGate.rarity,
+    itemLevel: Math.max(balanceConfig.drops.firstClear.bossGate.itemLevel, arena.enemyLevel),
+    seed: `first_clear_${gate.id}_${balanceConfig.drops.firstClear.bossGate.baseId}`,
+    arenaId: arena.id,
+    enemyLevel: arena.enemyLevel,
+    source: "drop",
+    sourceDropId: `first_clear_${gate.id}`,
+    locked: true,
+  });
+}
+
+function mapClearReward(arenaId: string, clears: number): AccountWallet {
+  const arena = getArenaCircuitDef(arenaId);
+  return {
+    ash: balanceConfig.progression.mapClearReward.ashPerTier * arena.tier * clears,
+    glass: balanceConfig.progression.mapClearReward.glassPerTier * arena.tier * clears,
+    echo: 0,
+  };
 }
 
 export function talentPointTotal(totalKills: number): number {
@@ -218,17 +291,37 @@ export function accountReducer(state: AccountRuntimeState, action: AccountAction
       getArenaCircuitDef(action.arenaId);
       return { ...state, arenaId: action.arenaId };
 
-    case "markBossGateCleared":
+    case "markBossGateCleared": {
       getBossGateDef(action.gateId);
-      return state.clearedBossGateIds.includes(action.gateId)
-        ? state
-        : { ...state, clearedBossGateIds: [...state.clearedBossGateIds, action.gateId] };
+      if (state.clearedBossGateIds.includes(action.gateId)) {
+        return state;
+      }
+      const rewarded = addRewardParts(
+        {
+          ...state,
+          clearedBossGateIds: [...state.clearedBossGateIds, action.gateId],
+          wallet: addWallet(state.wallet, balanceConfig.drops.firstClear.bossGate.wallet),
+        },
+        [createBossGateFirstClearPart(action.gateId)],
+      );
+      return rewarded;
+    }
 
-    case "clearRival":
+    case "clearRival": {
       getNamedRivalDef(action.rivalId);
-      return state.clearedRivalIds.includes(action.rivalId)
-        ? state
-        : { ...state, clearedRivalIds: [...state.clearedRivalIds, action.rivalId] };
+      if (state.clearedRivalIds.includes(action.rivalId)) {
+        return state;
+      }
+      const part = createRivalFirstClearPart(action.rivalId);
+      return addRewardParts(
+        {
+          ...state,
+          clearedRivalIds: [...state.clearedRivalIds, action.rivalId],
+          wallet: addWallet(state.wallet, balanceConfig.drops.firstClear.rival.wallet),
+        },
+        part ? [part] : [],
+      );
+    }
 
     case "equipPart": {
       const replaced = state.equipment[action.part.slot];
@@ -361,12 +454,23 @@ export function accountReducer(state: AccountRuntimeState, action: AccountAction
         totalKills: state.totalKills + Math.max(0, Math.floor(action.amount)),
       };
 
-    case "addRouteClear":
+    case "addRouteClear": {
+      const clears = Math.max(1, action.keys.length);
       return {
         ...state,
-        routeClears: { ...state.routeClears, [action.arenaId]: (state.routeClears[action.arenaId] ?? 0) + Math.max(1, action.keys.length) },
+        wallet: addWalletTimes(state.wallet, mapClearReward(action.arenaId, clears), 1),
+        routeClears: { ...state.routeClears, [action.arenaId]: (state.routeClears[action.arenaId] ?? 0) + clears },
         arenaKeys: [...action.keys, ...state.arenaKeys].slice(0, arenaKeyCapacity),
       };
+    }
+
+    case "markTutorialSeen":
+      return state.seenTutorialIds.includes(action.tutorialId)
+        ? state
+        : { ...state, seenTutorialIds: [...state.seenTutorialIds, action.tutorialId] };
+
+    case "resetTutorialSeen":
+      return state.seenTutorialIds.length === 0 ? state : { ...state, seenTutorialIds: [] };
 
     default:
       return state;

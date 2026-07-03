@@ -6,6 +6,11 @@ const nonNegativeIntegerSchema = z.preprocess(
   z.number().int().min(0).default(0),
 );
 
+const tutorialIdsSchema = z.preprocess(
+  (value) => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []),
+  z.array(z.string()).default([]),
+);
+
 export const characterSaveSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -139,11 +144,12 @@ export const topAccountStateSchema = z.object({
   clearedRivalIds: z.array(z.string()).default([]),
   routeClears: z.record(z.string(), z.number()),
   totalKills: nonNegativeIntegerSchema,
+  seenTutorialIds: tutorialIdsSchema,
   lastSettledAt: z.string(),
 });
 
 export const accountSaveSchema = z.object({
-  schemaVersion: z.literal(5),
+  schemaVersion: z.literal(6),
   accountId: z.string().nullable(),
   settings: z.object({
     reduceMotion: z.boolean(),
@@ -228,7 +234,7 @@ export function createNewAccountSave(classId = "veilrunner"): AccountSave {
   const selectedDriveId = starterDriveForFrame(selectedFrameId);
 
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     accountId: null,
     settings: {
       reduceMotion: false,
@@ -277,6 +283,7 @@ export function createNewAccountSave(classId = "veilrunner"): AccountSave {
       clearedRivalIds: [],
       routeClears: {},
       totalKills: 0,
+      seenTutorialIds: [],
       lastSettledAt: now,
     },
     achievements: {},
