@@ -1,0 +1,875 @@
+type LocaleParamValue = string | number;
+
+export type LocaleParams = Record<string, LocaleParamValue>;
+
+const messages: Record<string, string> = {
+  "app.error.title": "遊戲客戶端已停止",
+  "app.error.reload": "重新載入遊戲",
+  "ui.brand.name": "迴響鍛爐",
+  "ui.brand.subtitle": "暗金屬陀螺自動競技場",
+  "ui.state.ready": "待命",
+  "ui.state.live": "戰鬥中",
+  "ui.state.defeated": "已敗北",
+  "ui.state.keyed": "鑰匙已啟動",
+  "ui.resource.ash": "灰燼",
+  "ui.resource.glass": "玻璃",
+  "ui.resource.echo": "迴響",
+  "ui.screen.combat": "戰鬥",
+  "ui.screen.map": "地圖",
+  "ui.screen.workbench": "工坊",
+  "ui.control.start": "開始",
+  "ui.control.pause": "暫停",
+  "ui.control.reset": "重置",
+  "ui.control.debug": "除錯",
+  "ui.control.tune": "調校",
+  "ui.control.speed": "速度",
+  "ui.control.collect": "收取",
+  "ui.control.clear": "清除",
+  "ui.control.equip": "裝備",
+  "ui.control.lock": "鎖定",
+  "ui.control.unlock": "解鎖",
+  "ui.control.salvage": "拆解",
+  "ui.control.forge": "鍛造",
+  "ui.control.refund": "退點",
+  "ui.control.allocate": "配置",
+  "ui.control.routeMap": "路線圖",
+  "ui.control.combat": "戰鬥",
+  "ui.control.loot": "戰利品",
+  "ui.control.startDuel": "開始決鬥",
+  "ui.control.forgeKey": "鍛造鑰匙",
+  "ui.control.runKey": "執行鑰匙",
+  "ui.panel.loadout": "配置",
+  "ui.panel.inventory": "倉庫",
+  "ui.panel.skills": "技能",
+  "ui.panel.forge": "鍛造",
+  "ui.panel.route": "路線",
+  "ui.panel.talents": "天賦",
+  "ui.section.buildSummary": "配置摘要",
+  "ui.section.selectedPart": "選取零件",
+  "ui.section.forgeTarget": "鍛造目標",
+  "ui.section.equipment": "裝備",
+  "ui.section.frame": "框架",
+  "ui.section.inventory": "倉庫",
+  "ui.section.recentLoot": "近期戰利品",
+  "ui.section.driveCore": "驅動核心",
+  "ui.section.skillDetail": "技能細節",
+  "ui.section.linkedSockets": "連結槽",
+  "ui.section.runeLibrary": "符文庫",
+  "ui.section.actions": "操作",
+  "ui.section.route": "路線",
+  "ui.section.circuit": "迴路",
+  "ui.section.breachRail": "裂隙軌",
+  "ui.section.circuitAtlas": "迴路星圖",
+  "ui.section.arenaKeys": "競技場鑰匙",
+  "ui.section.bossGate": "Boss 門",
+  "ui.section.circuitNetwork": "迴路網路",
+  "ui.section.clears": "通關",
+  "ui.section.talents": "天賦",
+  "ui.section.damageBreakdown": "傷害拆解",
+  "ui.section.breakpoints": "門檻狀態",
+  "ui.section.equipCompare": "裝備比較",
+  "ui.inventory.all": "全部",
+  "ui.inventory.none": "無",
+  "ui.inventory.empty": "空連結",
+  "ui.inventory.open": "空槽",
+  "ui.inventory.locked": "已鎖定",
+  "ui.inventory.noPart": "未選取零件",
+  "ui.inventory.noKey": "沒有競技場鑰匙",
+  "ui.inventory.chooseRune": "從符文庫選擇相容符文。",
+  "ui.socket.label": "插槽 {index}",
+  "ui.socket.openLink": "空連結",
+  "ui.skill.driveGate": "驅動門檻",
+  "ui.skill.ready": "可用",
+  "ui.skill.locked": "鎖定",
+  "ui.skill.collisionHooks": "碰撞掛鉤",
+  "ui.route.keyed": "已插鑰",
+  "ui.route.open": "開放",
+  "ui.route.stable": "穩定",
+  "ui.route.collapsed": "坍塌",
+  "ui.route.progress": "進度",
+  "ui.route.reward": "獎勵",
+  "ui.route.root": "根節點",
+  "ui.route.active": "已啟用",
+  "ui.route.available": "可配置",
+  "ui.route.locked": "鎖定",
+  "ui.route.cleared": "已通關",
+  "ui.route.duel": "決鬥",
+  "ui.route.offline": "離線",
+  "ui.route.offlineSet": "已設離線",
+  "ui.route.bossGateStable": "決鬥推估穩定",
+  "ui.route.rivals": "名宿",
+  "ui.map.deviceArmed": "鑰匙裝置已啟動",
+  "ui.map.circuitMap": "迴路地圖",
+  "ui.map.routeMap": "路線地圖",
+  "ui.point.short": "點",
+  "ui.drop.none": "尚無掉落",
+  "ui.build.stable": "配置穩定",
+  "ui.forge.upgrade": "升級",
+  "ui.forge.upgradeDetail": "提高稀有度",
+  "ui.forge.reroll": "重骰",
+  "ui.forge.rerollDetail": "重骰銘刻",
+  "ui.forge.values": "數值",
+  "ui.forge.valuesDetail": "同詞綴重骰",
+  "ui.forge.add": "新增",
+  "ui.forge.addDetail": "新增一條銘刻",
+  "ui.forge.remove": "移除",
+  "ui.forge.removeDetail": "移除一條銘刻",
+  "ui.target.none": "沒有目標",
+  "ui.target.spooling": "蓄轉中",
+  "ui.target.integrity": "結構",
+  "ui.offline.title": "離線戰鬥",
+  "ui.offline.kills": "已結算 {kills} 次擊破",
+  "ui.offline.minutes": "模擬 {minutes} 分鐘",
+  "ui.offline.capped": "已達上限",
+  "ui.offline.drops": "掉落",
+  "ui.defeat.ended": "本場結束",
+  "ui.defeat.spinout": "轉停敗北",
+  "ui.defeat.break": "碎裂敗北",
+  "ui.defeat.ringout": "出界敗北",
+  "ui.defeat.default": "敗北",
+  "ui.defeat.spinoutDetail": "旋能歸零",
+  "ui.defeat.breakDetail": "結構崩壞",
+  "ui.defeat.ringoutDetail": "離開競技盆地",
+  "ui.defeat.defaultDetail": "本場已結束",
+  "ui.hud.clear": "清場",
+  "ui.hud.drive": "驅動",
+  "ui.hud.kills": "擊破",
+  "ui.hud.objective": "目標",
+  "ui.hud.drops": "掉落",
+  "ui.hud.best": "最佳",
+  "ui.hud.map": "地圖",
+  "ui.hud.collision": "碰撞",
+  "ui.hud.idle": "待機",
+  "ui.hud.objects": "物件",
+  "ui.hud.flash": "閃光",
+  "ui.hud.budget": "負載",
+  "ui.hud.renderer": "渲染遙測",
+  "ui.hud.resources": "玩家資源球",
+  "ui.debug.dEqualsM": "D=M",
+  "ui.debug.attackFrequency": "攻擊頻率",
+  "ui.debug.collisionDps": "碰撞 DPS",
+  "ui.debug.fluxToEnergy": "核心能量→旋能",
+  "ui.debug.sustainFlux": "續轉核心能量",
+  "ui.debug.gate": "門檻",
+  "ui.debug.shear": "剪切",
+  "ui.debug.spark": "火花",
+  "ui.debug.age": "接觸",
+  "ui.debug.spin": "旋轉",
+  "ui.debug.wobble": "搖晃",
+  "ui.damage.base": "基底 M×κ",
+  "ui.damage.flat": "固定加成",
+  "ui.damage.increased": "增益（加法）",
+  "ui.damage.moreLess": "更多/減少（乘法）",
+  "ui.damage.conversion": "轉換與額外",
+  "ui.damage.mitigation": "命中與減傷後",
+  "ui.damage.critEv": "暴擊期望",
+  "ui.damage.frequency": "頻率",
+  "ui.damage.dps": "DPS",
+  "ui.damage.active": "啟用中",
+  "ui.damage.standby": "待命",
+  "ui.damage.source": "來源",
+  "ui.damage.noConditional": "目前沒有條件加成。",
+  "ui.breakpoint.triggered": "已觸發",
+  "ui.breakpoint.waiting": "未觸發",
+  "ui.breakpoint.needMore": "還差 {value}",
+  "ui.breakpoint.needLess": "需降低 {value}",
+  "ui.breakpoint.none": "目前沒有可顯示的門檻。",
+  "ui.compare.unlocks": "裝上後解鎖 {name}",
+  "ui.compare.loses": "裝上後失去 {name}",
+  "ui.compare.noThreshold": "沒有跨越門檻。",
+  "ui.next.resetLoop": "重置戰鬥循環",
+  "ui.next.runDefeated": "本場敗北",
+  "ui.next.breakDanger": "危險型態",
+  "ui.next.lootOpen": "戰利品窗口開啟",
+  "ui.next.bossWave": "Boss 波次啟動",
+  "ui.next.bossDropping": "Boss 即將入場",
+  "ui.next.clearBasin": "清空盆地",
+  "ui.next.dropsReady": "{count} 件掉落待檢",
+  "ui.next.forgeCandidate": "鍛造候選",
+  "ui.next.equipUpgrade": "裝備升級",
+  "ui.next.keyReady": "競技場鑰匙就緒",
+  "ui.next.bossViable": "Boss 門可嘗試",
+  "ui.next.ready": "準備開跑",
+  "ui.next.now": "現在",
+  "ui.next.signal": "訊號",
+  "ui.next.then": "下一步",
+  "ui.next.stopped": "已停止",
+  "ui.next.runtimeHalted": "Runtime 已停止",
+  "ui.next.restartRun": "重啟本場",
+  "ui.next.adjustBuild": "調整配置",
+  "ui.next.checkBuild": "檢查配置",
+  "ui.next.secureDrops": "保住掉落",
+  "ui.next.openLoot": "開啟戰利品",
+  "ui.next.finishBoss": "擊碎 Boss",
+  "ui.next.checkRouteKey": "檢查路線鑰匙",
+  "ui.next.holdCenter": "守住中心",
+  "ui.next.fightBoss": "迎戰 Boss",
+  "ui.next.keepFarming": "持續刷場",
+  "ui.next.pushBoss": "推進 Boss",
+  "ui.next.inspectLoot": "檢視戰利品",
+  "ui.next.forgeRoll": "鍛造重骰",
+  "ui.next.restart": "重啟本場",
+  "ui.next.craftPart": "鍛造零件",
+  "ui.next.recheckBuild": "重檢配置",
+  "ui.next.improveBuild": "提升配置",
+  "ui.next.swapPart": "替換零件",
+  "ui.next.startRun": "開始戰鬥",
+  "ui.next.chooseRoute": "選擇路線",
+  "ui.next.attemptGate": "嘗試 Boss 門",
+  "ui.next.unlockRoute": "解鎖路線",
+  "ui.next.startFarming": "開始刷場",
+  "ui.tuning.title": "戰鬥手感",
+  "ui.tuning.dev": "開發調校",
+  "ui.tuning.basinPullMultiplier": "盆地拉力",
+  "ui.tuning.collisionLaunchMultiplier": "彈射",
+  "ui.tuning.sparkMultiplier": "火花",
+  "ui.tuning.activeEnemyPressure": "名宿壓力",
+  "ui.tuning.bossWeightMultiplier": "Boss 配重",
+  "ui.tuning.hitStopMultiplier": "衝擊特效",
+  "ui.verdict.equipped": "已裝備",
+  "ui.verdict.equippedDetail": "這個零件已在配置中。",
+  "ui.verdict.upgrade": "裝備升級",
+  "ui.verdict.forge": "鍛造候選",
+  "ui.verdict.salvage": "拆解候選",
+  "ui.verdict.forgeDetail": "分數 {score} / 稀有度仍有調校空間。",
+  "ui.verdict.salvageDetail": "分數 {score} / 目前槽位較強。",
+  "ui.status.stopped": "已停止",
+  "ui.status.liveRun": "本場進行中",
+  "ui.status.lootReady": "戰利品就緒",
+  "ui.status.ready": "待命",
+  "ui.objective.bossWave": "Boss 波次",
+  "ui.objective.bossReady": "Boss 就緒",
+  "ui.objective.finalPack": "最後一群",
+  "ui.objective.clearBasin": "清空盆地",
+  "ui.objective.shatterBoss": "擊碎 Boss 以鍛造路線鑰匙",
+  "ui.objective.fieldClear": "場地已清，Boss 即將掉入",
+  "ui.objective.rivalsBeforeBoss": "距離 Boss 還有 {count} 名對手",
+  "ui.runtimeError.title": "戰鬥循環已停止",
+  "ui.aria.arenaControls": "競技場控制",
+  "ui.aria.mainScreens": "主畫面",
+  "ui.aria.inventoryFilter": "倉庫篩選",
+  "ui.aria.inventoryGrid": "倉庫格",
+  "ui.aria.linkedSockets": "連結技能槽",
+  "ui.aria.atlasBoard": "迴路星圖盤",
+  "ui.aria.doctrinePaths": "教義路徑",
+  "ui.aria.workbench": "工坊",
+  "ui.aria.nextAction": "下一步",
+  "ui.aria.decisionSignals": "決策訊號",
+  "ui.aria.routeObjective": "路線目標",
+  "ui.aria.playerOrbs": "玩家資源球",
+  "ui.aria.bossIntegrity": "Boss 結構",
+  "ui.aria.eliteIntegrity": "精英結構",
+  "ui.aria.offlineReport": "離線戰鬥報告",
+  "ui.aria.physicalTelemetry": "物理戰鬥遙測",
+  "ui.aria.combatTuning": "戰鬥調校",
+  "talent.kind.minor": "小點",
+  "talent.kind.notable": "核心點",
+  "talent.kind.keystone": "關鍵天賦",
+};
+
+const terms: Record<string, string> = {
+  "stat.spinIntegrity": "結構",
+  "stat.fluxGuard": "核心護盾",
+  "stat.guard": "格擋",
+  "stat.drift": "飄移",
+  "stat.tracking": "追蹤",
+  "stat.impact": "撞擊",
+  "stat.rpm": "轉速",
+  "stat.mass": "配重",
+  "stat.volume": "體積",
+  "stat.spinEnergy": "旋能",
+  "stat.flux": "核心能量",
+  "stat.omega": "轉速ω",
+  "stat.edge": "暴擊率",
+  "stat.fracture": "暴擊倍率",
+  "stat.resonance": "共振",
+  "stat.fluxCost": "核心能量消耗",
+  "stat.cooldownRecovery": "冷卻恢復",
+  "stat.reservationEfficiency": "保留效率",
+  "stat.stagger": "失衡",
+  "stat.ringOutPressure": "出界壓力",
+  "stat.inertiaBias": "慣性偏移",
+  "stat.partQuantity": "零件數量",
+  "stat.partRarity": "零件稀有度",
+  "stat.damage": "傷害",
+  "damage.impact": "撞擊",
+  "damage.heat": "熱能",
+  "damage.glass": "玻璃",
+  "damage.static": "靜電",
+  "damage.void": "虛空",
+  "event.scrape": "刮擦",
+  "event.clash": "對撞",
+  "event.smash": "重擊",
+  "event.grind": "磨削",
+  "event.ringout": "出界",
+  "event.overheat": "過熱",
+  "event.discharge": "放電",
+  "event.stabilize": "回穩",
+  "event.stance_shift": "姿態切換",
+  "modifier.flat": "固定加成",
+  "modifier.increased": "增益（加法）",
+  "modifier.reduced": "降低（加法）",
+  "modifier.more": "更多（乘法）",
+  "modifier.less": "減少（乘法）",
+  "modifier.penetration": "穿透",
+  "modifier.extraAs": "額外獲得",
+  "modifier.conversion": "轉換",
+  "rarity.common": "普通",
+  "rarity.tuned": "魔法",
+  "rarity.engraved": "稀有",
+  "rarity.relic": "傳奇",
+  "rarity.unique": "傳奇",
+  "slot.core": "核心",
+  "slot.attackRing": "攻擊環",
+  "slot.weightDisk": "配重盤",
+  "slot.tip": "軸尖",
+  "slot.launcher": "發射器",
+  "slot.seal": "封印",
+  "slot.circuitChip": "迴路晶片",
+  "tag.attack": "攻擊",
+  "tag.spell": "法術",
+  "tag.projectile": "投射",
+  "tag.melee": "近戰",
+  "tag.area": "範圍",
+  "tag.duration": "持續",
+  "tag.chain": "連鎖",
+  "tag.minion": "衛星",
+  "tag.physical": "物理",
+  "tag.fire": "火焰",
+  "tag.cold": "冰冷",
+  "tag.lightning": "閃電",
+  "tag.void": "虛空",
+  "tag.critical": "暴擊",
+  "tag.speed": "速度",
+  "tag.control": "控制",
+  "tag.thorns": "反擊",
+  "tag.risk": "風險",
+  "trigger.onCollision": "碰撞時",
+  "trigger.onCooldown": "冷卻完成",
+  "trigger.onHeavyCollision": "重碰撞時",
+  "trigger.onCrit": "暴擊時",
+  "trigger.onKill": "擊破時",
+  "trigger.onSpinLow": "低旋能時",
+  "trigger.onEnemyEnterRadius": "敵人進入半徑時",
+  "trigger.whenDamaged": "受傷時",
+  "source.drive": "驅動核心",
+  "source.rune": "調校符文",
+  "source.talent": "天賦",
+  "source.keystone": "關鍵天賦",
+  "source.doctrine": "教義",
+  "source.atlas": "迴路星圖",
+  "source.part": "零件",
+  "source.engraving": "銘刻",
+};
+
+const dataText: Record<string, string> = {
+  "frame.frame_swift_razor.name": "疾鋒",
+  "frame.frame_swift_razor.desc": "以高速切入、暴擊與持續接觸取勝的黑鋼刃型陀螺。",
+  "frame.frame_swift_razor.role": "高轉速撞擊手",
+  "frame.frame_ember_crucible.name": "餘燼坩堝",
+  "frame.frame_ember_crucible.desc": "爐心陀螺會在場地刻出熔融溝槽。",
+  "frame.frame_ember_crucible.role": "熱軌場控",
+  "frame.frame_storm_needle.name": "風暴針",
+  "frame.frame_storm_needle.desc": "針尖平衡的旋體，以白藍電弧撕裂競技場。",
+  "frame.frame_storm_needle.role": "靜電連鎖觸發",
+  "drive.drive_shard_barrage.name": "碎片彈幕",
+  "drive.drive_razor_rebound.name": "刃返",
+  "drive.drive_ember_scour.name": "餘燼刮洗",
+  "drive.drive_molten_groove.name": "熔融溝槽",
+  "drive.drive_storm_lattice.name": "風暴晶格",
+  "drive.drive_chain_tempest.name": "連鎖暴風",
+  "rune.rune_splintered_edge.name": "碎裂刃",
+  "rune.rune_red_heat.name": "赤熱",
+  "rune.rune_shock_fork.name": "電震分叉",
+  "rune.rune_deep_bearing.name": "深軸承",
+  "rune.rune_echo_coil.name": "迴響線圈",
+  "rune.rune_bloodless_line.name": "無血線",
+  "rune.rune_bite_return.name": "咬返",
+  "rune.rune_overclock_pin.name": "超頻針",
+  "rune.rune_wide_scoring.name": "寬幅刻痕",
+  "rune.rune_slow_burn.name": "慢燃",
+  "rune.rune_furnace_wall.name": "熔爐壁",
+  "rune.rune_ion_pulse.name": "離子脈衝",
+  "rune.rune_arc_bridge.name": "電弧橋",
+  "rune.rune_null_ward.name": "虛無護符",
+  "rune.rune_greedy_teeth.name": "貪婪齒",
+  "arena.arena_cinder_crucible.name": "焦燼坩堝",
+  "arena.arena_glass_mire_basin.name": "玻璃沼盆地",
+  "arena.arena_red_chancel_disk.name": "赤禮拜盤",
+  "boss.boss_gate_brass_judicator.name": "黃銅裁決者",
+  "enemyMod.enemy_mod_tempered_shell.name": "淬鍊",
+  "enemyMod.enemy_mod_redline_motor.name": "紅線",
+  "enemyMod.enemy_mod_furnace_core.name": "熔爐",
+  "enemyMod.enemy_mod_arc_lashed.name": "電弧鞭笞",
+  "enemyMod.enemy_mod_mirror_bitten.name": "鏡咬",
+  "enemyMod.enemy_mod_void_touched.name": "虛空觸碰",
+  "anomaly.anomaly_glass_hail.name": "玻璃冰雹",
+  "anomaly.anomaly_glass_hail.desc": "碎片風暴讓控制路線更鋒利，並偏向更好的掉落數值。",
+  "anomaly.anomaly_ember_backdraft.name": "餘燼回焰",
+  "anomaly.anomaly_ember_backdraft.desc": "敵方陀螺身後留下熱流，換來更密集的拆解收益。",
+  "anomaly.anomaly_flux_monsoon.name": "核心能量季風",
+  "anomaly.anomaly_flux_monsoon.desc": "盆地使所有對手過載，但路線獎勵更豐厚。",
+  "anomaly.anomaly_static_overload.name": "靜電超載",
+  "anomaly.anomaly_static_overload.desc": "每次對撞都帶有不穩定電荷，將風暴路線拉成高價值決鬥。",
+  "anomaly.anomaly_void_lens.name": "虛空透鏡",
+  "anomaly.anomaly_void_lens.desc": "後段網路向內彎折，敵人更難擊碎但也更慷慨。",
+  "rival.rival_sable_reflector.name": "黑貂反射者",
+  "rival.rival_magnet_oracle.name": "磁井神諭",
+  "rival.rival_brass_crasher.name": "黃銅撞擊者",
+  "rival.rival_lattice_apparition.name": "晶格幻影",
+  "rival.rival_rim_warden.name": "邊環守望者",
+  "atlas.atlas_breach_calibrator.name": "裂隙校準器",
+  "atlas.atlas_breach_calibrator.desc": "每條路線開場都開啟一段短裂隙軌窗口。",
+  "atlas.atlas_dense_rail.name": "密集軌",
+  "atlas.atlas_dense_rail.desc": "路線充能時會有更多對手進場。",
+  "atlas.atlas_mapwright_cache.name": "製圖者寶庫",
+  "atlas.atlas_mapwright_cache.desc": "路線獎勵偏向額外零件與鑰匙鍛造。",
+  "atlas.atlas_glass_lure.name": "玻璃誘餌",
+  "atlas.atlas_glass_lure.desc": "更危險的對手，換來更好的傳奇壓力。",
+  "atlas.atlas_redline_artery.name": "紅線動脈",
+  "atlas.atlas_redline_artery.desc": "高速對手群製造更多高衝擊碰撞。",
+  "atlas.atlas_boss_lantern.name": "Boss 燈標",
+  "atlas.atlas_boss_lantern.desc": "穩定裂隙軌後，Boss 階段給出更多獎勵。",
+  "atlas.atlas_quench_line.name": "淬熄線",
+  "atlas.atlas_quench_line.desc": "長時間鑰匙地圖的防禦路線調校。",
+  "atlas.atlas_splinter_switch.name": "碎片開關",
+  "atlas.atlas_splinter_switch.desc": "投射與連鎖配置在開闊路線中更好成長。",
+  "atlas.atlas_iron_basin.name": "鐵盆地",
+  "atlas.atlas_iron_basin.desc": "更重的對手，更強的零件掉落。",
+  "atlas.atlas_furnace_toll.name": "熔爐通行稅",
+  "atlas.atlas_furnace_toll.desc": "熱能路線保留更久的危害，但支付更好的報酬。",
+  "atlas.atlas_storm_divider.name": "風暴分流器",
+  "atlas.atlas_storm_divider.desc": "穩定軌會將閃電壓力分叉穿過敵群。",
+  "atlas.atlas_last_gate.name": "終門",
+  "atlas.atlas_last_gate.desc": "Boss 刷場與傳奇獵取的頂點。",
+  "network.network_cinder_gate.name": "焦燼門",
+  "network.network_cinder_gate.desc": "通往終局網路的第一條穩定路線。",
+  "network.network_molten_spur.name": "熔融支脈",
+  "network.network_molten_spur.desc": "一條短熱能路線，導向第一個名宿分支。",
+  "network.network_glass_branch.name": "玻璃分支",
+  "network.network_glass_branch.desc": "穿過沼盆地的高獎勵分支，揭露第一道具名決鬥門。",
+  "network.network_rim_fortress.name": "邊環堡壘",
+  "network.network_rim_fortress.desc": "鎖在邊環守望者決鬥後的控制重門。",
+  "network.network_brass_judicator.name": "黃銅裁決者門",
+  "network.network_brass_judicator.desc": "在實戰證明第一道門後解鎖。",
+  "network.network_molten_bastion.name": "熔融壁壘",
+  "network.network_molten_bastion.desc": "由焦燼支脈與黃銅門餵入的重撞名宿競技場。",
+  "network.network_flux_monsoon.name": "核心能量季風異象",
+  "network.network_flux_monsoon.desc": "第一條異象路線。更強對手，更好獎勵。",
+  "network.network_magnet_well.name": "磁井",
+  "network.network_magnet_well.desc": "重力扭曲盆地，揭露磁井神諭。",
+  "network.network_lattice_slip.name": "晶格滑徑",
+  "network.network_lattice_slip.desc": "清掉磁井神諭後開啟的窄路。",
+  "network.network_phase_lattice.name": "相位晶格",
+  "network.network_phase_lattice.desc": "風暴線深處的相位轉移決鬥門。",
+  "network.network_orbit_confluence.name": "軌道匯流",
+  "network.network_orbit_confluence.desc": "結合邊環控制與風暴相位路線的混合路線。",
+  "network.network_chancel_apex.name": "禮拜盤頂點",
+  "network.network_chancel_apex.desc": "由重型與相位名宿鎖住的密集赤盤路線。",
+  "network.network_mapwright_accord.name": "製圖者協定",
+  "network.network_mapwright_accord.desc": "第一個完整迴路，用於終局路線刷場。",
+  "part.part_core_ashwrought_heart.name": "灰鑄心核心",
+  "part.part_core_black_iron_wound.name": "黑鐵傷痕核心",
+  "part.part_ring_serrated_halo.name": "鋸齒光環攻擊環",
+  "part.part_ring_arc_teeth.name": "電弧齒攻擊環",
+  "part.part_disk_deep_bearing.name": "深軸承配重盤",
+  "part.part_disk_hollow_flywheel.name": "空心飛輪配重盤",
+  "part.part_tip_needle.name": "針尖軸尖",
+  "part.part_tip_anchor.name": "錨定軸尖",
+  "part.part_launcher_redline.name": "紅線發射器",
+  "part.part_launcher_coil.name": "迴響線圈發射器",
+  "part.part_seal_storm.name": "風暴封印",
+  "part.part_seal_glassvein.name": "玻璃脈封印",
+  "part.part_chip_etched_route.name": "刻線路線晶片",
+  "part.part_chip_brass_omen.name": "黃銅徵兆晶片",
+  "part.part_core_mirror_furnace.name": "鏡面熔爐核心",
+  "part.part_core_static_cradle.name": "靜電搖籃核心",
+  "part.part_core_void_pin.name": "虛空針核心",
+  "part.part_ring_razor_return.name": "刃返攻擊環",
+  "part.part_ring_glass_splinter.name": "玻璃碎片攻擊環",
+  "part.part_ring_furnace_teeth.name": "熔爐齒攻擊環",
+  "part.part_disk_orbit_weight.name": "軌道配重盤",
+  "part.part_disk_judicator_plate.name": "裁決者板配重盤",
+  "part.part_tip_razor_needle.name": "剃刃針尖軸尖",
+  "part.part_tip_molten_anchor.name": "熔融錨軸尖",
+  "part.part_launcher_splinter_winch.name": "碎片絞盤發射器",
+  "part.part_launcher_tempest_yoke.name": "暴風軛發射器",
+  "part.part_seal_ember_oath.name": "餘燼誓言封印",
+  "part.part_seal_nullward.name": "虛無守護封印",
+  "part.part_chip_mapwright.name": "製圖者晶片",
+  "part.part_chip_omen_lattice.name": "徵兆晶格晶片",
+  "part.part_core_magnet_heart.name": "磁心核心",
+  "part.part_tip_glass_rebound.name": "玻璃回彈軸尖",
+  "part.part_ring_storm_orbit.name": "風暴軌道攻擊環",
+  "part.part_chip_mapwright_contract.name": "製圖者契約晶片",
+  "unique.magnet_heart.desc": "裂隙軌路線會把更密集的敵群拉入盆地。",
+  "unique.glass_rebound.desc": "重碰撞會追加玻璃爆發傷害與更亮的反衝。",
+  "unique.storm_orbit.desc": "敵群碰撞會將閃電弧傳遍群體。",
+  "unique.mapwright_contract.desc": "穩定裂隙軌提供額外路線獎勵。",
+  "engraving.engraving_flat_impact.name": "鋸齒",
+  "engraving.engraving_more_impact.name": "碎裂",
+  "engraving.engraving_rpm.name": "紅線",
+  "engraving.engraving_guard.name": "深軸承",
+  "engraving.engraving_integrity.name": "黑鐵",
+  "engraving.engraving_tracking.name": "真投",
+  "engraving.engraving_drift.name": "幽影",
+  "engraving.engraving_edge.name": "鏡齒",
+  "engraving.engraving_fracture.name": "偽衝擊",
+  "engraving.engraving_resonance.name": "迴響",
+  "engraving.engraving_heat_more.name": "熔爐",
+  "engraving.engraving_static_pen.name": "伏特刻痕",
+  "engraving.engraving_quantity.name": "拾荒者",
+  "engraving.engraving_rarity.name": "徵兆",
+  "engraving.engraving_impact_as_heat.name": "灰鑄",
+  "engraving.engraving_impact_to_static.name": "磁化",
+  "engraving.engraving_melee_more.name": "返擊",
+  "engraving.engraving_projectile_more.name": "碎片投射",
+  "engraving.engraving_speed_damage.name": "超頻",
+  "engraving.engraving_cooldown_recovery.name": "快繞",
+  "engraving.engraving_flux_guard.name": "護綁",
+  "engraving.engraving_fire_dot.name": "慢燃",
+  "engraving.engraving_area_damage.name": "寬刻",
+  "engraving.engraving_heat_resist.name": "隔熱",
+  "engraving.engraving_static_more.name": "風暴載入",
+  "engraving.engraving_chain_damage.name": "橋接",
+  "engraving.engraving_static_resist.name": "接地",
+  "engraving.engraving_glass_damage.name": "玻璃咬痕",
+  "engraving.engraving_glass_resist.name": "玻璃守護",
+  "engraving.engraving_void_damage.name": "虛無迴響",
+  "engraving.engraving_void_resist.name": "虛無守護",
+  "engraving.engraving_grip.name": "錨定",
+  "engraving.engraving_mass.name": "重型",
+  "engraving.engraving_stagger.name": "失衡",
+  "engraving.engraving_ringout_pressure.name": "尋環",
+  "engraving.engraving_reservation_efficiency.name": "節槽",
+  "engraving.engraving_risk_reward.name": "貪婪",
+  "engraving.engraving_thorns_impact.name": "報復",
+  "engraving.engraving_all_damage.name": "完美刻痕",
+  "engraving.engraving_boss_fragment_rarity.name": "門印",
+  "keyAffix.arena_affix_dense_pack.name": "擁擠軌道",
+  "keyAffix.arena_affix_armored_rivals.name": "裝甲對手",
+  "keyAffix.arena_affix_redline_rivals.name": "紅線對手",
+  "keyAffix.arena_affix_boss_pressure.name": "裁決者壓力",
+  "keyAffix.arena_affix_ring_bias.name": "鋸齒寶庫",
+  "keyAffix.arena_affix_forge_cache.name": "鍛痕地板",
+  "keyAffix.arena_affix_furnace_floor.name": "熔爐地板",
+  "keyAffix.arena_affix_magnetized_rails.name": "磁化軌道",
+  "keyAffix.arena_affix_mapwright_cache.name": "製圖者寶庫",
+  "keyAffix.arena_affix_returning_blades.name": "回返刃",
+  "keyAffix.arena_affix_weighted_cache.name": "配重寶庫",
+  "keyAffix.arena_affix_null_signal.name": "虛無訊號",
+  "arenaEvent.arena_event_shattered_lanes.name": "碎裂通道",
+  "arenaEvent.arena_event_magnet_storm.name": "磁暴",
+  "arenaEvent.arena_event_furnace_pressure.name": "熔爐壓力",
+  "arenaEvent.arena_event_echo_cache.name": "迴響寶庫",
+  "arenaEvent.arena_event_judicator_signal.name": "裁決者訊號",
+  "doctrine.doctrine_swift_razor_edge.name": "刃鋒修道院",
+  "doctrine.doctrine_swift_razor_edge.desc": "將高暴擊率與接觸時間轉成玻璃流血壓力。",
+  "doctrine.doctrine_swift_orbit_duelist.name": "軌道決鬥者",
+  "doctrine.doctrine_swift_orbit_duelist.desc": "以部分爆發換取更穩的邊環壓力與決鬥控制。",
+  "doctrine.doctrine_ember_rail_monk.name": "熔軌僧",
+  "doctrine.doctrine_ember_rail_monk.desc": "自製危害軌成為安全熱控路線。",
+  "doctrine.doctrine_ember_ash_reclaimer.name": "灰燼回收者",
+  "doctrine.doctrine_ember_ash_reclaimer.desc": "核心護盾支撐更長的驅動循環與安全回復。",
+  "doctrine.doctrine_storm_chain_savant.name": "連鎖學者",
+  "doctrine.doctrine_storm_chain_savant.desc": "靜電連鎖路線偏向重複觸發與穿透。",
+  "doctrine.doctrine_storm_overload_axis.name": "超載軸線",
+  "doctrine.doctrine_storm_overload_axis.desc": "高轉速解鎖主要傷害，低速時拖慢循環。",
+};
+
+const talentNames: Record<string, string> = {
+  talent_iron_rotation: "鐵旋",
+  talent_razor_geometry: "刃角幾何",
+  talent_live_bearing: "活軸承",
+  talent_furnace_scoring: "熔爐刻痕",
+  talent_storm_lattice: "風暴晶格",
+  talent_salvage_rites: "拆解儀式",
+  talent_last_rotation: "最後旋轉",
+  talent_impact_brass_teeth: "黃銅齒",
+  talent_impact_notable: "黃銅齒",
+  talent_guard_anvil_halo: "砧環",
+  talent_guard_notable: "砧環",
+  talent_speed_redline: "紅線軸承",
+  talent_speed_notable: "紅線軸承",
+  talent_fire_molten_groove: "熔融溝槽",
+  talent_fire_notable: "熔融溝槽",
+  talent_static_arc_winding: "電弧繞組",
+  talent_static_notable: "電弧繞組",
+  talent_glass_splinter_line: "碎片線",
+  talent_glass_notable: "碎片線",
+  talent_void_null_basin: "虛無盆地",
+  talent_void_notable: "虛無盆地",
+  talent_loot_resonant_sieve: "共振篩",
+  talent_loot_notable: "共振篩",
+  talent_flux_echo_capacitor: "迴響電容",
+  talent_flux_notable: "迴響電容",
+  talent_thermal_mass_cinder_flywheel: "焦燼飛輪",
+  talent_thermal_mass_notable: "焦燼飛輪",
+  talent_arc_velocity_volt_slipstream: "伏特滑流",
+  talent_arc_velocity_notable: "伏特滑流",
+  talent_splinter_flux_mirror_capacitor: "鏡面電容",
+  talent_splinter_flux_notable: "鏡面電容",
+  talent_iron_storm_grounded_coil: "接地線圈",
+  talent_iron_storm_notable: "接地線圈",
+  talent_route_engine_mapwright_dynamo: "製圖者發電機",
+  talent_route_engine_notable: "製圖者發電機",
+  talent_keystone_anchor_singularity: "錨定奇點",
+  talent_keystone_glass_blade: "玻璃刃",
+  talent_keystone_overload_bearing: "超載軸承",
+  talent_keystone_centrifugal_orbit: "離心軌道",
+  talent_keystone_resonance_meltdown: "共振熔毀",
+  talent_keystone_rim_fortress: "邊環堡壘",
+  talent_keystone_greedy_route: "貪婪路線",
+};
+
+const talentDescriptions: Record<string, string> = {
+  talent_iron_rotation: "基礎穩定，支撐更長自動戰鬥。",
+  talent_razor_geometry: "提高撞擊與暴擊壓力。",
+  talent_live_bearing: "更高轉速與更強追擊。",
+  talent_furnace_scoring: "熱能技能咬得更深。",
+  talent_storm_lattice: "靜電技能穿透敵方抗性。",
+  talent_salvage_rites: "通關給出更多零件與更好稀有度。",
+  talent_last_rotation: "爆發配置的緊湊頂點。",
+  talent_impact_notable: "重接觸能更乾淨地轉成結構傷害。",
+  talent_guard_notable: "高格擋配置在對撞中流失較少動量。",
+  talent_speed_notable: "高速驅動更快回到下一次觸發。",
+  talent_fire_notable: "熱軌停留更久，形成更強燃燒壓力。",
+  talent_static_notable: "電震與連鎖配置取得更緊密的追蹤。",
+  talent_glass_notable: "暴擊碎片把精準轉成玻璃流血壓力。",
+  talent_void_notable: "虛空命中會把敵方動作拖入更慢軌道。",
+  talent_loot_notable: "通關獎勵更偏向可鍛造的陀螺零件。",
+  talent_flux_notable: "核心護盾與保留效率讓驅動循環保持在線。",
+  talent_thermal_mass_notable: "重型熱能配置把動量存成更長的熔爐壓力。",
+  talent_arc_velocity_notable: "高速共振讓連鎖電弧領先閃避敵群。",
+  talent_splinter_flux_notable: "暴擊玻璃配置把儲存核心能量轉成更乾淨的碎裂。",
+  talent_iron_storm_notable: "格擋型閃電配置能維持接觸並讓電弧分叉。",
+  talent_route_engine_notable: "路線配置把速度轉成更乾淨的獎勵循環。",
+  talent_keystone_anchor_singularity: "配重與抓地壓低出界風險，但高速傷害失去鋒芒。",
+  talent_keystone_glass_blade: "暴擊率大幅尖峰，但陀螺犧牲大量結構。",
+  talent_keystone_overload_bearing: "高轉速時全傷害暴漲；低於門檻時同一顆軸承會拖慢輸出。",
+  talent_keystone_centrifugal_orbit: "邊環壓力加倍，但抓地降低讓壞反彈更危險。",
+  talent_keystone_resonance_meltdown: "滿核心能量讓每次放電都變得狂暴；空核心能量會拖垮循環。",
+  talent_keystone_rim_fortress: "寬邊環把配重轉為懲罰性接觸，代價是放電節奏變慢。",
+  talent_keystone_greedy_route: "製圖者迴路支付更多，但風險標籤傷害成為唯一乾淨輸出。",
+};
+
+const clusterNames: Record<string, string> = {
+  impact: "撞擊",
+  guard: "格擋",
+  speed: "速度",
+  fire: "熔爐",
+  static: "靜電",
+  glass: "玻璃",
+  void: "虛空",
+  loot: "鍛造",
+  flux: "核心能量",
+  thermal_mass: "熱質量",
+  arc_velocity: "電弧速度",
+  splinter_flux: "碎片核心能量",
+  iron_storm: "鐵風暴",
+  route_engine: "路線引擎",
+};
+
+const entityNames: Record<string, string> = {
+  "Swift Razor": "疾鋒",
+  "Ember Crucible": "餘燼坩堝",
+  "Storm Needle": "風暴針",
+  "Shard Barrage": "碎片彈幕",
+  "Razor Rebound": "刃返",
+  "Ember Scour": "餘燼刮洗",
+  "Molten Groove": "熔融溝槽",
+  "Storm Lattice": "風暴晶格",
+  "Chain Tempest": "連鎖暴風",
+  "Brass Judicator": "黃銅裁決者",
+  "Scored Iron Rival": "刻痕鐵對手",
+  "Cinder Runner": "焦燼奔行者",
+  "Sable Reflector": "黑貂反射者",
+  "Magnet Oracle": "磁井神諭",
+  "Brass Crasher": "黃銅撞擊者",
+  "Lattice Apparition": "晶格幻影",
+  "Rim Warden": "邊環守望者",
+};
+
+const dropLabels: Record<string, string> = {
+  Core: "核心",
+  "Attack Ring": "攻擊環",
+  "Weight Disk": "配重盤",
+  Tip: "軸尖",
+  "Needle Tip": "針尖軸尖",
+  Launcher: "發射器",
+  Seal: "封印",
+  "Circuit Chip": "迴路晶片",
+  "Forge Media": "鍛造材料",
+  "Boss Fragment": "Boss 碎片",
+};
+
+function interpolate(template: string, params: LocaleParams = {}): string {
+  return template.replace(/\{(\w+)\}/g, (_, key: string) => String(params[key] ?? `{${key}}`));
+}
+
+export function t(key: string, params?: LocaleParams, fallback = key): string {
+  return interpolate(messages[key] ?? terms[key] ?? dataText[key] ?? fallback, params);
+}
+
+export function term(kind: string, key: string, fallback = key): string {
+  return t(`${kind}.${key}`, undefined, fallback);
+}
+
+export function dataName(kind: string, id: string, fallback = id): string {
+  if (kind === "talent") {
+    return talentName(id, fallback);
+  }
+  return t(`${kind}.${id}.name`, undefined, fallback);
+}
+
+export function dataDescription(kind: string, id: string, fallback = ""): string {
+  if (kind === "talent") {
+    return talentDescription(id, fallback);
+  }
+  return t(`${kind}.${id}.desc`, undefined, fallback);
+}
+
+export function talentName(id: string, fallback = id): string {
+  if (talentNames[id]) {
+    return talentNames[id];
+  }
+  const match = id.match(/^talent_(.+)_(entry|calibrator|path|notable|mastery_a|mastery_b)$/);
+  if (match) {
+    const cluster = clusterNames[match[1]] ?? fallback;
+    const suffix = match[2];
+    if (suffix === "entry") return `${cluster}入口`;
+    if (suffix === "calibrator") return `${cluster}校準`;
+    if (suffix === "path") return `${cluster}路徑`;
+    if (suffix === "notable") return `${cluster}核心`;
+    if (suffix === "mastery_a") return `${cluster}精通`;
+    return `${cluster}精修`;
+  }
+  return fallback;
+}
+
+export function talentDescription(id: string, fallback = ""): string {
+  if (talentDescriptions[id]) {
+    return talentDescriptions[id];
+  }
+  const match = id.match(/^talent_(.+)_(entry|calibrator|path|notable|mastery_a|mastery_b)$/);
+  if (match) {
+    const cluster = clusterNames[match[1]] ?? "分支";
+    const suffix = match[2];
+    if (suffix === "entry") return `開啟${cluster}迴路分支。`;
+    if (suffix === "calibrator") return `讓${cluster}分支更適合反覆刷場。`;
+    if (suffix === "path") return `替${cluster}輪盤增加第二條路徑。`;
+    if (suffix === "notable") return `解鎖${cluster}分支的核心玩法。`;
+    if (suffix === "mastery_a") return `為後期路線通關專精${cluster}分支。`;
+    return `為${cluster}迴路加入最後的控制。`;
+  }
+  return fallback;
+}
+
+export function localizeEntityName(name: string): string {
+  if (entityNames[name]) {
+    return entityNames[name];
+  }
+  const modifierPrefix = Object.entries({
+    Tempered: "淬鍊",
+    Redline: "紅線",
+    Furnace: "熔爐",
+    "Arc-Lashed": "電弧鞭笞",
+    "Mirror-Bitten": "鏡咬",
+    "Void-Touched": "虛空觸碰",
+  });
+  for (const [source, translated] of modifierPrefix) {
+    if (name.startsWith(`${source} `)) {
+      return `${translated} ${localizeEntityName(name.slice(source.length + 1))}`;
+    }
+  }
+  return name;
+}
+
+export function formatTags(tags: string[]): string {
+  return tags.map((tag) => term("tag", tag, tag)).join(" / ");
+}
+
+export function localizeDropLabel(label: string): string {
+  return dropLabels[label] ?? label;
+}
+
+export function modifierSourceLabel(id: string): string {
+  if (id.includes("keystone")) return term("source", "keystone");
+  if (id.startsWith("rune_")) return term("source", "rune");
+  if (id.startsWith("talent_")) return term("source", "talent");
+  if (id.startsWith("doctrine_")) return term("source", "doctrine");
+  if (id.startsWith("atlas_")) return term("source", "atlas");
+  if (id.startsWith("engraving_")) return term("source", "engraving");
+  if (id.includes("_part_") || id.includes("starter_")) return term("source", "part");
+  return term("source", "drive");
+}
+
+export function translateRuntimeText(text: string): string {
+  const exact: Record<string, string> = {
+    "Arena coil is armed": "競技場線圈已啟動",
+    "Breach Rail opened; shatter rivals before it collapses": "裂隙軌已開啟；在坍塌前擊碎對手",
+    "Breach Rail stabilized; route rewards amplified": "裂隙軌已穩定；路線獎勵提升",
+    "Breach Rail collapsed before stabilization": "裂隙軌在穩定前坍塌",
+    "Next route spooling": "下一條路線正在蓄轉",
+    "Basin clear; Brass Judicator is entering": "盆地已清空；黃銅裁決者即將入場",
+    "Shattered lanes expose more part caches.": "碎裂通道暴露更多零件寶庫。",
+    "Magnet storm pulls fast rivals into sharper collisions.": "磁暴把高速對手拉進更尖銳的碰撞。",
+    "Furnace pressure hardens enemies and improves engraved drops.": "熔爐壓力讓敵人更堅硬，並改善稀有銘刻掉落。",
+    "Echo caches hum under the circuit floor.": "迴響寶庫在迴路地板下低鳴。",
+    "The Brass Judicator signal amplifies risk and boss fragments.": "黃銅裁決者訊號提高風險與 Boss 碎片收益。",
+  };
+  const eventTitles: Record<string, string> = {
+    "Shattered Lanes": dataName("arenaEvent", "arena_event_shattered_lanes", "碎裂通道"),
+    "Magnet Storm": dataName("arenaEvent", "arena_event_magnet_storm", "磁暴"),
+    "Furnace Pressure": dataName("arenaEvent", "arena_event_furnace_pressure", "熔爐壓力"),
+    "Echo Cache": dataName("arenaEvent", "arena_event_echo_cache", "迴響寶庫"),
+    "Judicator Signal": dataName("arenaEvent", "arena_event_judicator_signal", "裁決者訊號"),
+  };
+  if (exact[text]) {
+    return exact[text];
+  }
+
+  let match = text.match(/^(.+) drops into the basin$/);
+  if (match) return `${localizeEntityName(match[1])} 掉入盆地`;
+  match = text.match(/^(.+) enters the basin$/);
+  if (match) return `${localizeEntityName(match[1])} 進入盆地`;
+  match = text.match(/^(.+) reflects projectile pressure$/);
+  if (match) return `${localizeEntityName(match[1])} 反射投射壓力`;
+  match = text.match(/^(.+) folds the basin into a gravity well$/);
+  if (match) return `${localizeEntityName(match[1])} 將盆地折成重力井`;
+  match = text.match(/^(.+) hammers the rim with a heavy crash$/);
+  if (match) return `${localizeEntityName(match[1])} 以重撞敲擊邊環`;
+  match = text.match(/^(.+) slips through a phase shift$/);
+  if (match) return `${localizeEntityName(match[1])} 滑入相位轉移`;
+  match = text.match(/^(.+) raises a ring ward$/);
+  if (match) return `${localizeEntityName(match[1])} 升起邊環護幕`;
+  match = text.match(/^(.+) enters defense stance$/);
+  if (match) return `${localizeEntityName(match[1])} 進入防禦姿態`;
+  match = text.match(/^(.+) enters phase (\d)$/);
+  if (match) return `${localizeEntityName(match[1])} 進入第 ${match[2]} 階段`;
+  match = text.match(/^(.+) hits for ([\d,]+)$/);
+  if (match) return `${localizeEntityName(match[1])} 命中 ${match[2]}`;
+  match = text.match(/^(.+) redlines into a charge$/);
+  if (match) return `${localizeEntityName(match[1])} 紅線衝鋒`;
+  match = text.match(/^(.+) scores a furnace groove$/);
+  if (match) return `${localizeEntityName(match[1])} 刻出熔爐溝槽`;
+  match = text.match(/^(.+) releases Judicator shockwave$/);
+  if (match) return `${localizeEntityName(match[1])} 釋放裁決者衝擊波`;
+  match = text.match(/^(.+) opens phase 2 rail pressure$/);
+  if (match) return `${localizeEntityName(match[1])} 開啟第二階段軌道壓力`;
+  match = text.match(/^(.+) enters phase 3 brass lock$/);
+  if (match) return `${localizeEntityName(match[1])} 進入第三階段黃銅鎖定`;
+  match = text.match(/^(.+) duel gate shattered$/);
+  if (match) return `${localizeEntityName(match[1])} 決鬥門已碎裂`;
+  match = text.match(/^(.+) shattered$/);
+  if (match) return `${localizeEntityName(match[1])} 已碎裂`;
+  match = text.match(/^(\w+) (.+) dropped$/);
+  if (match) return `${term("rarity", match[1], match[1])} ${localizeDropLabel(match[2])} 掉落`;
+  match = text.match(/^Rival unique (.+) dropped$/);
+  if (match) return `名宿傳奇 ${localizeDropLabel(match[1])} 掉落`;
+  match = text.match(/^(SCRAPE|CLASH|SMASH|GRIND) impulse (\d+)$/);
+  if (match) return `${term("event", match[1].toLowerCase(), match[1])} 衝量 ${match[2]}`;
+  match = text.match(/^(.+): (.+)$/);
+  if (match) return `${eventTitles[match[1]] ?? localizeEntityName(match[1])}：${translateRuntimeText(match[2])}`;
+  return text;
+}

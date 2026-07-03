@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { createStarterBuild } from "../engine/character";
 import { createStarterEquipment, createStarterInventory } from "../data/topParts";
 
 const nonNegativeIntegerSchema = z.preprocess(
@@ -163,6 +162,45 @@ export const accountSaveSchema = z.object({
 export type AccountSave = z.infer<typeof accountSaveSchema>;
 export type CharacterSave = z.infer<typeof characterSaveSchema>;
 
+function starterCharacterForClass(classId: string): CharacterSave {
+  const now = new Date().toISOString();
+  const starterByClass: Record<string, Pick<CharacterSave, "name" | "build">> = {
+    veilrunner: {
+      name: "Veilrunner",
+      build: {
+        skillId: "starter_drive_training",
+        supportIds: ["starter_precision_link", "starter_projectile_link", "starter_crit_link"],
+      },
+    },
+    ashweaver: {
+      name: "Ashweaver",
+      build: {
+        skillId: "starter_furnace_training",
+        supportIds: ["starter_heat_link", "starter_duration_link", "starter_flux_link"],
+      },
+    },
+    ironbound: {
+      name: "Ironbound",
+      build: {
+        skillId: "starter_impact_training",
+        supportIds: ["starter_mass_link", "starter_guard_link", "starter_melee_link"],
+      },
+    },
+  };
+  const starter = starterByClass[classId] ?? starterByClass.veilrunner;
+
+  return {
+    id: `char_${classId}_prototype`,
+    name: starter.name,
+    classId,
+    level: 8,
+    xp: 0,
+    selectedAreaId: "area_cinder_road",
+    build: starter.build,
+    lastSettledAt: now,
+  };
+}
+
 function starterFrameForClass(classId: string): string {
   if (classId === "ashweaver") {
     return "frame_ember_crucible";
@@ -184,8 +222,8 @@ function starterDriveForFrame(frameId: string): string {
 }
 
 export function createNewAccountSave(classId = "veilrunner"): AccountSave {
-  const starter = createStarterBuild(classId);
   const now = new Date().toISOString();
+  const starter = starterCharacterForClass(classId);
   const selectedFrameId = starterFrameForClass(classId);
   const selectedDriveId = starterDriveForFrame(selectedFrameId);
 
@@ -205,8 +243,8 @@ export function createNewAccountSave(classId = "veilrunner"): AccountSave {
         xp: 0,
         selectedAreaId: "area_cinder_road",
         build: {
-          skillId: starter.skillId,
-          supportIds: starter.supportIds,
+          skillId: starter.build.skillId,
+          supportIds: starter.build.supportIds,
         },
         lastSettledAt: now,
       },

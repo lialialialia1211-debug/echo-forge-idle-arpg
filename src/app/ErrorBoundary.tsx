@@ -1,4 +1,5 @@
 import React, { type ReactNode } from "react";
+import { t } from "../game/locale/zh-Hant";
 
 type ErrorBoundaryState = {
   message: string | null;
@@ -8,7 +9,7 @@ export class ErrorBoundary extends React.Component<{ children: ReactNode }, Erro
   state: ErrorBoundaryState = { message: null };
 
   static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
-    return { message: error instanceof Error ? error.message : "The game client stopped unexpectedly." };
+    return { message: error instanceof Error ? error.message : t("app.error.title") };
   }
 
   componentDidCatch(error: unknown) {
@@ -20,10 +21,10 @@ export class ErrorBoundary extends React.Component<{ children: ReactNode }, Erro
       return (
         <main className="app-error-shell">
           <section>
-            <strong>Game client stopped</strong>
+            <strong>{t("app.error.title")}</strong>
             <p>{this.state.message}</p>
             <button onClick={() => window.location.reload()} type="button">
-              Reload game
+              {t("app.error.reload")}
             </button>
           </section>
         </main>

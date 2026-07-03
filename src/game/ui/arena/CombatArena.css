@@ -1102,8 +1102,8 @@
   gap: 8px;
   border-top: 1px solid rgba(230, 215, 181, 0.12);
   padding: 8px;
-  max-height: 96px;
-  overflow: hidden;
+  max-height: 214px;
+  overflow: auto;
 }
 
 .combat-telemetry {
@@ -1116,6 +1116,147 @@
   display: none;
   grid-template-columns: repeat(4, minmax(86px, 1fr));
   gap: 6px;
+}
+
+.inspection-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(220px, 0.85fr);
+  gap: 8px;
+}
+
+.inspection-card {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  border: 1px solid rgba(230, 215, 181, 0.1);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.24);
+  padding: 8px;
+}
+
+.inspection-card-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inspection-card-head strong,
+.inspection-card-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspection-card-head strong {
+  color: var(--soft);
+  font-size: 0.78rem;
+}
+
+.inspection-card-head span {
+  color: var(--brass);
+  font-size: 0.72rem;
+}
+
+.damage-pipeline {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.damage-pipeline span,
+.modifier-status,
+.breakpoint-line,
+.threshold-line,
+.threshold-lines > span {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 5px 6px;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.damage-pipeline span {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.damage-pipeline strong {
+  color: var(--soft);
+}
+
+.modifier-status-list,
+.breakpoint-list,
+.threshold-lines {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.modifier-status {
+  display: grid;
+  gap: 1px;
+  border-left: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.modifier-status small,
+.modifier-status strong,
+.modifier-status em,
+.breakpoint-line strong,
+.breakpoint-line small,
+.breakpoint-line em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modifier-status strong,
+.breakpoint-line strong {
+  color: var(--soft);
+  font-size: 0.72rem;
+}
+
+.modifier-status em,
+.breakpoint-line em {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.modifier-active,
+.breakpoint-active,
+.threshold-good {
+  border-color: rgba(101, 198, 176, 0.46);
+  color: var(--teal);
+}
+
+.modifier-active strong,
+.breakpoint-active strong,
+.threshold-good {
+  color: var(--teal);
+}
+
+.modifier-standby,
+.breakpoint-waiting,
+.threshold-bad {
+  border-color: rgba(217, 165, 84, 0.42);
+  color: var(--brass);
+}
+
+.breakpoint-line {
+  display: grid;
+  grid-template-columns: minmax(84px, 0.8fr) minmax(110px, 1fr) minmax(74px, auto);
+  align-items: center;
+  gap: 6px;
+  border-left: 2px solid rgba(217, 165, 84, 0.36);
 }
 
 .run-review-strip {
@@ -2807,6 +2948,8 @@
   .run-review-strip,
   .collision-debug,
   .physical-debug,
+  .inspection-grid,
+  .damage-pipeline,
   .combat-bottom,
   .build-summary-grid,
   .equipment-slots,
@@ -2840,6 +2983,10 @@
 
   .combat-bottom {
     display: grid;
+  }
+
+  .breakpoint-line {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .part-row {
@@ -3003,6 +3150,8 @@
   .run-review-strip,
   .run-review-metrics,
   .run-objective-rail,
+  .inspection-grid,
+  .damage-pipeline,
   .combat-bottom,
   .build-summary-grid,
   .equipment-slots,

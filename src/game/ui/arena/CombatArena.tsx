@@ -71,6 +71,17 @@ import {
   type TopCraftResult,
 } from "../../engine/topCrafting";
 import { loadLocalSave, writeLocalSave } from "../../save/localStore";
+import {
+  dataDescription,
+  dataName,
+  formatTags,
+  localizeEntityName,
+  localizeDropLabel,
+  modifierSourceLabel,
+  t,
+  term,
+  translateRuntimeText,
+} from "../../locale/zh-Hant";
 import type {
   ArenaEffect,
   ArenaKey,
@@ -95,7 +106,19 @@ import type {
 } from "../../engine/topTypes";
 import { ArenaPhaserView, type ArenaRendererMetrics } from "./ArenaPhaserView";
 import { TalentTreeView } from "./TalentTreeView";
-import { selectAttackFrequency, selectDpsBreakdown, selectDriveGateStatus, selectESustain, selectFluxLow, selectFluxRatio, selectLifeRatio, selectOmega } from "./runtimeSelectors";
+import {
+  selectAttackFrequency,
+  selectBreakpointStatus,
+  selectDpsBreakdown,
+  selectDriveGateStatus,
+  selectEquipCompare,
+  selectESustain,
+  selectFluxLow,
+  selectFluxRatio,
+  selectLifeRatio,
+  selectOmega,
+  type BreakpointStatus,
+} from "./runtimeSelectors";
 import "./CombatArena.css";
 
 type ArenaScreen = "combat" | "map" | "workbench";
@@ -153,19 +176,18 @@ type ArenaTuningKey = keyof ArenaTuningConfig;
 
 type ArenaTuningControl = {
   key: ArenaTuningKey;
-  label: string;
   min: number;
   max: number;
   step: number;
 };
 
 const arenaTuningControls: ArenaTuningControl[] = [
-  { key: "basinPullMultiplier", label: "Basin pull", min: 0.6, max: 2.4, step: 0.05 },
-  { key: "collisionLaunchMultiplier", label: "Launch", min: 0.6, max: 2.4, step: 0.05 },
-  { key: "sparkMultiplier", label: "Spark", min: 0.5, max: 2.1, step: 0.05 },
-  { key: "activeEnemyPressure", label: "Rivals", min: 0.55, max: 1.65, step: 0.05 },
-  { key: "bossWeightMultiplier", label: "Boss mass", min: 0.75, max: 1.55, step: 0.05 },
-  { key: "hitStopMultiplier", label: "Impact FX", min: 0.35, max: 1.8, step: 0.05 },
+  { key: "basinPullMultiplier", min: 0.6, max: 2.4, step: 0.05 },
+  { key: "collisionLaunchMultiplier", min: 0.6, max: 2.4, step: 0.05 },
+  { key: "sparkMultiplier", min: 0.5, max: 2.1, step: 0.05 },
+  { key: "activeEnemyPressure", min: 0.55, max: 1.65, step: 0.05 },
+  { key: "bossWeightMultiplier", min: 0.75, max: 1.55, step: 0.05 },
+  { key: "hitStopMultiplier", min: 0.35, max: 1.8, step: 0.05 },
 ];
 
 type NextActionPrompt = {
@@ -185,29 +207,6 @@ const rarityTone: Record<TopPartRarity, "neutral" | "good" | "rare" | "warn"> = 
   tuned: "good",
   engraved: "warn",
   relic: "rare",
-};
-
-const statLabels: Record<keyof TopStatBlock, string> = {
-  spinIntegrity: "Integrity",
-  fluxGuard: "Flux Guard",
-  guard: "Guard",
-  drift: "Drift",
-  tracking: "Tracking",
-  impact: "Impact",
-  rpm: "RPM",
-  mass: "Mass",
-  grip: "Grip",
-  edge: "Edge",
-  fracture: "Fracture",
-  resonance: "Resonance",
-  fluxCost: "Flux Cost",
-  cooldownRecovery: "Cooldown",
-  reservationEfficiency: "Reserve",
-  stagger: "Stagger",
-  ringOutPressure: "Ring-Out",
-  inertiaBias: "Inertia",
-  partQuantity: "Quantity",
-  partRarity: "Rarity",
 };
 
 const trackedStats: Array<keyof TopStatBlock> = ["spinIntegrity", "impact", "rpm", "guard", "tracking", "edge", "resonance", "partQuantity", "partRarity"];
@@ -244,7 +243,20 @@ function isPart(part: TopPartInstance | null | undefined): part is TopPartInstan
   return Boolean(part);
 }
 
-function formatStatValue(stat: keyof TopStatBlock, value: number): string {
+function statLabel(stat: string): string {
+  if (stat === "maxSpinIntegrity") {
+    return term("stat", "spinIntegrity");
+  }
+  if (stat === "maxFluxGuard") {
+    return term("stat", "fluxGuard");
+  }
+  if (["impact", "heat", "glass", "static", "void"].includes(stat)) {
+    return term("damage", stat, stat);
+  }
+  return term("stat", stat, stat);
+}
+
+function formatStatValue(stat: string, value: number): string {
   if (["edge", "grip", "resonance", "inertiaBias", "partQuantity", "partRarity"].includes(stat)) {
     return formatPercent(value, 0);
   }
@@ -267,6 +279,37 @@ function statFromRuntime(stats: TopRuntimeStats, stat: keyof TopStatBlock): numb
   return stats[stat] ?? 0;
 }
 
+function displaySlot(slot: TopPartSlotId): string {
+  return term("slot", slot, partSlotLabels[slot]);
+}
+
+function displayRarity(rarity: TopPartRarity): string {
+  return term("rarity", rarity, rarity);
+}
+
+function displayPartName(part: TopPartInstance): string {
+  const base = getTopPartBaseDef(part.baseId);
+  const prefix = base.uniqueEffect ? term("rarity", "unique") : displayRarity(part.rarity);
+  const affixName = part.affixes?.[0] ? dataName("engraving", part.affixes[0].engravingId, part.affixes[0].displayName) : "";
+  return [prefix, affixName, dataName("part", part.baseId, base.displayName)].filter(Boolean).join(" ");
+}
+
+function displayDropLabel(label: string, baseId?: string): string {
+  return baseId ? dataName("part", baseId, label) : localizeDropLabel(label);
+}
+
+function displayDriveName(driveId: string, fallback: string): string {
+  return dataName("drive", driveId, fallback);
+}
+
+function displayRuneName(rune: TuningRuneDef): string {
+  return dataName("rune", rune.id, rune.displayName);
+}
+
+function displayFrameName(frameId: string, fallback: string): string {
+  return dataName("frame", frameId, fallback);
+}
+
 function buildPartVerdict(part: TopPartInstance, currentStats: TopRuntimeStats, previewStats: TopRuntimeStats, equipped: boolean): PartVerdict {
   const impactDelta = statFromRuntime(previewStats, "impact") - statFromRuntime(currentStats, "impact");
   const ehpDelta =
@@ -279,8 +322,8 @@ function buildPartVerdict(part: TopPartInstance, currentStats: TopRuntimeStats, 
 
   if (equipped) {
     return {
-      label: "Equipped",
-      detail: "This part is already in the loadout.",
+      label: t("ui.verdict.equipped"),
+      detail: t("ui.verdict.equippedDetail"),
       tone: "good",
       action: "equipped",
       score,
@@ -289,8 +332,8 @@ function buildPartVerdict(part: TopPartInstance, currentStats: TopRuntimeStats, 
 
   if (score >= 55 || impactDelta > 45 || ehpDelta > 180 || rewardDelta > 0.08) {
     return {
-      label: "Equip upgrade",
-      detail: `Score ${score >= 0 ? "+" : ""}${round(score, 0)} / Impact ${impactDelta >= 0 ? "+" : ""}${formatNumber(impactDelta, 0)} / EHP ${ehpDelta >= 0 ? "+" : ""}${formatNumber(ehpDelta, 0)}`,
+      label: t("ui.verdict.upgrade"),
+      detail: `分數 ${score >= 0 ? "+" : ""}${round(score, 0)} / ${term("stat", "impact")} ${impactDelta >= 0 ? "+" : ""}${formatNumber(impactDelta, 0)} / EHP ${ehpDelta >= 0 ? "+" : ""}${formatNumber(ehpDelta, 0)}`,
       tone: "good",
       action: "equip",
       score,
@@ -299,8 +342,8 @@ function buildPartVerdict(part: TopPartInstance, currentStats: TopRuntimeStats, 
 
   if (rarityRank[part.rarity] >= rarityRank.engraved || score >= -20) {
     return {
-      label: "Forge candidate",
-      detail: `Score ${score >= 0 ? "+" : ""}${round(score, 0)} / rarity leaves room for tuning.`,
+      label: t("ui.verdict.forge"),
+      detail: t("ui.verdict.forgeDetail", { score: `${score >= 0 ? "+" : ""}${round(score, 0)}` }),
       tone: part.rarity === "relic" ? "rare" : "warn",
       action: "forge",
       score,
@@ -308,8 +351,8 @@ function buildPartVerdict(part: TopPartInstance, currentStats: TopRuntimeStats, 
   }
 
   return {
-    label: "Salvage candidate",
-    detail: `Score ${round(score, 0)} / current slot looks stronger.`,
+    label: t("ui.verdict.salvage"),
+    detail: t("ui.verdict.salvageDetail", { score: round(score, 0) }),
     tone: "neutral",
     action: "salvage",
     score,
@@ -318,46 +361,47 @@ function buildPartVerdict(part: TopPartInstance, currentStats: TopRuntimeStats, 
 
 function formatStatLines(stats: TopStatBlock | undefined): string[] {
   return Object.entries(stats ?? {}).map(
-    ([stat, value]) => `+${formatStatValue(stat as keyof TopStatBlock, value ?? 0)} ${statLabels[stat as keyof TopStatBlock]}`,
+    ([stat, value]) => `+${formatStatValue(stat, value ?? 0)} ${statLabel(stat)}`,
   );
 }
 
 function formatResistanceLines(resistances: TopResistanceBlock | undefined): string[] {
-  return Object.entries(resistances ?? {}).map(([type, value]) => `+${formatPercent(value ?? 0, 0)} ${type} res`);
+  return Object.entries(resistances ?? {}).map(([type, value]) => `+${formatPercent(value ?? 0, 0)} ${term("damage", type, type)}抗性`);
 }
 
 function formatModifierLine(modifier: TopModifierDef): string {
   if (modifier.type === "flat") {
     const stat = modifier.stat as keyof TopStatBlock;
-    const label = statLabels[stat] ?? modifier.stat;
-    return `+${statLabels[stat] ? formatStatValue(stat, modifier.value) : formatNumber(modifier.value, 2)} ${label}`;
+    const label = statLabel(stat);
+    return `+${formatStatValue(stat, modifier.value)} ${label}`;
   }
   if (modifier.type === "more") {
-    return `${formatPercent(modifier.value, 0)} more ${modifier.stat}`;
+    return `${formatPercent(modifier.value, 0)} ${term("modifier", "more")} ${statLabel(modifier.stat)}`;
   }
   if (modifier.type === "less") {
-    return `${formatPercent(modifier.value, 0)} less ${modifier.stat}`;
+    return `${formatPercent(modifier.value, 0)} ${term("modifier", "less")} ${statLabel(modifier.stat)}`;
   }
   if (modifier.type === "increased") {
-    return `+${formatPercent(modifier.value, 0)} increased ${modifier.stat}`;
+    return `+${formatPercent(modifier.value, 0)} ${term("modifier", "increased")} ${statLabel(modifier.stat)}`;
   }
   if (modifier.type === "reduced") {
-    return `${formatPercent(modifier.value, 0)} reduced ${modifier.stat}`;
+    return `${formatPercent(modifier.value, 0)} ${term("modifier", "reduced")} ${statLabel(modifier.stat)}`;
   }
   if (modifier.type === "penetration") {
-    return `+${formatPercent(modifier.value, 0)} ${modifier.stat} penetration`;
+    return `+${formatPercent(modifier.value, 0)} ${term("damage", modifier.stat, modifier.stat)}${term("modifier", "penetration")}`;
   }
   if (modifier.type === "extraAs" && modifier.fromDamageType && modifier.toDamageType) {
-    return `Gain ${formatPercent(modifier.value, 0)} ${modifier.fromDamageType} as ${modifier.toDamageType}`;
+    return `${term("modifier", "extraAs")} ${formatPercent(modifier.value, 0)} ${term("damage", modifier.fromDamageType)} → ${term("damage", modifier.toDamageType)}`;
   }
   if (modifier.type === "conversion" && modifier.fromDamageType && modifier.toDamageType) {
-    return `Convert ${formatPercent(modifier.value, 0)} ${modifier.fromDamageType} to ${modifier.toDamageType}`;
+    return `${term("modifier", "conversion")} ${formatPercent(modifier.value, 0)} ${term("damage", modifier.fromDamageType)} → ${term("damage", modifier.toDamageType)}`;
   }
-  return `${modifier.type} ${modifier.stat}`;
+  return `${term("modifier", modifier.type, modifier.type)} ${statLabel(modifier.stat)}`;
 }
 
 function formatPartLines(part: TopPartInstance): string[] {
-  const uniqueLine = getTopPartBaseDef(part.baseId).uniqueEffect?.description;
+  const uniqueEffect = getTopPartBaseDef(part.baseId).uniqueEffect;
+  const uniqueLine = uniqueEffect ? dataDescription("unique", uniqueEffect.id, uniqueEffect.description) : undefined;
   return [...(uniqueLine ? [uniqueLine] : []), ...formatStatLines(part.statBonuses), ...formatResistanceLines(part.resistanceBonuses), ...part.modifiers.map(formatModifierLine)];
 }
 
@@ -367,36 +411,74 @@ function formatRuneLines(rune: TuningRuneDef): string[] {
 
 function formatCombatEvent(event: CombatEvent): string {
   if (event.kind === "stance_shift") {
-    return `STANCE SHIFT: prevented ${formatNumber(event.magnitude, 1)}`;
+    return `${term("event", "stance_shift")}: 減免 ${formatNumber(event.magnitude, 1)}`;
   }
-  const label = event.driveId ? `${event.kind} / ${event.driveId}` : event.kind;
+  const label = event.driveId ? `${term("event", event.kind)} / ${displayDriveName(event.driveId, event.driveId)}` : term("event", event.kind);
   return `${label}: ${formatNumber(event.magnitude, 1)}`;
+}
+
+function displaySourceName(sourceId: string): string {
+  const drive = driveCores.find((entry) => sourceId.includes(entry.id));
+  if (drive) {
+    return displayDriveName(drive.id, drive.displayName);
+  }
+  const rune = tuningRunes.find((entry) => sourceId.includes(entry.id));
+  if (rune) {
+    return displayRuneName(rune);
+  }
+  const talent = talentNodes.find((entry) => sourceId.includes(entry.id));
+  if (talent) {
+    return dataName("talent", talent.id, talent.displayName);
+  }
+  const atlas = circuitAtlasNodes.find((entry) => sourceId.includes(entry.id));
+  if (atlas) {
+    return dataName("atlas", atlas.id, atlas.displayName);
+  }
+  const doctrine = doctrineForFrame("frame_swift_razor")
+    .concat(doctrineForFrame("frame_ember_crucible"), doctrineForFrame("frame_storm_needle"))
+    .flatMap((entry) => [entry, ...entry.nodes])
+    .find((entry) => sourceId.includes(entry.id));
+  if (doctrine) {
+    return dataName("doctrine", doctrine.id, doctrine.displayName);
+  }
+  return modifierSourceLabel(sourceId);
+}
+
+function breakpointDeltaText(status: BreakpointStatus): string {
+  if (status.triggered) {
+    return t("ui.breakpoint.triggered");
+  }
+  const value = formatNumber(status.delta, status.attr === "spinEnergyRatio" || status.attr === "fluxRatio" ? 2 : 1);
+  if (status.op === ">=" || status.op === ">") {
+    return t("ui.breakpoint.needMore", { value });
+  }
+  return t("ui.breakpoint.needLess", { value });
 }
 
 function formatDefeatCause(cause?: TopArenaDefeatCause): string {
   if (cause === "spinout") {
-    return "Spin-out";
+    return t("ui.defeat.spinout");
   }
   if (cause === "break") {
-    return "Break";
+    return t("ui.defeat.break");
   }
   if (cause === "ringout") {
-    return "Ring-out";
+    return t("ui.defeat.ringout");
   }
-  return "Defeat";
+  return t("ui.defeat.default");
 }
 
 function formatDefeatDetail(cause?: TopArenaDefeatCause): string {
   if (cause === "spinout") {
-    return "E reached zero";
+    return t("ui.defeat.spinoutDetail");
   }
   if (cause === "break") {
-    return "Structure failed";
+    return t("ui.defeat.breakDetail");
   }
   if (cause === "ringout") {
-    return "Left the basin";
+    return t("ui.defeat.ringoutDetail");
   }
-  return "Run ended";
+  return t("ui.defeat.defaultDetail");
 }
 
 function formatTalentLines(talent: TalentNodeDef): string[] {
@@ -406,14 +488,14 @@ function formatTalentLines(talent: TalentNodeDef): string[] {
 function formatAtlasLines(node: CircuitAtlasNodeDef): string[] {
   const bonuses = node.bonuses;
   return [
-    bonuses.enemyIntegrityMultiplier ? `Enemies ${formatPercent(bonuses.enemyIntegrityMultiplier - 1, 0)} integrity` : null,
-    bonuses.enemyImpactMultiplier ? `Enemies ${formatPercent(bonuses.enemyImpactMultiplier - 1, 0)} impact` : null,
-    bonuses.activeEnemyPressure ? `+${formatPercent(bonuses.activeEnemyPressure, 0)} rival pressure` : null,
-    bonuses.rewardQuantity ? `+${formatPercent(bonuses.rewardQuantity, 0)} quantity` : null,
-    bonuses.rewardRarity ? `+${formatPercent(bonuses.rewardRarity, 0)} rarity` : null,
-    bonuses.breachProgressGain ? `+${formatPercent(bonuses.breachProgressGain, 0)} Breach charge` : null,
-    bonuses.breachDuration ? `+${round(bonuses.breachDuration, 0)}s Breach Rail` : null,
-    bonuses.bossPhasePressure ? `+${formatPercent(bonuses.bossPhasePressure, 0)} boss phase pressure` : null,
+    bonuses.enemyIntegrityMultiplier ? `敵人 ${formatPercent(bonuses.enemyIntegrityMultiplier - 1, 0)} ${term("stat", "spinIntegrity")}` : null,
+    bonuses.enemyImpactMultiplier ? `敵人 ${formatPercent(bonuses.enemyImpactMultiplier - 1, 0)} ${term("stat", "impact")}` : null,
+    bonuses.activeEnemyPressure ? `+${formatPercent(bonuses.activeEnemyPressure, 0)} 名宿壓力` : null,
+    bonuses.rewardQuantity ? `+${formatPercent(bonuses.rewardQuantity, 0)} ${term("stat", "partQuantity")}` : null,
+    bonuses.rewardRarity ? `+${formatPercent(bonuses.rewardRarity, 0)} ${term("stat", "partRarity")}` : null,
+    bonuses.breachProgressGain ? `+${formatPercent(bonuses.breachProgressGain, 0)} 裂隙充能` : null,
+    bonuses.breachDuration ? `+${round(bonuses.breachDuration, 0)}秒 裂隙軌` : null,
+    bonuses.bossPhasePressure ? `+${formatPercent(bonuses.bossPhasePressure, 0)} Boss 階段壓力` : null,
     ...formatStatLines(bonuses.statBonuses),
     ...formatResistanceLines(bonuses.resistanceBonuses),
     ...(bonuses.modifiers ?? []).map(formatModifierLine),
@@ -422,7 +504,7 @@ function formatAtlasLines(node: CircuitAtlasNodeDef): string[] {
 
 function formatDoctrineLines(doctrine: DoctrineDef): string[] {
   return doctrine.nodes.flatMap((node) => [
-    node.rule ? `${node.displayName}: ${node.rule}` : node.displayName,
+    node.rule ? `${dataName("doctrine", node.id, node.displayName)}: ${node.rule}` : dataName("doctrine", node.id, node.displayName),
     ...formatStatLines(node.statBonuses),
     ...formatResistanceLines(node.resistanceBonuses),
     ...(node.modifiers ?? []).map(formatModifierLine),
@@ -449,13 +531,13 @@ function buildEnemyDangerCue(enemy: TopRuntimeEntity, player: TopRuntimeEntity):
   const progress = 1 - clamp(enemy.cooldownRemaining / window, 0, 1);
   const seconds = Math.max(0, enemy.cooldownRemaining);
   const distance = distanceBetween(enemy, player);
-  const label = behaviorId === "bossJudicator" ? "Judicator wave" : behaviorId === "mineLayer" ? "Furnace groove" : "Redline charge";
+  const label = behaviorId === "bossJudicator" ? "裁決者波次" : behaviorId === "mineLayer" ? "熔爐溝槽" : "紅線衝鋒";
   const tone = behaviorId === "bossJudicator" ? "rare" : progress > 0.72 || distance < enemy.radius + player.radius + 54 ? "danger" : "warn";
 
   return {
     id: `enemy_${enemy.id}_${behaviorId}`,
     label,
-    detail: `${enemy.name} / ${seconds.toFixed(1)}s`,
+    detail: `${localizeEntityName(enemy.name)} / ${seconds.toFixed(1)}秒`,
     progress,
     tone,
     priority: (behaviorId === "bossJudicator" ? 4 : behaviorId === "charger" ? 3 : 2) + progress,
@@ -477,8 +559,8 @@ function buildHazardDangerCue(effect: ArenaEffect, player: TopRuntimeEntity): Da
   if (effect.age < armSeconds && distance <= radius + 150) {
     return {
       id: `hazard_arm_${effect.id}`,
-      label: "Groove arming",
-      detail: `${(armSeconds - effect.age).toFixed(1)}s to heat field`,
+      label: "溝槽蓄熱",
+      detail: `${(armSeconds - effect.age).toFixed(1)}秒後形成熱場`,
       progress: armProgress,
       tone: "warn",
       priority: 2.5 + armProgress,
@@ -488,8 +570,8 @@ function buildHazardDangerCue(effect: ArenaEffect, player: TopRuntimeEntity): Da
   if (distance <= radius * 1.12) {
     return {
       id: `hazard_live_${effect.id}`,
-      label: "Heat field",
-      detail: "Move out of the groove",
+      label: "熱場",
+      detail: "離開溝槽",
       progress: 1,
       tone: "danger",
       priority: 4.8,
@@ -536,12 +618,12 @@ function loadoutFromAccountState(state: AccountRuntimeState): TopLoadoutConfig {
 }
 
 function formatCost(cost: AccountWallet): string {
-  return [`Ash ${cost.ash}`, `Glass ${cost.glass}`, `Echo ${cost.echo}`].join(" / ");
+  return [`${t("ui.resource.ash")} ${cost.ash}`, `${t("ui.resource.glass")} ${cost.glass}`, `${t("ui.resource.echo")} ${cost.echo}`].join(" / ");
 }
 
 function formatKeyTitle(key: ArenaKey): string {
   const arena = getArenaCircuitDef(key.arenaBaseId);
-  return `T${key.tier} ${arena.displayName}`;
+  return `T${key.tier} ${dataName("arena", arena.id, arena.displayName)}`;
 }
 
 function StatPill({
@@ -596,19 +678,19 @@ function ScreenTab({ active, icon, label, onClick }: { active: boolean; icon: Re
 function drivePhysicsLines(driveId: string): string[] {
   switch (driveId) {
     case "drive_shard_barrage":
-      return ["Scrape / Clash: surface shear and tangent impulse add impact shards.", "High RPM raises shear, making contact-fired shards more reliable."];
+      return ["刮擦 / 對撞：表面剪切與切向衝量會追加撞擊碎片。", "高轉速提高剪切，讓接觸觸發的碎片更可靠。"];
     case "drive_razor_rebound":
-      return ["Scrape: tangent impulse adds cutting damage.", "Smash: normal impulse adds rebound burst damage."];
+      return ["刮擦：切向衝量追加切削傷害。", "重擊：法向衝量追加反彈爆發。"];
     case "drive_ember_scour":
-      return ["Scrape / Grind: surface shear adds heat.", "Grind: contact age increases burn pressure."];
+      return ["刮擦 / 磨削：表面剪切追加熱能。", "磨削：接觸時間提高燃燒壓力。"];
     case "drive_molten_groove":
-      return ["Grind: sustained high-shear contact drops a molten hazard.", "Grip and RPM make the contact easier to hold."];
+      return ["磨削：持續高剪切接觸會留下熔融危害。", "抓地與轉速讓接觸更容易維持。"];
     case "drive_storm_lattice":
-      return ["High Spark: spark intensity over the threshold redirects static discharge into the contact target.", "RPM increases spark intensity through surface shear."];
+      return ["高火花：火花強度越過門檻時，靜電放電會導向接觸目標。", "轉速透過表面剪切提高火花強度。"];
     case "drive_chain_tempest":
-      return ["Smash / Heavy Clash: collision impulse amplifies chain lightning.", "High spark intensity can convert heavy contact into a burst window."];
+      return ["重擊 / 重對撞：碰撞衝量會放大連鎖閃電。", "高火花強度可把重接觸轉成爆發窗口。"];
     default:
-      return ["Collision data can scale this drive when its trigger supports contact."];
+      return ["當觸發支援接觸時，碰撞資料可縮放此驅動。"];
   }
 }
 
@@ -775,7 +857,9 @@ export function CombatArena() {
   const defeatCauseDetail = formatDefeatDetail(runtime.defeatCause);
   const playerOmega = selectOmega(runtime.player);
   const playerAttackFrequency = selectAttackFrequency(runtime.player);
-  const dpsBreakdown = selectDpsBreakdown(runtime.player);
+  const dpsBreakdown = selectDpsBreakdown(runtime.player, runtime.combatEvents, driveId);
+  const breakpointStatuses = selectBreakpointStatus(runtime.player, driveId, runtime.combatEvents);
+  const equipCompare = useMemo(() => selectEquipCompare(currentStats, previewStats, driveId), [currentStats, driveId, previewStats]);
   const eSustain = selectESustain(runtime.player);
   const driveGateStatus = selectDriveGateStatus(runtime.player, driveId, runtime.combatEvents);
   const cooldownRatio = drive.baseCooldown > 0 ? 1 - clamp(runtime.player.cooldownRemaining / drive.baseCooldown, 0, 1) : 1;
@@ -793,8 +877,8 @@ export function CombatArena() {
       playerIntegrity < 0.24
         ? {
             id: "player_integrity_low",
-            label: "Integrity critical",
-            detail: `${formatPercent(playerIntegrity, 0)} remaining`,
+            label: "結構危急",
+            detail: `剩餘 ${formatPercent(playerIntegrity, 0)}`,
             progress: 1 - playerIntegrity,
             tone: "danger" as const,
             priority: 5.2,
@@ -938,7 +1022,7 @@ export function CombatArena() {
       {
         id: `craft_${result.part.id}`,
         tone: "reward" as const,
-        text: `Forged ${result.part.displayName}`,
+        text: `已鍛造 ${displayPartName(result.part)}`,
       },
       ...current,
     ].slice(0, 8));
@@ -979,7 +1063,7 @@ export function CombatArena() {
     }
     dispatchAccount(action);
     setSelectedArenaKeyId(key.id);
-    setLootNotices((current) => [{ id: `manual_key_${key.id}`, tone: "reward" as const, text: `Forged route key: ${formatKeyTitle(key)}` }, ...current].slice(0, 8));
+    setLootNotices((current) => [{ id: `manual_key_${key.id}`, tone: "reward" as const, text: `已鍛造路線鑰匙：${formatKeyTitle(key)}` }, ...current].slice(0, 8));
   };
 
   const runSelectedArenaKey = () => {
@@ -999,11 +1083,11 @@ export function CombatArena() {
     setScreen("combat");
     resetArena(frameId, driveId, arenaId, loadout, currentArenaKey, "duel");
     setLootNotices((current) => [
-      {
-        id: `boss_duel_${Date.now()}`,
-        tone: "reward" as const,
-        text: `Duel Gate opened: ${formatPercent(bossProjection.successChance, 0)} projected`,
-      },
+        {
+          id: `boss_duel_${Date.now()}`,
+          tone: "reward" as const,
+          text: `決鬥門已開啟：推估 ${formatPercent(bossProjection.successChance, 0)}`,
+        },
       ...current,
     ].slice(0, 8));
   };
@@ -1027,7 +1111,7 @@ export function CombatArena() {
         {
           id: `rival_duel_${rival.id}_${Date.now()}`,
           tone: "reward" as const,
-          text: `Rival duel opened: ${rival.displayName}`,
+          text: `名宿決鬥已開啟：${dataName("rival", rival.id, rival.displayName)}`,
         },
         ...current,
       ].slice(0, 8),
@@ -1045,7 +1129,7 @@ export function CombatArena() {
         {
           id: `anomaly_${anomalyId}_${Date.now()}`,
           tone: "reward" as const,
-          text: `${anomaly.displayName} anomaly route opened`,
+          text: `${dataName("anomaly", anomaly.id, anomaly.displayName)}異象路線已開啟`,
         },
         ...current,
       ].slice(0, 8),
@@ -1154,7 +1238,7 @@ export function CombatArena() {
         }
       } catch (error) {
         console.error(error);
-        setRuntimeError(error instanceof Error ? error.message : "The combat loop stopped unexpectedly.");
+        setRuntimeError(error instanceof Error ? error.message : "戰鬥循環意外停止。");
         setRunning(false);
         setRuntime(runtimeRef.current);
         return;
@@ -1204,7 +1288,7 @@ export function CombatArena() {
       dispatchAccount(action);
       setSelectedArenaKeyId(newKeys[0]?.id ?? selectedArenaKeyId);
       setLootNotices((current) => [
-        ...newKeys.map((key) => ({ id: `key_${key.id}`, tone: "reward" as const, text: `Forged route key: ${formatKeyTitle(key)}` })),
+        ...newKeys.map((key) => ({ id: `key_${key.id}`, tone: "reward" as const, text: `已鍛造路線鑰匙：${formatKeyTitle(key)}` })),
         ...current,
       ].slice(0, 8));
       lastRouteClearRef.current = { seed: runtime.seed, routeClears: runtime.routeClears };
@@ -1227,7 +1311,7 @@ export function CombatArena() {
         {
           id: `${rival ? "rival" : "boss"}_duel_clear_${runtime.seed}`,
           tone: "reward" as const,
-          text: rival ? `${rival.displayName} rival gate cleared` : "Brass Judicator duel gate cleared",
+          text: rival ? `${dataName("rival", rival.id, rival.displayName)}名宿門已通關` : "黃銅裁決者決鬥門已通關",
         },
         ...current,
       ].slice(0, 8),
@@ -1279,13 +1363,13 @@ export function CombatArena() {
         {
           id: `offline_${initialSave.top.lastSettledAt}`,
           tone: "reward" as const,
-          text: `Offline run: ${formatNumber(settlement.kills, 0)} kills / ${settlement.parts.length} drops`,
+          text: `離線戰鬥：${formatNumber(settlement.kills, 0)} 次擊破 / ${settlement.parts.length} 件掉落`,
         },
         ...settlement.parts.slice(0, 3).map((part) => ({
           id: `offline_part_${part.id}`,
           tone: "drop" as const,
           rarity: part.rarity,
-          text: `Recovered ${part.rarity} ${part.displayName}`,
+          text: `回收 ${displayRarity(part.rarity)} ${displayPartName(part)}`,
         })),
         ...current,
       ].slice(0, 8),
@@ -1338,8 +1422,8 @@ export function CombatArena() {
       const merged = mergeInventoryParts(newParts, inventory, inventoryCapacity);
       const keptDrop = newParts.find((part) => merged.items.some((item) => item.id === part.id));
       const notices: LootNotice[] = [
-        ...newParts.map((part) => ({ id: `loot_${part.id}`, tone: "drop" as const, rarity: part.rarity, text: `Picked ${part.rarity} ${part.displayName}` })),
-        ...merged.overflow.map((part) => ({ id: `salvage_${part.id}`, tone: "salvage" as const, text: `Auto-salvaged ${part.displayName}` })),
+        ...newParts.map((part) => ({ id: `loot_${part.id}`, tone: "drop" as const, rarity: part.rarity, text: `取得 ${displayRarity(part.rarity)} ${displayPartName(part)}` })),
+        ...merged.overflow.map((part) => ({ id: `salvage_${part.id}`, tone: "salvage" as const, text: `自動拆解 ${displayPartName(part)}` })),
       ];
       dispatchAccount(action);
       if (keptDrop) {
@@ -1366,15 +1450,15 @@ export function CombatArena() {
     const remainingToBoss = Math.max(0, runtime.mapKillTarget - runtime.mapKills);
     const clearRatio = runtime.mapKills / Math.max(1, runtime.mapKillTarget);
     const routeProgress = runtime.bossSpawned || remainingToBoss === 0 ? 8 : Math.max(1, Math.ceil(clearRatio * 8));
-    const objectiveLabel = runtime.bossSpawned ? "Boss wave" : remainingToBoss === 0 ? "Boss ready" : remainingToBoss <= 10 ? "Final pack" : "Clear basin";
+    const objectiveLabel = runtime.bossSpawned ? t("ui.objective.bossWave") : remainingToBoss === 0 ? t("ui.objective.bossReady") : remainingToBoss <= 10 ? t("ui.objective.finalPack") : t("ui.objective.clearBasin");
     const objectiveDetail =
       runtimeDefeated
         ? defeatCauseDetail
         : runtime.bossSpawned
-        ? "Shatter boss to forge route key"
+        ? t("ui.objective.shatterBoss")
         : remainingToBoss === 0
-          ? "Field clear; boss drops next"
-          : `${remainingToBoss} rivals before boss`;
+          ? t("ui.objective.fieldClear")
+          : t("ui.objective.rivalsBeforeBoss", { count: remainingToBoss });
     const actionPanel: ActivePanel =
       runtimeDefeated
         ? "route"
@@ -1391,15 +1475,15 @@ export function CombatArena() {
       runtimeError || runtimeDefeated || dangerCue?.tone === "danger" ? "warn" : bestDrop?.rarity === "relic" || runtime.routeClears > 0 ? "rare" : runtime.drops.length > 0 ? "good" : "neutral";
 
     return {
-      actionLabel: actionPanel === "inventory" ? "Inventory" : actionPanel === "forge" ? "Forge" : actionPanel === "route" ? "Route" : "Loadout",
+      actionLabel: actionPanel === "inventory" ? t("ui.panel.inventory") : actionPanel === "forge" ? t("ui.panel.forge") : actionPanel === "route" ? t("ui.panel.route") : t("ui.panel.loadout"),
       actionPanel,
-      bestDropText: bestDrop ? `${bestDrop.rarity} ${bestDrop.label}` : "No drops yet",
-      detail: runtimeDefeated ? defeatCauseDetail : dangerCue ? dangerCue.label : selectedPartVerdict ? selectedPartVerdict.label : "Stabilize build",
+      bestDropText: bestDrop ? `${displayRarity(bestDrop.rarity)} ${displayDropLabel(bestDrop.label, bestDrop.baseId)}` : t("ui.drop.none"),
+      detail: runtimeDefeated ? defeatCauseDetail : dangerCue ? dangerCue.label : selectedPartVerdict ? selectedPartVerdict.label : t("ui.build.stable"),
       objectiveDetail,
       objectiveLabel: runtimeDefeated ? defeatCauseLabel : objectiveLabel,
       routeProgress,
-      status: runtimeError ? "Stopped" : runtimeDefeated ? "Defeated" : running ? "Live run" : runtime.drops.length > 0 ? "Loot ready" : "Ready",
-      summary: runtimeDefeated ? `${defeatCauseLabel} after ${formatNumber(runtime.kills, 0)} kills` : `Clear ${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)} / ${formatNumber(runtime.kills, 0)} total kills`,
+      status: runtimeError ? t("ui.status.stopped") : runtimeDefeated ? t("ui.state.defeated") : running ? t("ui.status.liveRun") : runtime.drops.length > 0 ? t("ui.status.lootReady") : t("ui.status.ready"),
+      summary: runtimeDefeated ? `${defeatCauseLabel}，${formatNumber(runtime.kills, 0)} 次擊破後結束` : `清場 ${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)} / 總擊破 ${formatNumber(runtime.kills, 0)}`,
       tone,
     };
   }, [bossProjection.successChance, dangerCue, defeatCauseDetail, defeatCauseLabel, running, runtime.bossSpawned, runtime.drops, runtime.kills, runtime.mapKillTarget, runtime.mapKills, runtime.routeClears, runtimeDefeated, runtimeError, selectedPartVerdict]);
@@ -1408,33 +1492,33 @@ export function CombatArena() {
     <section className="workbench-section build-summary-section">
       <div className="section-title">
         <Activity size={17} aria-hidden />
-        <h2>Build Summary</h2>
-        <span className="section-counter">{frame.displayName}</span>
+        <h2>{t("ui.section.buildSummary")}</h2>
+        <span className="section-counter">{displayFrameName(frame.id, frame.displayName)}</span>
       </div>
       <div className="build-summary-grid">
-        <StatPill icon={<Swords size={15} />} label="Impact" value={formatNumber(statFromRuntime(currentStats, "impact"), 0)} />
-        <StatPill icon={<Shield size={15} />} label="EHP" value={formatNumber(statFromRuntime(currentStats, "spinIntegrity") + statFromRuntime(currentStats, "guard"), 0)} tone="good" />
-        <StatPill icon={<Radar size={15} />} label="Tracking" value={formatNumber(statFromRuntime(currentStats, "tracking"), 0)} />
-        <StatPill icon={<Gem size={15} />} label="Rewards" value={`${formatPercent(statFromRuntime(currentStats, "partQuantity"), 0)} / ${formatPercent(statFromRuntime(currentStats, "partRarity"), 0)}`} tone="rare" />
+        <StatPill icon={<Swords size={15} />} label={term("stat", "impact")} value={formatNumber(statFromRuntime(currentStats, "impact"), 0)} />
+        <StatPill icon={<Shield size={15} />} label="有效耐久" value={formatNumber(statFromRuntime(currentStats, "spinIntegrity") + statFromRuntime(currentStats, "guard"), 0)} tone="good" />
+        <StatPill icon={<Radar size={15} />} label={term("stat", "tracking")} value={formatNumber(statFromRuntime(currentStats, "tracking"), 0)} />
+        <StatPill icon={<Gem size={15} />} label="獎勵" value={`${formatPercent(statFromRuntime(currentStats, "partQuantity"), 0)} / ${formatPercent(statFromRuntime(currentStats, "partRarity"), 0)}`} tone="rare" />
       </div>
     </section>
   );
 
-  const renderSelectedPartInspector = ({ title = "Selected Part", showForgeAction = true }: { title?: string; showForgeAction?: boolean } = {}) => (
+  const renderSelectedPartInspector = ({ title = t("ui.section.selectedPart"), showForgeAction = true }: { title?: string; showForgeAction?: boolean } = {}) => (
     <section className="workbench-section part-inspector-section">
       <div className="section-title">
         <Gem size={17} aria-hidden />
         <h2>{title}</h2>
-        <span className="section-counter">{selectedPart ? partSlotLabels[selectedPart.slot] : "none"}</span>
+        <span className="section-counter">{selectedPart ? displaySlot(selectedPart.slot) : t("ui.inventory.none")}</span>
       </div>
       {selectedPart ? (
         <div className={`part-detail part-detail-${selectedPart.rarity}`}>
           <div className="part-detail-title">
             <div>
-              <small>{partSlotLabels[selectedPart.slot]} / ilvl {selectedPart.itemLevel}</small>
-              <strong>{selectedPart.displayName}</strong>
+              <small>{displaySlot(selectedPart.slot)} / 等級 {selectedPart.itemLevel}</small>
+              <strong>{displayPartName(selectedPart)}</strong>
             </div>
-            <span>{selectedPart.rarity}</span>
+            <span>{displayRarity(selectedPart.rarity)}</span>
           </div>
           {selectedPartVerdict ? (
             <div className={`part-verdict part-verdict-${selectedPartVerdict.tone}`}>
@@ -1450,11 +1534,22 @@ export function CombatArena() {
               const delta = statFromRuntime(previewStats, stat) - statFromRuntime(currentStats, stat);
               return (
                 <div className={delta >= 0 ? "delta-line delta-good" : "delta-line delta-bad"} key={stat}>
-                  <span>{statLabels[stat]}</span>
+                  <span>{statLabel(stat)}</span>
                   <strong>{delta >= 0 ? "+" : ""}{formatStatValue(stat, delta)}</strong>
                 </div>
               );
             })}
+          </div>
+          <div className="threshold-lines">
+            {equipCompare.thresholdCrossings.length > 0 ? (
+              equipCompare.thresholdCrossings.map((crossing) => (
+                <span className={crossing.previewTriggered ? "threshold-line threshold-good" : "threshold-line threshold-bad"} key={`${crossing.id}_${crossing.attr}`}>
+                  {crossing.previewTriggered ? t("ui.compare.unlocks", { name: displaySourceName(crossing.sourceId) }) : t("ui.compare.loses", { name: displaySourceName(crossing.sourceId) })}
+                </span>
+              ))
+            ) : (
+              <span>{t("ui.compare.noThreshold")}</span>
+            )}
           </div>
           <div className="modifier-lines">
             {formatPartLines(selectedPart).map((line) => (
@@ -1464,26 +1559,26 @@ export function CombatArena() {
           <div className="part-actions">
             <button className="arena-button" disabled={selectedPartEquipped} onClick={() => equipPart(selectedPart)} type="button">
               <CircleDot size={15} aria-hidden />
-              Equip
+              {t("ui.control.equip")}
             </button>
             <button className="arena-button" disabled={!selectedPartInInventory} onClick={() => toggleLock(selectedPart.id)} type="button">
               <Shield size={15} aria-hidden />
-              {selectedPart.locked ? "Unlock" : "Lock"}
+              {selectedPart.locked ? t("ui.control.unlock") : t("ui.control.lock")}
             </button>
             <button className="arena-button arena-button-danger" disabled={selectedPart.locked || !selectedPartInInventory} onClick={() => salvagePart(selectedPart)} type="button">
               <Recycle size={15} aria-hidden />
-              Salvage
+              {t("ui.control.salvage")}
             </button>
             {showForgeAction ? (
               <button className="arena-button" onClick={() => openPanel("forge")} type="button">
                 <Gem size={15} aria-hidden />
-                Forge
+                {t("ui.control.forge")}
               </button>
             ) : null}
           </div>
         </div>
       ) : (
-        <span className="empty-drop">No part selected</span>
+        <span className="empty-drop">{t("ui.inventory.noPart")}</span>
       )}
     </section>
   );
@@ -1493,7 +1588,7 @@ export function CombatArena() {
       <section className="workbench-section">
         <div className="section-title">
           <CircleDot size={17} aria-hidden />
-          <h2>Equipment</h2>
+          <h2>{t("ui.section.equipment")}</h2>
         </div>
         <div className="equipment-slots">
           {partSlotOrder.map((slot) => {
@@ -1505,9 +1600,9 @@ export function CombatArena() {
                 onClick={() => setSelectedPartId(part.id)}
                 type="button"
               >
-                <small>{partSlotLabels[slot]}</small>
-                <strong>{part.displayName}</strong>
-                <span>{part.rarity}</span>
+                <small>{displaySlot(slot)}</small>
+                <strong>{displayPartName(part)}</strong>
+                <span>{displayRarity(part.rarity)}</span>
               </button>
             );
           })}
@@ -1517,13 +1612,13 @@ export function CombatArena() {
       <section className="workbench-section">
         <div className="section-title">
           <Radar size={17} aria-hidden />
-          <h2>Frame</h2>
+          <h2>{t("ui.section.frame")}</h2>
         </div>
         <div className="choice-stack">
           {topFrames.map((entry) => (
             <button className={entry.id === frameId ? "choice-card choice-card-active" : "choice-card"} key={entry.id} onClick={() => selectFrame(entry.id)} type="button">
-              <strong>{entry.displayName}</strong>
-              <span>{entry.role}</span>
+              <strong>{displayFrameName(entry.id, entry.displayName)}</strong>
+              <span>{t(`frame.${entry.id}.role`, undefined, entry.role)}</span>
             </button>
           ))}
         </div>
@@ -1536,32 +1631,32 @@ export function CombatArena() {
       <section className="workbench-section">
         <div className="section-title">
           <PackageOpen size={17} aria-hidden />
-          <h2>Inventory</h2>
+          <h2>{t("ui.section.inventory")}</h2>
           <span className="section-counter">{inventory.length}/{inventoryCapacity}</span>
         </div>
-        <div className="inventory-filter" aria-label="Inventory filter">
+        <div className="inventory-filter" aria-label={t("ui.aria.inventoryFilter")}>
           <button className={inventoryFilter === "all" ? "filter-chip filter-chip-active" : "filter-chip"} onClick={() => setInventoryFilter("all")} type="button">
-            All
+            {t("ui.inventory.all")}
           </button>
           {partSlotOrder.map((slot) => (
             <button className={inventoryFilter === slot ? "filter-chip filter-chip-active" : "filter-chip"} key={slot} onClick={() => setInventoryFilter(slot)} type="button">
-              {partSlotLabels[slot]}
+              {displaySlot(slot)}
             </button>
           ))}
         </div>
-        <div className="inventory-grid" aria-label="Inventory grid">
+        <div className="inventory-grid" aria-label={t("ui.aria.inventoryGrid")}>
           {inventoryCells.map((part, index) =>
             part ? (
               <button
                 className={part.id === selectedPartId ? `inventory-cell inventory-cell-${part.rarity} inventory-cell-active` : `inventory-cell inventory-cell-${part.rarity}`}
                 key={part.id}
                 onClick={() => setSelectedPartId(part.id)}
-                title={`${part.displayName} / ${partSlotLabels[part.slot]}`}
+                title={`${displayPartName(part)} / ${displaySlot(part.slot)}`}
                 type="button"
               >
-                <small>{partSlotLabels[part.slot]}</small>
-                <strong>{part.displayName}</strong>
-                <span>{part.locked ? "Locked" : part.rarity}</span>
+                <small>{displaySlot(part.slot)}</small>
+                <strong>{displayPartName(part)}</strong>
+                <span>{part.locked ? t("ui.inventory.locked") : displayRarity(part.rarity)}</span>
               </button>
             ) : (
               <div className="inventory-cell inventory-cell-empty" key={`empty-${inventoryFilter}-${index}`} aria-hidden />
@@ -1574,7 +1669,7 @@ export function CombatArena() {
         <section className="workbench-section loot-history-section">
           <div className="section-title">
             <PackageOpen size={17} aria-hidden />
-            <h2>Recent Loot</h2>
+            <h2>{t("ui.section.recentLoot")}</h2>
           </div>
           <div className="loot-history-list">
             {lootNotices.slice(0, 5).map((notice) => (
@@ -1586,7 +1681,7 @@ export function CombatArena() {
         </section>
       ) : null}
 
-      {renderSelectedPartInspector({ title: "Selected Part" })}
+      {renderSelectedPartInspector({ title: t("ui.section.selectedPart") })}
     </>
   );
 
@@ -1599,13 +1694,13 @@ export function CombatArena() {
         <section className="workbench-section">
           <div className="section-title">
             <Sparkles size={17} aria-hidden />
-            <h2>Drive Core</h2>
+            <h2>{t("ui.section.driveCore")}</h2>
           </div>
           <div className="drive-grid">
             {driveCores.map((entry) => (
               <button className={entry.id === driveId ? "drive-chip drive-chip-active" : "drive-chip"} key={entry.id} onClick={() => selectDrive(entry.id)} type="button">
-                <strong>{entry.displayName}</strong>
-                <span>{entry.tags.slice(0, 4).join(" / ")}</span>
+                <strong>{displayDriveName(entry.id, entry.displayName)}</strong>
+                <span>{formatTags(entry.tags.slice(0, 4))}</span>
               </button>
             ))}
           </div>
@@ -1614,17 +1709,17 @@ export function CombatArena() {
         <section className="workbench-section">
           <div className="section-title">
             <Zap size={17} aria-hidden />
-            <h2>Skill Detail</h2>
+            <h2>{t("ui.section.skillDetail")}</h2>
           </div>
           <div className="skill-detail">
-            <strong>{drive.displayName}</strong>
-            <span>{drive.trigger} / {round(drive.baseCooldown, 2)}s</span>
+            <strong>{displayDriveName(drive.id, drive.displayName)}</strong>
+            <span>{term("trigger", drive.trigger, drive.trigger)} / {round(drive.baseCooldown, 2)}秒</span>
             <div className={driveGateStatus.unlocked ? "skill-gate skill-gate-ready" : "skill-gate skill-gate-locked"}>
-              <small>Drive gate</small>
-              <strong>{driveGateStatus.unlocked ? "READY" : "LOCKED"}</strong>
+              <small>{t("ui.skill.driveGate")}</small>
+              <strong>{driveGateStatus.unlocked ? t("ui.skill.ready") : t("ui.skill.locked")}</strong>
               {driveGateStatus.missing.map((requirement) => (
                 <span key={`${requirement.attr}_${requirement.op}_${requirement.value}`}>
-                  {requirement.attr} {round(requirement.currentValue, 2)} / {requirement.op} {requirement.value}
+                  {term("stat", requirement.attr)} {round(requirement.currentValue, 2)} / {requirement.op} {requirement.value}
                 </span>
               ))}
             </div>
@@ -1632,11 +1727,11 @@ export function CombatArena() {
               {Object.entries(drive.baseDamage)
                 .filter(([, value]) => value > 0)
                 .map(([type, value]) => (
-                  <em key={type}>{type} {value}</em>
+                  <em key={type}>{term("damage", type, type)} {value}</em>
                 ))}
             </div>
             <div className="skill-physics">
-              <small>Collision hooks</small>
+              <small>{t("ui.skill.collisionHooks")}</small>
               {drivePhysicsLines(drive.id).map((line) => (
                 <span key={line}>{line}</span>
               ))}
@@ -1647,19 +1742,19 @@ export function CombatArena() {
         <section className="workbench-section skill-link-section">
           <div className="section-title">
             <Boxes size={17} aria-hidden />
-            <h2>Linked Sockets</h2>
+            <h2>{t("ui.section.linkedSockets")}</h2>
             <span className="section-counter">{runeIds.length}/3</span>
           </div>
-          <div className="skill-link-board" aria-label="Linked skill sockets">
+          <div className="skill-link-board" aria-label={t("ui.aria.linkedSockets")}>
             <svg className="socket-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
               <line x1="50" y1="50" x2="19" y2="24" />
               <line x1="50" y1="50" x2="80" y2="24" />
               <line x1="50" y1="50" x2="50" y2="82" />
             </svg>
             <button className="socket-node socket-drive" onClick={() => openPanel("loadout")} type="button">
-              <small>Drive</small>
-              <strong>{drive.displayName}</strong>
-              <span>{drive.tags.slice(0, 3).join(" / ")}</span>
+              <small>{t("ui.section.driveCore")}</small>
+              <strong>{displayDriveName(drive.id, drive.displayName)}</strong>
+              <span>{formatTags(drive.tags.slice(0, 3))}</span>
             </button>
             {[0, 1, 2].map((socketIndex) => {
               const socketRuneId = runeSlots[socketIndex];
@@ -1680,9 +1775,9 @@ export function CombatArena() {
                   style={{ "--socket-x": socketIndex === 0 ? "19%" : socketIndex === 1 ? "80%" : "50%", "--socket-y": socketIndex === 2 ? "82%" : "24%" } as CSSProperties}
                   type="button"
                 >
-                  <small>Socket {socketIndex + 1}</small>
-                  <strong>{rune ? rune.displayName : "Open"}</strong>
-                  <span>{rune ? rune.requiredTags.join(" / ") : "Empty link"}</span>
+                  <small>{t("ui.socket.label", { index: socketIndex + 1 })}</small>
+                  <strong>{rune ? displayRuneName(rune) : t("ui.inventory.open")}</strong>
+                  <span>{rune ? formatTags(rune.requiredTags) : t("ui.inventory.empty")}</span>
                 </button>
               );
             })}
@@ -1690,12 +1785,12 @@ export function CombatArena() {
           <div className="socket-detail-panel">
             <div className="socket-detail-header">
               <div>
-                <small>Socket {selectedRuneSocket + 1}</small>
-                <strong>{selectedRune ? selectedRune.displayName : "Open Link"}</strong>
+                <small>{t("ui.socket.label", { index: selectedRuneSocket + 1 })}</small>
+                <strong>{selectedRune ? displayRuneName(selectedRune) : t("ui.socket.openLink")}</strong>
               </div>
               <button className="arena-button arena-button-danger" disabled={!selectedRune} onClick={() => clearRuneSocket()} type="button">
                 <Recycle size={15} aria-hidden />
-                Clear
+                {t("ui.control.clear")}
               </button>
             </div>
             {selectedRune ? (
@@ -1705,7 +1800,7 @@ export function CombatArena() {
                 ))}
               </div>
             ) : (
-              <span className="empty-drop">Choose a compatible rune from the library.</span>
+              <span className="empty-drop">{t("ui.inventory.chooseRune")}</span>
             )}
           </div>
         </section>
@@ -1713,7 +1808,7 @@ export function CombatArena() {
         <section className="workbench-section">
           <div className="section-title">
             <Boxes size={17} aria-hidden />
-            <h2>Rune Library</h2>
+            <h2>{t("ui.section.runeLibrary")}</h2>
           </div>
           <div className="rune-library">
             {tuningRunes.map((rune) => {
@@ -1728,8 +1823,8 @@ export function CombatArena() {
                   onClick={() => assignRuneToSocket(rune.id)}
                   type="button"
                 >
-                  <strong>{rune.displayName}</strong>
-                  <span>{rune.requiredTags.join(" / ")}</span>
+                  <strong>{displayRuneName(rune)}</strong>
+                  <span>{formatTags(rune.requiredTags)}</span>
                 </button>
               );
             })}
@@ -1741,20 +1836,20 @@ export function CombatArena() {
 
   const renderForgePanel = () => (
     <>
-      {renderSelectedPartInspector({ title: "Forge Target", showForgeAction: false })}
+      {renderSelectedPartInspector({ title: t("ui.section.forgeTarget"), showForgeAction: false })}
 
       <section className="workbench-section">
         <div className="section-title">
           <Gem size={17} aria-hidden />
-          <h2>Actions</h2>
+          <h2>{t("ui.section.actions")}</h2>
         </div>
         <div className="forge-action-grid">
           {[
-            ["upgrade", "Upgrade", "Raise rarity"],
-            ["rerollAffixes", "Reroll", "New engravings"],
-            ["rerollValues", "Values", "Same lines"],
-            ["add", "Add", "One engraving"],
-            ["remove", "Remove", "One engraving"],
+            ["upgrade", t("ui.forge.upgrade"), t("ui.forge.upgradeDetail")],
+            ["rerollAffixes", t("ui.forge.reroll"), t("ui.forge.rerollDetail")],
+            ["rerollValues", t("ui.forge.values"), t("ui.forge.valuesDetail")],
+            ["add", t("ui.forge.add"), t("ui.forge.addDetail")],
+            ["remove", t("ui.forge.remove"), t("ui.forge.removeDetail")],
           ].map(([action, label, detail]) => {
             const key = action as TopCraftAction;
             const cost = forgeActionCost(key, selectedPart);
@@ -1777,30 +1872,30 @@ export function CombatArena() {
       <section className="workbench-section">
         <div className="section-title">
           <Flame size={17} aria-hidden />
-          <h2>Route</h2>
-          <span className="section-counter">{currentArenaKey ? "keyed" : "open"}</span>
+          <h2>{t("ui.section.route")}</h2>
+          <span className="section-counter">{currentArenaKey ? t("ui.route.keyed") : t("ui.route.open")}</span>
         </div>
         <div className="route-summary-grid">
-          <StatPill icon={<Flame size={15} />} label="Circuit" value={`T${arena.tier}`} tone="rare" />
-          <StatPill icon={<Gem size={15} />} label="Keys" value={formatNumber(arenaKeys.length, 0)} tone="good" />
-          <StatPill icon={<Swords size={15} />} label="Quantity" value={formatPercent(currentArenaKeySummary?.rewardQuantity ?? 0, 0)} />
-          <StatPill icon={<Sparkles size={15} />} label="Rarity" value={formatPercent(currentArenaKeySummary?.rewardRarity ?? 0, 0)} />
-          <StatPill icon={<Zap size={15} />} label="Rail" value={routeMechanic ? formatPercent(routeMechanicProgress, 0) : "off"} tone={routeMechanic?.stabilized ? "good" : routeMechanic?.active ? "rare" : "warn"} />
-          <StatPill icon={<Network size={15} />} label="Atlas" value={`${availableAtlasPoints}/${atlasPoints}`} tone="good" />
+          <StatPill icon={<Flame size={15} />} label={t("ui.section.circuit")} value={`T${arena.tier}`} tone="rare" />
+          <StatPill icon={<Gem size={15} />} label="鑰匙" value={formatNumber(arenaKeys.length, 0)} tone="good" />
+          <StatPill icon={<Swords size={15} />} label={term("stat", "partQuantity")} value={formatPercent(currentArenaKeySummary?.rewardQuantity ?? 0, 0)} />
+          <StatPill icon={<Sparkles size={15} />} label={term("stat", "partRarity")} value={formatPercent(currentArenaKeySummary?.rewardRarity ?? 0, 0)} />
+          <StatPill icon={<Zap size={15} />} label={t("ui.section.breachRail")} value={routeMechanic ? formatPercent(routeMechanicProgress, 0) : "關閉"} tone={routeMechanic?.stabilized ? "good" : routeMechanic?.active ? "rare" : "warn"} />
+          <StatPill icon={<Network size={15} />} label={t("ui.section.circuitAtlas")} value={`${availableAtlasPoints}/${atlasPoints}`} tone="good" />
         </div>
       </section>
 
       <section className="workbench-section">
         <div className="section-title">
           <Radar size={17} aria-hidden />
-          <h2>Circuit</h2>
-          <span className="section-counter">{arena.displayName}</span>
+          <h2>{t("ui.section.circuit")}</h2>
+          <span className="section-counter">{dataName("arena", arena.id, arena.displayName)}</span>
         </div>
         <div className="circuit-grid">
           {arenaCircuits.map((entry) => (
             <button className={entry.id === arenaId ? "circuit-chip circuit-chip-active" : "circuit-chip"} key={entry.id} onClick={() => selectArena(entry.id)} type="button">
               <span>T{entry.tier}</span>
-              <strong>{entry.displayName}</strong>
+              <strong>{dataName("arena", entry.id, entry.displayName)}</strong>
             </button>
           ))}
         </div>
@@ -1809,19 +1904,19 @@ export function CombatArena() {
       <section className="workbench-section">
         <div className="section-title">
           <Zap size={17} aria-hidden />
-          <h2>Breach Rail</h2>
-          <span className="section-counter">{routeMechanic?.stabilized ? "stable" : routeMechanic?.active ? `${round(routeMechanic.timeRemaining, 0)}s` : "collapsed"}</span>
+          <h2>{t("ui.section.breachRail")}</h2>
+          <span className="section-counter">{routeMechanic?.stabilized ? t("ui.route.stable") : routeMechanic?.active ? `${round(routeMechanic.timeRemaining, 0)}秒` : t("ui.route.collapsed")}</span>
         </div>
         <div className="breach-rail-card">
           <div className="breach-rail-meter" aria-hidden>
             <i style={{ width: `${routeMechanicProgress * 100}%` }} />
           </div>
           <div className="route-clear-line">
-            <span>Progress</span>
+            <span>{t("ui.route.progress")}</span>
             <strong>{routeMechanic ? `${formatNumber(routeMechanic.progress, 0)}/${formatNumber(routeMechanic.maxProgress, 0)}` : "0/0"}</strong>
           </div>
           <div className="route-clear-line">
-            <span>Reward</span>
+            <span>{t("ui.route.reward")}</span>
             <strong>{routeMechanic ? `${formatPercent(routeMechanic.rewardQuantity, 0)} / ${formatPercent(routeMechanic.rewardRarity, 0)}` : "0% / 0%"}</strong>
           </div>
         </div>
@@ -1830,22 +1925,22 @@ export function CombatArena() {
       <section className="workbench-section">
         <div className="section-title">
           <Network size={17} aria-hidden />
-          <h2>Circuit Atlas</h2>
+          <h2>{t("ui.section.circuitAtlas")}</h2>
           <span className="section-counter">{availableAtlasPoints}/{atlasPoints}</span>
         </div>
         {(() => {
           const selectedAtlasNode = getCircuitAtlasNodeDef(selectedAtlasNodeId);
           const selectedAtlasActive = circuitAtlasNodeIds.includes(selectedAtlasNode.id);
           const selectedAtlasAvailable = selectedAtlasActive ? canRefundAtlasNode(selectedAtlasNode.id) : canAllocateAtlasNode(selectedAtlasNode.id);
-          const selectedAtlasStatus = selectedAtlasActive ? "Active" : selectedAtlasAvailable ? "Available" : "Locked";
+          const selectedAtlasStatus = selectedAtlasActive ? t("ui.route.active") : selectedAtlasAvailable ? t("ui.route.available") : t("ui.route.locked");
           const requirementText =
             selectedAtlasNode.requiredNodeIds && selectedAtlasNode.requiredNodeIds.length > 0
-              ? selectedAtlasNode.requiredNodeIds.map((requiredId) => getCircuitAtlasNodeDef(requiredId).displayName).join(" / ")
-              : "Root";
+              ? selectedAtlasNode.requiredNodeIds.map((requiredId) => dataName("atlas", requiredId, getCircuitAtlasNodeDef(requiredId).displayName)).join(" / ")
+              : t("ui.route.root");
 
           return (
             <>
-              <div className="atlas-board" aria-label="Circuit Atlas board">
+              <div className="atlas-board" aria-label={t("ui.aria.atlasBoard")}>
                 <svg className="talent-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
                   {circuitAtlasNodes.flatMap((node) =>
                     (node.requiredNodeIds ?? []).map((requiredId) => {
@@ -1871,11 +1966,11 @@ export function CombatArena() {
                       key={node.id}
                       onClick={() => setSelectedAtlasNodeId(node.id)}
                       style={{ "--atlas-x": `${position.x}%`, "--atlas-y": `${position.y}%` } as CSSProperties}
-                      title={node.description}
+                      title={dataDescription("atlas", node.id, node.description)}
                       type="button"
                     >
-                      <small>{node.cost} pt</small>
-                      <strong>{node.displayName}</strong>
+                      <small>{node.cost} {t("ui.point.short")}</small>
+                      <strong>{dataName("atlas", node.id, node.displayName)}</strong>
                     </button>
                   );
                 })}
@@ -1884,11 +1979,11 @@ export function CombatArena() {
                 <div className="talent-detail-header">
                   <div>
                     <small>{selectedAtlasStatus} / {requirementText}</small>
-                    <strong>{selectedAtlasNode.displayName}</strong>
+                    <strong>{dataName("atlas", selectedAtlasNode.id, selectedAtlasNode.displayName)}</strong>
                   </div>
-                  <span>{selectedAtlasNode.cost} pt</span>
+                  <span>{selectedAtlasNode.cost} {t("ui.point.short")}</span>
                 </div>
-                <p>{selectedAtlasNode.description}</p>
+                <p>{dataDescription("atlas", selectedAtlasNode.id, selectedAtlasNode.description)}</p>
                 <div className="talent-detail-lines">
                   {formatAtlasLines(selectedAtlasNode).map((line) => (
                     <span key={line}>{line}</span>
@@ -1896,7 +1991,7 @@ export function CombatArena() {
                 </div>
                 <button className="arena-button" disabled={!selectedAtlasAvailable} onClick={() => toggleAtlasNode(selectedAtlasNode.id)} type="button">
                   <Network size={15} aria-hidden />
-                  {selectedAtlasActive ? "Refund" : "Allocate"}
+                  {selectedAtlasActive ? t("ui.control.refund") : t("ui.control.allocate")}
                 </button>
               </div>
             </>
@@ -1907,17 +2002,17 @@ export function CombatArena() {
       <section className="workbench-section">
         <div className="section-title">
           <PackageOpen size={17} aria-hidden />
-          <h2>Arena Keys</h2>
+          <h2>{t("ui.section.arenaKeys")}</h2>
           <span className="section-counter">{arenaKeys.length}/24</span>
         </div>
         <div className="key-action-row">
           <button className="arena-button" disabled={!canSpend(wallet, keyForgeCost)} onClick={forgeArenaKey} type="button">
             <Gem size={15} aria-hidden />
-            Forge Key
+            {t("ui.control.forgeKey")}
           </button>
           <button className="arena-button" disabled={!selectedArenaKey} onClick={runSelectedArenaKey} type="button">
             <Play size={15} aria-hidden />
-            Run Key
+            {t("ui.control.runKey")}
           </button>
         </div>
         <div className="key-list">
@@ -1927,15 +2022,15 @@ export function CombatArena() {
               return (
                 <button className={key.id === selectedArenaKeyId ? "key-card key-card-active" : "key-card"} key={key.id} onClick={() => setSelectedArenaKeyId(key.id)} type="button">
                   <div>
-                    <small>{key.rarity} / ilvl {key.itemLevel}</small>
+                    <small>{displayRarity(key.rarity)} / 等級 {key.itemLevel}</small>
                     <strong>{formatKeyTitle(key)}</strong>
                   </div>
-                  <span>Q {formatPercent(summary.rewardQuantity, 0)} / R {formatPercent(summary.rewardRarity, 0)}</span>
+                  <span>數量 {formatPercent(summary.rewardQuantity, 0)} / 稀有 {formatPercent(summary.rewardRarity, 0)}</span>
                 </button>
               );
             })
           ) : (
-            <span className="empty-drop">No arena key</span>
+            <span className="empty-drop">{t("ui.inventory.noKey")}</span>
           )}
         </div>
         {selectedArenaKey ? (
@@ -1943,21 +2038,21 @@ export function CombatArena() {
             <div className="modifier-lines">
               {[...selectedArenaKey.prefixes, ...selectedArenaKey.suffixes].map((affix) => (
                 <span key={`${selectedArenaKey.id}_${affix.affixId}`}>
-                  {affix.displayName}: enemies {round((affix.enemyIntegrityMultiplier - 1) * 100, 0)}% integrity / rewards {formatPercent(affix.rewardQuantity + affix.rewardRarity, 0)}
+                  {dataName("keyAffix", affix.affixId, affix.displayName)}：敵人 {round((affix.enemyIntegrityMultiplier - 1) * 100, 0)}% {term("stat", "spinIntegrity")} / 獎勵 {formatPercent(affix.rewardQuantity + affix.rewardRarity, 0)}
                 </span>
               ))}
             </div>
             <div className="delta-list">
               <div className="delta-line delta-bad">
-                <span>Integrity</span>
+                <span>{term("stat", "spinIntegrity")}</span>
                 <strong>{formatPercent((selectedArenaKeySummary?.enemyIntegrityMultiplier ?? 1) - 1, 0)}</strong>
               </div>
               <div className="delta-line delta-bad">
-                <span>Impact</span>
+                <span>{term("stat", "impact")}</span>
                 <strong>{formatPercent((selectedArenaKeySummary?.enemyImpactMultiplier ?? 1) - 1, 0)}</strong>
               </div>
               <div className="delta-line delta-good">
-                <span>Reward</span>
+                <span>{t("ui.route.reward")}</span>
                 <strong>{formatPercent((selectedArenaKeySummary?.rewardQuantity ?? 0) + (selectedArenaKeySummary?.rewardRarity ?? 0), 0)}</strong>
               </div>
             </div>
@@ -1968,31 +2063,31 @@ export function CombatArena() {
       <section className="workbench-section">
         <div className="section-title">
           <Network size={17} aria-hidden />
-          <h2>Boss Gate</h2>
-          <span className="section-counter">{clearedBossGateIds.includes(bossProjection.gateId) ? "cleared" : "locked"}</span>
+          <h2>{t("ui.section.bossGate")}</h2>
+          <span className="section-counter">{clearedBossGateIds.includes(bossProjection.gateId) ? t("ui.route.cleared") : t("ui.route.locked")}</span>
         </div>
         <div className="boss-projection">
-          <StatPill icon={<Gauge size={15} />} label="Chance" value={formatPercent(bossProjection.successChance, 0)} tone={bossProjection.successChance >= 0.5 ? "good" : "warn"} />
-          <StatPill icon={<Activity size={15} />} label="TTK" value={`${round(bossProjection.estimatedTtk, 1)}s`} />
+          <StatPill icon={<Gauge size={15} />} label="機率" value={formatPercent(bossProjection.successChance, 0)} tone={bossProjection.successChance >= 0.5 ? "good" : "warn"} />
+          <StatPill icon={<Activity size={15} />} label="擊殺時間" value={`${round(bossProjection.estimatedTtk, 1)}秒`} />
         </div>
         <div className="modifier-lines">
           {bossProjection.failureReasons.length > 0 ? (
-            bossProjection.failureReasons.map((reason) => <span key={reason}>{reason}: target {formatNumber(bossProjection.recommendedStats[reason] ?? 0, 1)}</span>)
+            bossProjection.failureReasons.map((reason) => <span key={reason}>{reason}: 目標 {formatNumber(bossProjection.recommendedStats[reason] ?? 0, 1)}</span>)
           ) : (
-            <span>Duel projection stable</span>
+            <span>{t("ui.route.bossGateStable")}</span>
           )}
         </div>
         <button className="arena-button" onClick={attemptBossGate} type="button">
           <Swords size={15} aria-hidden />
-          Start Duel
+          {t("ui.control.startDuel")}
         </button>
       </section>
 
       <section className="workbench-section">
         <div className="section-title">
           <MapIcon size={17} aria-hidden />
-          <h2>Circuit Network</h2>
-          <span className="section-counter">{clearedRivalIds.length}/{namedRivals.length} rivals</span>
+          <h2>{t("ui.section.circuitNetwork")}</h2>
+          <span className="section-counter">{clearedRivalIds.length}/{namedRivals.length} {t("ui.route.rivals")}</span>
         </div>
         <div className="route-clear-list">
           {circuitNetworkNodes.map((node) => {
@@ -2003,24 +2098,24 @@ export function CombatArena() {
             return (
               <div className={unlocked ? "route-clear-line" : "route-clear-line route-clear-line-locked"} key={node.id}>
                 <span>
-                  {node.displayName}
-                  {rival ? <small>{rival.displayName}</small> : null}
+                  {dataName("network", node.id, node.displayName)}
+                  {rival ? <small>{dataName("rival", rival.id, rival.displayName)}</small> : null}
                 </span>
                 <div className="route-line-actions">
                   {rival ? (
                     <button className="arena-button" disabled={!unlocked || rivalCleared} onClick={() => startRivalDuel(rival.id)} type="button">
-                      {rivalCleared ? "Cleared" : unlocked ? "Duel" : "Locked"}
+                      {rivalCleared ? t("ui.route.cleared") : unlocked ? t("ui.route.duel") : t("ui.route.locked")}
                     </button>
                   ) : null}
                   {anomaly ? (
                     <button className="arena-button" disabled={!unlocked} onClick={() => startAnomalyRoute(anomaly.id)} type="button">
-                      {unlocked ? anomaly.displayName : "Locked"}
+                      {unlocked ? dataName("anomaly", anomaly.id, anomaly.displayName) : t("ui.route.locked")}
                     </button>
                   ) : null}
                   <button className="arena-button" disabled={!unlocked} onClick={() => selectOfflineNode(node.id)} type="button">
-                    {selectedOfflineNodeId === node.id ? "Offline set" : "Offline"}
+                    {selectedOfflineNodeId === node.id ? t("ui.route.offlineSet") : t("ui.route.offline")}
                   </button>
-                  {!rival && !anomaly ? <strong>{unlocked ? "open" : "locked"}</strong> : null}
+                  {!rival && !anomaly ? <strong>{unlocked ? t("ui.route.open") : t("ui.route.locked")}</strong> : null}
                 </div>
               </div>
             );
@@ -2031,12 +2126,12 @@ export function CombatArena() {
       <section className="workbench-section">
         <div className="section-title">
           <Radar size={17} aria-hidden />
-          <h2>Clears</h2>
+          <h2>{t("ui.section.clears")}</h2>
         </div>
         <div className="route-clear-list">
           {arenaCircuits.map((entry) => (
             <div className="route-clear-line" key={entry.id}>
-              <span>{entry.displayName}</span>
+              <span>{dataName("arena", entry.id, entry.displayName)}</span>
               <strong>{routeClears[entry.id] ?? 0}</strong>
             </div>
           ))}
@@ -2049,36 +2144,36 @@ export function CombatArena() {
     const selectedTalent = getTalentNodeDef(selectedTalentId);
     const selectedTalentActive = talentIds.includes(selectedTalent.id);
     const selectedTalentAvailable = selectedTalentActive ? canRefundTalent(selectedTalent.id) : canAllocateTalent(selectedTalent.id);
-    const selectedTalentStatus = selectedTalentActive ? "Active" : selectedTalentAvailable ? "Available" : "Locked";
+    const selectedTalentStatus = selectedTalentActive ? t("ui.route.active") : selectedTalentAvailable ? t("ui.route.available") : t("ui.route.locked");
     const frameDoctrines = doctrineForFrame(frameId);
     const selectedDoctrine = doctrineId ? getDoctrineDef(doctrineId) : null;
     const requirementText =
       selectedTalent.requiredNodeIds && selectedTalent.requiredNodeIds.length > 0
-        ? selectedTalent.requiredNodeIds.map((requiredId) => getTalentNodeDef(requiredId).displayName).join(" / ")
-        : "Root";
+        ? selectedTalent.requiredNodeIds.map((requiredId) => dataName("talent", requiredId, getTalentNodeDef(requiredId).displayName)).join(" / ")
+        : t("ui.route.root");
 
     return (
       <section className="workbench-section">
         <div className="section-title">
           <Network size={17} aria-hidden />
-          <h2>Talents</h2>
+          <h2>{t("ui.section.talents")}</h2>
           <span className="section-counter">{availableTalentPoints}/{talentPoints}</span>
         </div>
-        <div className="doctrine-grid" aria-label="Doctrine paths">
+        <div className="doctrine-grid" aria-label={t("ui.aria.doctrinePaths")}>
           {frameDoctrines.map((doctrine) => {
             const active = doctrine.id === doctrineId;
             return (
               <button className={active ? "doctrine-card doctrine-card-active" : "doctrine-card"} key={doctrine.id} onClick={() => selectDoctrine(active ? null : doctrine.id)} type="button">
-                <small>{active ? "Doctrine active" : frame.displayName}</small>
-                <strong>{doctrine.displayName}</strong>
-                <span>{doctrine.description}</span>
+                <small>{active ? "教義已啟用" : displayFrameName(frame.id, frame.displayName)}</small>
+                <strong>{dataName("doctrine", doctrine.id, doctrine.displayName)}</strong>
+                <span>{dataDescription("doctrine", doctrine.id, doctrine.description)}</span>
               </button>
             );
           })}
         </div>
         {selectedDoctrine ? (
           <div className="doctrine-detail">
-            <strong>{selectedDoctrine.displayName}</strong>
+            <strong>{dataName("doctrine", selectedDoctrine.id, selectedDoctrine.displayName)}</strong>
             <div className="talent-detail-lines">
               {formatDoctrineLines(selectedDoctrine).map((line) => (
                 <span key={line}>{line}</span>
@@ -2096,12 +2191,12 @@ export function CombatArena() {
         <div className="talent-detail-panel">
           <div className="talent-detail-header">
             <div>
-              <small>{selectedTalent.kind} / {selectedTalentStatus} / {requirementText}</small>
-              <strong>{selectedTalent.displayName}</strong>
+              <small>{t(`talent.kind.${selectedTalent.kind}`)} / {selectedTalentStatus} / {requirementText}</small>
+              <strong>{dataName("talent", selectedTalent.id, selectedTalent.displayName)}</strong>
             </div>
-            <span>{selectedTalent.cost} pt</span>
+            <span>{selectedTalent.cost} {t("ui.point.short")}</span>
           </div>
-          <p>{selectedTalent.description}</p>
+          <p>{dataDescription("talent", selectedTalent.id, selectedTalent.description)}</p>
           <div className="talent-detail-lines">
             {formatTalentLines(selectedTalent).map((line) => (
               <span key={line}>{line}</span>
@@ -2109,11 +2204,11 @@ export function CombatArena() {
           </div>
           <button className="arena-button" disabled={!selectedTalentAvailable} onClick={() => toggleTalent(selectedTalent.id)} type="button">
             <Network size={15} aria-hidden />
-            {selectedTalentActive ? "Refund" : "Allocate"}
+            {selectedTalentActive ? t("ui.control.refund") : t("ui.control.allocate")}
           </button>
         </div>
         <div className="talent-note">
-          {talentIds.length} active nodes / {availableTalentPoints} points ready
+          {talentIds.length} 個已啟用節點 / {availableTalentPoints} 點可用
         </div>
       </section>
     );
@@ -2134,7 +2229,7 @@ export function CombatArena() {
     <>
       {renderBuildSummaryPanel()}
       {renderLoadoutPanel()}
-      {renderSelectedPartInspector({ title: "Selected Part" })}
+      {renderSelectedPartInspector({ title: t("ui.section.selectedPart") })}
     </>
   );
 
@@ -2150,21 +2245,21 @@ export function CombatArena() {
   );
 
   const renderTuningPanel = () => (
-    <div className="arena-tuning-panel" aria-label="Combat tuning">
+    <div className="arena-tuning-panel" aria-label={t("ui.aria.combatTuning")}>
       <div className="arena-tuning-head">
         <div>
-          <small>Dev tuning</small>
-          <strong>Combat feel</strong>
+          <small>{t("ui.tuning.dev")}</small>
+          <strong>{t("ui.tuning.title")}</strong>
         </div>
         <button className="arena-button arena-tuning-reset" onClick={() => setArenaTuning(defaultArenaTuning)} type="button">
-          Reset
+          {t("ui.control.reset")}
         </button>
       </div>
       <div className="arena-tuning-controls">
         {arenaTuningControls.map((control) => (
           <label className="arena-tuning-control" key={control.key}>
             <span>
-              {control.label}
+              {t(`ui.tuning.${control.key}`)}
               <strong>{round(arenaTuning[control.key], 2)}x</strong>
             </span>
             <input
@@ -2184,25 +2279,25 @@ export function CombatArena() {
   const renderNextActionStrip = () => {
     const recentDropCount = lootNotices.filter((notice) => notice.tone === "drop").length;
     const visibleDropCount = Math.max(runtime.drops.length, recentDropCount);
-    const selectedPartSignal = selectedPartVerdict ? selectedPartVerdict.label : selectedPart ? selectedPart.displayName : "No part selected";
+    const selectedPartSignal = selectedPartVerdict ? selectedPartVerdict.label : selectedPart ? displayPartName(selectedPart) : t("ui.inventory.noPart");
     const routeSignal = runtime.bossSpawned
-      ? "Boss active"
+      ? "Boss 啟動"
       : runtime.mapKills >= runtime.mapKillTarget
-        ? "Boss ready"
-        : `${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)} clear`;
+        ? t("ui.objective.bossReady")
+        : `${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)} 清場`;
     let action: NextActionPrompt;
 
     if (runtimeError) {
       action = {
         tone: "warn",
         icon: <RotateCcw size={17} aria-hidden />,
-        label: "Reset combat loop",
+        label: t("ui.next.resetLoop"),
         detail: runtimeError,
-        button: "Reset",
+        button: t("ui.control.reset"),
         cues: [
-          { label: "Now", value: "Stopped", tone: "warn" },
-          { label: "Signal", value: "Runtime halted", tone: "warn" },
-          { label: "Then", value: "Restart run" },
+          { label: t("ui.next.now"), value: t("ui.next.stopped"), tone: "warn" },
+          { label: t("ui.next.signal"), value: t("ui.next.runtimeHalted"), tone: "warn" },
+          { label: t("ui.next.then"), value: t("ui.next.restartRun") },
         ],
         onClick: () => resetArena(),
       };
@@ -2210,13 +2305,13 @@ export function CombatArena() {
       action = {
         tone: "warn",
         icon: <AlertTriangle size={17} aria-hidden />,
-        label: "Run defeated",
+        label: t("ui.next.runDefeated"),
         detail: `${defeatCauseLabel} / ${defeatCauseDetail}`,
-        button: "Route",
+        button: t("ui.panel.route"),
         cues: [
-          { label: "Now", value: defeatCauseLabel, tone: "warn" },
-          { label: "Signal", value: defeatCauseDetail, tone: "warn" },
-          { label: "Then", value: "Adjust build" },
+          { label: t("ui.next.now"), value: defeatCauseLabel, tone: "warn" },
+          { label: t("ui.next.signal"), value: defeatCauseDetail, tone: "warn" },
+          { label: t("ui.next.then"), value: t("ui.next.adjustBuild") },
         ],
         onClick: openMap,
       };
@@ -2224,13 +2319,13 @@ export function CombatArena() {
       action = {
         tone: dangerCue.tone === "danger" ? "warn" : dangerCue.tone,
         icon: <AlertTriangle size={17} aria-hidden />,
-        label: dangerCue.tone === "danger" ? "Break danger pattern" : dangerCue.label,
+        label: dangerCue.tone === "danger" ? t("ui.next.breakDanger") : dangerCue.label,
         detail: dangerCue.detail,
-        button: "Pause",
+        button: t("ui.control.pause"),
         cues: [
-          { label: "Now", value: dangerCue.label, tone: dangerCue.tone === "danger" ? "warn" : dangerCue.tone },
-          { label: "Signal", value: formatPercent(clamp(dangerCue.progress, 0, 1), 0), tone: dangerCue.tone === "danger" ? "warn" : dangerCue.tone },
-          { label: "Then", value: playerIntegrity < 0.35 ? "Check build" : routeSignal },
+          { label: t("ui.next.now"), value: dangerCue.label, tone: dangerCue.tone === "danger" ? "warn" : dangerCue.tone },
+          { label: t("ui.next.signal"), value: formatPercent(clamp(dangerCue.progress, 0, 1), 0), tone: dangerCue.tone === "danger" ? "warn" : dangerCue.tone },
+          { label: t("ui.next.then"), value: playerIntegrity < 0.35 ? t("ui.next.checkBuild") : routeSignal },
         ],
         onClick: toggleRunning,
       };
@@ -2238,13 +2333,13 @@ export function CombatArena() {
       action = {
         tone: "rare",
         icon: <PackageOpen size={17} aria-hidden />,
-        label: "Loot window open",
-        detail: `${runtime.drops.length} drops in this run`,
-        button: "Pause",
+        label: t("ui.next.lootOpen"),
+        detail: `本場有 ${runtime.drops.length} 件掉落`,
+        button: t("ui.control.pause"),
         cues: [
-          { label: "Now", value: "Secure drops", tone: "rare" },
-          { label: "Signal", value: runReview.bestDropText, tone: runReview.tone },
-          { label: "Then", value: "Open Loot" },
+          { label: t("ui.next.now"), value: t("ui.next.secureDrops"), tone: "rare" },
+          { label: t("ui.next.signal"), value: runReview.bestDropText, tone: runReview.tone },
+          { label: t("ui.next.then"), value: t("ui.next.openLoot") },
         ],
         onClick: toggleRunning,
       };
@@ -2252,13 +2347,13 @@ export function CombatArena() {
       action = {
         tone: "rare",
         icon: <Flame size={17} aria-hidden />,
-        label: "Boss wave active",
-        detail: "Shatter boss to forge route key",
-        button: "Pause",
+        label: t("ui.next.bossWave"),
+        detail: t("ui.objective.shatterBoss"),
+        button: t("ui.control.pause"),
         cues: [
-          { label: "Now", value: "Finish boss", tone: "rare" },
-          { label: "Signal", value: routeSignal, tone: "rare" },
-          { label: "Then", value: "Check route key" },
+          { label: t("ui.next.now"), value: t("ui.next.finishBoss"), tone: "rare" },
+          { label: t("ui.next.signal"), value: routeSignal, tone: "rare" },
+          { label: t("ui.next.then"), value: t("ui.next.checkRouteKey") },
         ],
         onClick: toggleRunning,
       };
@@ -2266,13 +2361,13 @@ export function CombatArena() {
       action = {
         tone: "rare",
         icon: <Flame size={17} aria-hidden />,
-        label: "Boss is dropping in",
-        detail: "Clear field; final rival is next",
-        button: "Pause",
+        label: t("ui.next.bossDropping"),
+        detail: t("ui.objective.fieldClear"),
+        button: t("ui.control.pause"),
         cues: [
-          { label: "Now", value: "Hold center", tone: "rare" },
-          { label: "Signal", value: "150+ cleared", tone: "rare" },
-          { label: "Then", value: "Fight boss" },
+          { label: t("ui.next.now"), value: t("ui.next.holdCenter"), tone: "rare" },
+          { label: t("ui.next.signal"), value: "150+ 已清場", tone: "rare" },
+          { label: t("ui.next.then"), value: t("ui.next.fightBoss") },
         ],
         onClick: toggleRunning,
       };
@@ -2280,13 +2375,13 @@ export function CombatArena() {
       action = {
         tone: "good",
         icon: <Pause size={17} aria-hidden />,
-        label: "Clear the basin",
-        detail: `${formatNumber(Math.max(0, runtime.mapKillTarget - runtime.mapKills), 0)} rivals before boss`,
-        button: "Pause",
+        label: t("ui.next.clearBasin"),
+        detail: t("ui.objective.rivalsBeforeBoss", { count: formatNumber(Math.max(0, runtime.mapKillTarget - runtime.mapKills), 0) }),
+        button: t("ui.control.pause"),
         cues: [
-          { label: "Now", value: "Keep farming", tone: "good" },
-          { label: "Signal", value: routeSignal },
-          { label: "Then", value: visibleDropCount > 0 ? "Review loot" : "Push boss" },
+          { label: t("ui.next.now"), value: t("ui.next.keepFarming"), tone: "good" },
+          { label: t("ui.next.signal"), value: routeSignal },
+          { label: t("ui.next.then"), value: visibleDropCount > 0 ? "檢視戰利品" : t("ui.next.pushBoss") },
         ],
         onClick: toggleRunning,
       };
@@ -2294,13 +2389,13 @@ export function CombatArena() {
       action = {
         tone: "rare",
         icon: <PackageOpen size={17} aria-hidden />,
-        label: `${visibleDropCount} drops ready`,
-        detail: selectedPart ? selectedPart.displayName : "Review inventory",
-        button: "Loot",
+        label: t("ui.next.dropsReady", { count: visibleDropCount }),
+        detail: selectedPart ? displayPartName(selectedPart) : "檢視倉庫",
+        button: t("ui.control.loot"),
         cues: [
-          { label: "Now", value: "Inspect loot", tone: "rare" },
-          { label: "Signal", value: selectedPartSignal, tone: selectedPartVerdict?.tone },
-          { label: "Then", value: selectedPartVerdict?.action === "forge" ? "Forge roll" : "Restart run" },
+          { label: t("ui.next.now"), value: t("ui.next.inspectLoot"), tone: "rare" },
+          { label: t("ui.next.signal"), value: selectedPartSignal, tone: selectedPartVerdict?.tone },
+          { label: t("ui.next.then"), value: selectedPartVerdict?.action === "forge" ? t("ui.next.forgeRoll") : t("ui.next.restart") },
         ],
         onClick: () => openPanel("inventory"),
       };
@@ -2308,13 +2403,13 @@ export function CombatArena() {
       action = {
         tone: "rare",
         icon: <Recycle size={17} aria-hidden />,
-        label: "Forge candidate",
+        label: t("ui.next.forgeCandidate"),
         detail: selectedPartVerdict.detail,
-        button: "Forge",
+        button: t("ui.control.forge"),
         cues: [
-          { label: "Now", value: "Craft part", tone: "rare" },
-          { label: "Signal", value: selectedPartVerdict.label, tone: selectedPartVerdict.tone },
-          { label: "Then", value: "Recheck build" },
+          { label: t("ui.next.now"), value: t("ui.next.craftPart"), tone: "rare" },
+          { label: t("ui.next.signal"), value: selectedPartVerdict.label, tone: selectedPartVerdict.tone },
+          { label: t("ui.next.then"), value: t("ui.next.recheckBuild") },
         ],
         onClick: () => openPanel("forge"),
       };
@@ -2322,13 +2417,13 @@ export function CombatArena() {
       action = {
         tone: "good",
         icon: <PackageOpen size={17} aria-hidden />,
-        label: "Equip upgrade",
+        label: t("ui.next.equipUpgrade"),
         detail: selectedPartVerdict.detail,
-        button: "Loot",
+        button: t("ui.control.loot"),
         cues: [
-          { label: "Now", value: "Swap part", tone: "good" },
-          { label: "Signal", value: selectedPartVerdict.label, tone: selectedPartVerdict.tone },
-          { label: "Then", value: "Start run" },
+          { label: t("ui.next.now"), value: t("ui.next.swapPart"), tone: "good" },
+          { label: t("ui.next.signal"), value: selectedPartVerdict.label, tone: selectedPartVerdict.tone },
+          { label: t("ui.next.then"), value: t("ui.next.startRun") },
         ],
         onClick: () => openPanel("inventory"),
       };
@@ -2339,13 +2434,13 @@ export function CombatArena() {
       action = {
         tone: "rare",
         icon: <Flame size={17} aria-hidden />,
-        label: "Arena key ready",
+        label: t("ui.next.keyReady"),
         detail: formatKeyTitle(selectedArenaKey),
-        button: "Route",
+        button: t("ui.panel.route"),
         cues: [
-          { label: "Now", value: "Choose route", tone: "rare" },
-          { label: "Signal", value: `Risk ${formatPercent(keyEnemyPressure, 0)}`, tone: keyEnemyPressure > 0 ? "warn" : "neutral" },
-          { label: "Then", value: `Reward ${formatPercent(keyReward, 0)}`, tone: "rare" },
+          { label: t("ui.next.now"), value: t("ui.next.chooseRoute"), tone: "rare" },
+          { label: t("ui.next.signal"), value: `風險 ${formatPercent(keyEnemyPressure, 0)}`, tone: keyEnemyPressure > 0 ? "warn" : "neutral" },
+          { label: t("ui.next.then"), value: `獎勵 ${formatPercent(keyReward, 0)}`, tone: "rare" },
         ],
         onClick: openMap,
       };
@@ -2353,13 +2448,13 @@ export function CombatArena() {
       action = {
         tone: "rare",
         icon: <Network size={17} aria-hidden />,
-        label: "Boss gate viable",
-        detail: `${formatPercent(bossProjection.successChance, 0)} projected`,
-        button: "Route",
+        label: t("ui.next.bossViable"),
+        detail: `推估 ${formatPercent(bossProjection.successChance, 0)}`,
+        button: t("ui.panel.route"),
         cues: [
-          { label: "Now", value: "Attempt gate", tone: "rare" },
-          { label: "Signal", value: `${formatPercent(bossProjection.successChance, 0)} chance`, tone: "rare" },
-          { label: "Then", value: "Unlock route" },
+          { label: t("ui.next.now"), value: t("ui.next.attemptGate"), tone: "rare" },
+          { label: t("ui.next.signal"), value: `${formatPercent(bossProjection.successChance, 0)} 機率`, tone: "rare" },
+          { label: t("ui.next.then"), value: t("ui.next.unlockRoute") },
         ],
         onClick: openMap,
       };
@@ -2367,26 +2462,26 @@ export function CombatArena() {
       action = {
         tone: "neutral",
         icon: <Play size={17} aria-hidden />,
-        label: "Ready to run",
-        detail: arena.displayName,
-        button: "Start",
+        label: t("ui.next.ready"),
+        detail: dataName("arena", arena.id, arena.displayName),
+        button: t("ui.control.start"),
         cues: [
-          { label: "Now", value: "Start farming" },
-          { label: "Signal", value: `${formatPercent(bossProjection.successChance, 0)} gate` },
-          { label: "Then", value: "Build power" },
+          { label: t("ui.next.now"), value: t("ui.next.startFarming") },
+          { label: t("ui.next.signal"), value: `${formatPercent(bossProjection.successChance, 0)} 門` },
+          { label: t("ui.next.then"), value: t("ui.next.improveBuild") },
         ],
         onClick: toggleRunning,
       };
     }
 
     return (
-      <section className={`next-action-strip next-action-${action.tone}`} aria-label="Next action">
+      <section className={`next-action-strip next-action-${action.tone}`} aria-label={t("ui.aria.nextAction")}>
         <span className="next-action-icon">{action.icon}</span>
         <div className="next-action-copy">
           <strong>{action.label}</strong>
           <span>{action.detail}</span>
         </div>
-        <div className="next-action-cues" aria-label="Decision signals">
+        <div className="next-action-cues" aria-label={t("ui.aria.decisionSignals")}>
           {action.cues.map((cue) => (
             <span className={`decision-chip decision-chip-${cue.tone ?? action.tone}`} key={cue.label}>
               <small>{cue.label}</small>
@@ -2409,52 +2504,52 @@ export function CombatArena() {
             <Swords size={22} aria-hidden />
           </div>
           <div>
-            <strong>Iron Vortex</strong>
-            <span>Dark metal auto arena</span>
+            <strong>{t("ui.brand.name")}</strong>
+            <span>{t("ui.brand.subtitle")}</span>
           </div>
         </div>
         <div className="wallet-strip">
-          <span className={runtimeDefeated ? "run-state run-state-defeated" : running ? "run-state run-state-live" : "run-state"}>{runtimeDefeated ? "Defeated" : running ? "Live" : "Ready"}</span>
-          {currentArenaKey ? <span className="run-state run-state-keyed">Keyed</span> : null}
-          <span>Ash {wallet.ash}</span>
-          <span>Glass {wallet.glass}</span>
-          <span>Echo {wallet.echo}</span>
+          <span className={runtimeDefeated ? "run-state run-state-defeated" : running ? "run-state run-state-live" : "run-state"}>{runtimeDefeated ? t("ui.state.defeated") : running ? t("ui.state.live") : t("ui.state.ready")}</span>
+          {currentArenaKey ? <span className="run-state run-state-keyed">{t("ui.state.keyed")}</span> : null}
+          <span>{t("ui.resource.ash")} {wallet.ash}</span>
+          <span>{t("ui.resource.glass")} {wallet.glass}</span>
+          <span>{t("ui.resource.echo")} {wallet.echo}</span>
         </div>
-        <div className="arena-controls" aria-label="Arena controls">
-          <div className="screen-tabs" aria-label="Main screens">
-            <ScreenTab active={screen === "combat"} icon={<Swords size={15} aria-hidden />} label="Combat" onClick={() => setScreen("combat")} />
-            <ScreenTab active={screen === "map"} icon={<MapIcon size={15} aria-hidden />} label="Map" onClick={openMap} />
-            <ScreenTab active={screen === "workbench"} icon={<Hammer size={15} aria-hidden />} label="Workbench" onClick={() => setScreen("workbench")} />
+        <div className="arena-controls" aria-label={t("ui.aria.arenaControls")}>
+          <div className="screen-tabs" aria-label={t("ui.aria.mainScreens")}>
+            <ScreenTab active={screen === "combat"} icon={<Swords size={15} aria-hidden />} label={t("ui.screen.combat")} onClick={() => setScreen("combat")} />
+            <ScreenTab active={screen === "map"} icon={<MapIcon size={15} aria-hidden />} label={t("ui.screen.map")} onClick={openMap} />
+            <ScreenTab active={screen === "workbench"} icon={<Hammer size={15} aria-hidden />} label={t("ui.screen.workbench")} onClick={() => setScreen("workbench")} />
           </div>
           <button className={running ? "arena-button arena-button-live" : "arena-button"} disabled={runtimeDefeated} onClick={toggleRunning} type="button">
             {running ? <Pause size={16} aria-hidden /> : <Play size={16} aria-hidden />}
-            {runtimeDefeated ? "Defeated" : running ? "Pause" : "Start"}
+            {runtimeDefeated ? t("ui.state.defeated") : running ? t("ui.control.pause") : t("ui.control.start")}
           </button>
           <button className="arena-button" onClick={() => resetArena()} type="button">
             <RotateCcw size={16} aria-hidden />
-            Reset
+            {t("ui.control.reset")}
           </button>
           <button
             aria-pressed={showDebugHud}
             className={showDebugHud ? "arena-button arena-button-debug-active" : "arena-button"}
             onClick={() => setShowDebugHud((value) => !value)}
-            title="Toggle collision telemetry"
+            title="切換碰撞遙測"
             type="button"
           >
             <Gauge size={16} aria-hidden />
-            Debug
+            {t("ui.control.debug")}
           </button>
           <button
             aria-pressed={showTuningHud}
             className={showTuningHud ? "arena-button arena-button-debug-active" : "arena-button"}
             onClick={() => setShowTuningHud((value) => !value)}
-            title="Toggle combat tuning"
+            title="切換戰鬥調校"
             type="button"
           >
             <SlidersHorizontal size={16} aria-hidden />
-            Tune
+            {t("ui.control.tune")}
           </button>
-          <div className="speed-tabs" aria-label="Speed">
+          <div className="speed-tabs" aria-label={t("ui.control.speed")}>
             {[1, 2, 4].map((value) => (
               <button className={speed === value ? "speed-tab speed-tab-active" : "speed-tab"} key={value} onClick={() => setSpeed(value)} type="button">
                 {value}x
@@ -2471,13 +2566,13 @@ export function CombatArena() {
         <section className={["arena-stage-panel", running ? "arena-stage-live" : "", currentArenaKey ? "arena-stage-keyed" : ""].filter(Boolean).join(" ")}>
           <div className="arena-stage-header">
             <div>
-              <span className="arena-kicker">{runtime.activeEvent ? `${arena.displayName} / ${runtime.activeEvent.displayName}` : arena.displayName}</span>
-              <h1>{frame.displayName}</h1>
+              <span className="arena-kicker">{runtime.activeEvent ? `${dataName("arena", arena.id, arena.displayName)} / ${dataName("arenaEvent", runtime.activeEvent.eventId, runtime.activeEvent.displayName)}` : dataName("arena", arena.id, arena.displayName)}</span>
+              <h1>{displayFrameName(frame.id, frame.displayName)}</h1>
             </div>
             <div className={target ? "target-strip target-strip-active" : "target-strip"}>
               <div>
-                <span>{target ? target.name : "No target"}</span>
-                <strong>{target ? `${formatPercent(targetIntegrity, 0)} integrity` : "spooling"}</strong>
+                <span>{target ? localizeEntityName(target.name) : t("ui.target.none")}</span>
+                <strong>{target ? `${formatPercent(targetIntegrity, 0)} ${t("ui.target.integrity")}` : t("ui.target.spooling")}</strong>
               </div>
               {target ? (
                 <div className="target-meter" aria-hidden>
@@ -2490,29 +2585,29 @@ export function CombatArena() {
           <div className="canvas-wrap">
             <ArenaPhaserView onMetrics={showDebugHud ? setRendererMetrics : undefined} runtime={runtime} runtimeRef={runtimeRef} tuning={arenaTuning} />
             {offlineReport ? (
-              <div className="offline-report-overlay" role="dialog" aria-label="Offline run report">
-                <small>Offline run</small>
-                <strong>{formatNumber(offlineReport.kills, 0)} kills banked</strong>
+              <div className="offline-report-overlay" role="dialog" aria-label={t("ui.aria.offlineReport")}>
+                <small>{t("ui.offline.title")}</small>
+                <strong>{t("ui.offline.kills", { kills: formatNumber(offlineReport.kills, 0) })}</strong>
                 <span>
-                  {formatNumber(offlineReport.effectiveSeconds / 60, 0)} minutes simulated
-                  {offlineReport.cappedByTime ? " / capped" : ""}
+                  {t("ui.offline.minutes", { minutes: formatNumber(offlineReport.effectiveSeconds / 60, 0) })}
+                  {offlineReport.cappedByTime ? ` / ${t("ui.offline.capped")}` : ""}
                 </span>
                 <div className="offline-report-grid">
                   <span>
-                    Drops <strong>{offlineReport.parts.length}</strong>
+                    {t("ui.offline.drops")} <strong>{offlineReport.parts.length}</strong>
                   </span>
                   <span>
-                    Ash <strong>{offlineReport.wallet.ash}</strong>
+                    {t("ui.resource.ash")} <strong>{offlineReport.wallet.ash}</strong>
                   </span>
                   <span>
-                    Glass <strong>{offlineReport.wallet.glass}</strong>
+                    {t("ui.resource.glass")} <strong>{offlineReport.wallet.glass}</strong>
                   </span>
                   <span>
-                    Echo <strong>{offlineReport.wallet.echo}</strong>
+                    {t("ui.resource.echo")} <strong>{offlineReport.wallet.echo}</strong>
                   </span>
                 </div>
                 <button className="arena-button" onClick={() => setOfflineReport(null)} type="button">
-                  Collect
+                  {t("ui.control.collect")}
                 </button>
               </div>
             ) : null}
@@ -2527,59 +2622,59 @@ export function CombatArena() {
               </div>
             ) : null}
             {showDebugHud ? (
-              <div className="arena-renderer-debug" aria-label="Renderer telemetry">
+              <div className="arena-renderer-debug" aria-label={t("ui.aria.renderer")}>
                 <span>
                   FPS <strong>{round(rendererMetrics.fps, 0)}</strong>
                 </span>
                 <span>
-                  Render <strong>{round(rendererMetrics.renderMs, 2)}ms</strong>
+                  渲染 <strong>{round(rendererMetrics.renderMs, 2)}ms</strong>
                 </span>
                 <span>
-                  Objects <strong>{rendererMetrics.entities}</strong>
+                  {t("ui.hud.objects")} <strong>{rendererMetrics.entities}</strong>
                 </span>
                 <span>
                   FX <strong>{rendererMetrics.effects}</strong>
                 </span>
                 <span>
-                  Drops <strong>{rendererMetrics.drops}</strong>
+                  {t("ui.hud.drops")} <strong>{rendererMetrics.drops}</strong>
                 </span>
                 <span>
                   Skip <strong>{rendererMetrics.skippedFrames}</strong>
                 </span>
                 <span>
-                  Hit <strong>{rendererMetrics.lastHitKind ? rendererMetrics.lastHitKind.toUpperCase() : "IDLE"}</strong>
+                  命中 <strong>{rendererMetrics.lastHitKind ? term("event", rendererMetrics.lastHitKind, rendererMetrics.lastHitKind) : t("ui.hud.idle")}</strong>
                 </span>
                 <span>
-                  Flash <strong>{rendererMetrics.impactFlash ? "ON" : "OFF"}</strong>
+                  {t("ui.hud.flash")} <strong>{rendererMetrics.impactFlash ? "開" : "關"}</strong>
                 </span>
                 <span className={`renderer-budget renderer-budget-${rendererMetrics.budget}`}>
-                  Budget <strong>{rendererMetrics.budget.toUpperCase()}</strong>
+                  {t("ui.hud.budget")} <strong>{rendererMetrics.budget}</strong>
                 </span>
               </div>
             ) : null}
             {runtimeError ? (
               <div className="arena-runtime-error" role="alert">
-                <strong>Combat loop stopped</strong>
+                <strong>{t("ui.runtimeError.title")}</strong>
                 <span>{runtimeError}</span>
                 <button className="arena-button" onClick={() => resetArena()} type="button">
                   <RotateCcw size={15} aria-hidden />
-                  Reset
+                  {t("ui.control.reset")}
                 </button>
               </div>
             ) : null}
             {runtimeDefeated ? (
               <div className="arena-defeat-overlay" role="alert">
-                <small>Run ended</small>
+                <small>{t("ui.defeat.ended")}</small>
                 <strong>{defeatCauseLabel}</strong>
                 <span>{defeatCauseDetail}</span>
                 <div>
                   <button className="arena-button" onClick={openMap} type="button">
                     <MapIcon size={15} aria-hidden />
-                    Route Map
+                    {t("ui.control.routeMap")}
                   </button>
                   <button className="arena-button" onClick={() => resetArena()} type="button">
                     <RotateCcw size={15} aria-hidden />
-                    Reset
+                    {t("ui.control.reset")}
                   </button>
                 </div>
               </div>
@@ -2594,19 +2689,19 @@ export function CombatArena() {
               </div>
             ) : null}
             {bossEnemy ? (
-              <div className="boss-hp-bar" aria-label="Boss integrity">
-                <span>{bossEnemy.name}</span>
+              <div className="boss-hp-bar" aria-label={t("ui.aria.bossIntegrity")}>
+                <span>{localizeEntityName(bossEnemy.name)}</span>
                 <strong>{formatPercent(bossIntegrity, 0)}</strong>
                 <i style={{ width: `${bossIntegrity * 100}%` }} />
               </div>
             ) : null}
             {eliteEnemies.length > 0 ? (
-              <div className="elite-hp-stack" aria-label="Elite integrity">
+              <div className="elite-hp-stack" aria-label={t("ui.aria.eliteIntegrity")}>
                 {eliteEnemies.map((enemy) => {
                   const ratio = selectLifeRatio(enemy);
                   return (
                     <div className="elite-hp-bar" key={enemy.id}>
-                      <span>{enemy.name}</span>
+                      <span>{localizeEntityName(enemy.name)}</span>
                       <strong>{formatPercent(ratio, 0)}</strong>
                       <i style={{ width: `${ratio * 100}%` }} />
                     </div>
@@ -2614,7 +2709,7 @@ export function CombatArena() {
                 })}
               </div>
             ) : null}
-            <div className={playerFluxLow ? "combat-orb-hud combat-orb-hud-flux-low" : "combat-orb-hud"} aria-label="Player resource orbs">
+            <div className={playerFluxLow ? "combat-orb-hud combat-orb-hud-flux-low" : "combat-orb-hud"} aria-label={t("ui.aria.playerOrbs")}>
               <div className="resource-orb resource-orb-life">
                 <i style={{ height: `${playerIntegrity * 100}%` }} />
                 <div>
@@ -2625,26 +2720,26 @@ export function CombatArena() {
               <div className="resource-orb resource-orb-flux">
                 <i style={{ height: `${playerFluxRatio * 100}%` }} />
                 <div>
-                  <small>Flux</small>
+                  <small>{term("stat", "flux")}</small>
                   <strong>{formatPercent(playerFluxRatio, 0)}</strong>
                 </div>
               </div>
             </div>
             <div className="arena-hud-grid">
-              <StatPill icon={<Activity size={16} />} label="Clear" value={`${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)}`} tone="rare" />
-              <StatPill icon={<Gauge size={16} />} label="Integrity" value={formatPercent(playerIntegrity, 0)} tone={playerIntegrity > 0.35 ? "good" : "warn"} meter={playerIntegrity} />
-              <StatPill icon={<Zap size={16} />} label="Drive" value={driveGateStatus.unlocked ? formatPercent(cooldownRatio, 0) : "LOCKED"} tone={driveGateStatus.unlocked ? "good" : "warn"} meter={driveGateStatus.unlocked ? cooldownRatio : 0} />
-              <StatPill icon={<Gem size={16} />} label="Kills" value={formatNumber(totalKills, 0)} tone="rare" />
+              <StatPill icon={<Activity size={16} />} label={t("ui.hud.clear")} value={`${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)}`} tone="rare" />
+              <StatPill icon={<Gauge size={16} />} label={term("stat", "spinIntegrity")} value={formatPercent(playerIntegrity, 0)} tone={playerIntegrity > 0.35 ? "good" : "warn"} meter={playerIntegrity} />
+              <StatPill icon={<Zap size={16} />} label={t("ui.hud.drive")} value={driveGateStatus.unlocked ? formatPercent(cooldownRatio, 0) : t("ui.skill.locked")} tone={driveGateStatus.unlocked ? "good" : "warn"} meter={driveGateStatus.unlocked ? cooldownRatio : 0} />
+              <StatPill icon={<Gem size={16} />} label={t("ui.hud.kills")} value={formatNumber(totalKills, 0)} tone="rare" />
             </div>
           </div>
 
           <div className="combat-bottom">
             <div className="combat-telemetry">
               <div className="telemetry-grid">
-                <StatPill icon={<Gauge size={15} />} label="RPM" value={round(runtime.player.stats.rpm, 1).toString()} />
-                <StatPill icon={<Swords size={15} />} label="Impact" value={formatNumber(runtime.player.stats.impact, 0)} />
-                <StatPill icon={<Radar size={15} />} label="Tracking" value={formatNumber(runtime.player.stats.tracking, 0)} />
-                <StatPill icon={<Shield size={15} />} label="Guard" value={formatNumber(runtime.player.stats.guard, 0)} />
+                <StatPill icon={<Gauge size={15} />} label={term("stat", "rpm")} value={round(runtime.player.stats.rpm, 1).toString()} />
+                <StatPill icon={<Swords size={15} />} label={term("stat", "impact")} value={formatNumber(runtime.player.stats.impact, 0)} />
+                <StatPill icon={<Radar size={15} />} label={term("stat", "tracking")} value={formatNumber(runtime.player.stats.tracking, 0)} />
+                <StatPill icon={<Shield size={15} />} label={term("stat", "guard")} value={formatNumber(runtime.player.stats.guard, 0)} />
               </div>
               <div className={`run-review-strip run-review-${runReview.tone}`}>
                 <div className="run-review-main">
@@ -2652,9 +2747,9 @@ export function CombatArena() {
                   <strong>{runReview.summary}</strong>
                   <span>{runReview.detail}</span>
                 </div>
-                <div className="run-objective-rail" aria-label="Route objective">
+                <div className="run-objective-rail" aria-label={t("ui.aria.routeObjective")}>
                   <div className="run-objective-copy">
-                    <small>Objective</small>
+                    <small>{t("ui.hud.objective")}</small>
                     <strong>{runReview.objectiveLabel}</strong>
                     <span>{runReview.objectiveDetail}</span>
                   </div>
@@ -2672,13 +2767,13 @@ export function CombatArena() {
                 </div>
                 <div className="run-review-metrics">
                   <span>
-                    Drops <strong>{runtime.drops.length}</strong>
+                    {t("ui.hud.drops")} <strong>{runtime.drops.length}</strong>
                   </span>
                   <span>
-                    Best <strong>{runReview.bestDropText}</strong>
+                    {t("ui.hud.best")} <strong>{runReview.bestDropText}</strong>
                   </span>
                   <span>
-                    Map <strong>{runtime.mapKills}/{runtime.mapKillTarget}</strong>
+                    {t("ui.hud.map")} <strong>{runtime.mapKills}/{runtime.mapKillTarget}</strong>
                   </span>
                 </div>
                 <button className="arena-button" onClick={() => openPanel(runReview.actionPanel)} type="button">
@@ -2689,28 +2784,81 @@ export function CombatArena() {
                 <>
                   <div className={collisionDebugClass}>
                     <div>
-                      <small>Collision</small>
-                      <strong>{lastCollision ? lastCollision.kind.toUpperCase() : "IDLE"}</strong>
+                      <small>{t("ui.hud.collision")}</small>
+                      <strong>{lastCollision ? term("event", lastCollision.kind, lastCollision.kind) : t("ui.hud.idle")}</strong>
                     </div>
                     <span>N {lastCollision ? formatNumber(lastCollision.normalImpulse, 0) : "-"}</span>
                     <span>T {lastCollision ? formatNumber(Math.abs(lastCollision.tangentImpulse), 0) : "-"}</span>
-                    <span>Shear {lastCollision ? formatNumber(lastCollision.surfaceShear, 0) : "-"}</span>
-                    <span>Spark {lastCollision ? round(lastCollision.sparkIntensity, 1) : "-"}</span>
-                    <span>Age {lastCollision ? `${round(lastCollision.contactAge, 2)}s` : "-"}</span>
-                    <span>Spin {formatPercent(runtime.player.spinPower / 100, 0)}</span>
-                    <span>Wobble {formatPercent(runtime.player.wobble, 0)}</span>
+                    <span>{t("ui.debug.shear")} {lastCollision ? formatNumber(lastCollision.surfaceShear, 0) : "-"}</span>
+                    <span>{t("ui.debug.spark")} {lastCollision ? round(lastCollision.sparkIntensity, 1) : "-"}</span>
+                    <span>{t("ui.debug.age")} {lastCollision ? `${round(lastCollision.contactAge, 2)}秒` : "-"}</span>
+                    <span>{t("ui.debug.spin")} {formatPercent(runtime.player.spinPower / 100, 0)}</span>
+                    <span>{t("ui.debug.wobble")} {formatPercent(runtime.player.wobble, 0)}</span>
                   </div>
-                  <div className="physical-debug" aria-label="Physical combat telemetry">
-                    <span>D=M {formatNumber(dpsBreakdown.collisionSeed, 1)}</span>
-                    <span>omega {round(playerOmega, 2)}</span>
-                    <span>attackFrequency {round(playerAttackFrequency, 2)}</span>
-                    <span>collisionDps {formatNumber(dpsBreakdown.collisionDps, 1)}</span>
-                    <span>Flux to E {formatNumber(eSustain.energyPerSecond, 1)}/s</span>
-                    <span>Sustain Flux {formatNumber(eSustain.fluxPerSecond, 1)}/s</span>
-                    <span>Gate {driveGateStatus.unlocked ? "READY" : "LOCKED"}</span>
+                  <div className="physical-debug" aria-label={t("ui.aria.physicalTelemetry")}>
+                    <span>{t("ui.debug.dEqualsM")} {formatNumber(dpsBreakdown.collisionSeed, 1)}</span>
+                    <span>ω {round(playerOmega, 2)}</span>
+                    <span>{t("ui.debug.attackFrequency")} {round(playerAttackFrequency, 2)}</span>
+                    <span>{t("ui.debug.collisionDps")} {formatNumber(dpsBreakdown.collisionDps, 1)}</span>
+                    <span>{t("ui.debug.fluxToEnergy")} {formatNumber(eSustain.energyPerSecond, 1)}/秒</span>
+                    <span>{t("ui.debug.sustainFlux")} {formatNumber(eSustain.fluxPerSecond, 1)}/秒</span>
+                    <span>{t("ui.debug.gate")} {driveGateStatus.unlocked ? t("ui.skill.ready") : t("ui.skill.locked")}</span>
                   </div>
                 </>
               ) : null}
+              <div className="inspection-grid">
+                <section className="inspection-card">
+                  <div className="inspection-card-head">
+                    <strong>{t("ui.section.damageBreakdown")}</strong>
+                    <span>{formatNumber(dpsBreakdown.collisionDps, 1)} DPS</span>
+                  </div>
+                  <div className="damage-pipeline">
+                    <span>{t("ui.damage.base")} <strong>{formatNumber(dpsBreakdown.collisionSeed, 1)}</strong></span>
+                    <span>{t("ui.damage.flat")} <strong>{formatNumber(dpsBreakdown.flatTotal, 1)}</strong></span>
+                    <span>{t("ui.damage.increased")} <strong>{formatPercent(dpsBreakdown.increasedTotal - dpsBreakdown.reducedTotal, 0)}</strong></span>
+                    <span>{t("ui.damage.moreLess")} <strong>x{round(dpsBreakdown.moreProduct * dpsBreakdown.lessProduct, 2)}</strong></span>
+                    <span>{t("ui.damage.critEv")} <strong>x{round(dpsBreakdown.critExpectedMultiplier, 2)}</strong></span>
+                    <span>{t("ui.damage.frequency")} <strong>{round(dpsBreakdown.attackFrequency, 2)}/秒</strong></span>
+                  </div>
+                  <div className="modifier-status-list">
+                    {dpsBreakdown.lines.filter((line) => !["base", "crit", "frequency", "dps"].includes(line.type)).length > 0 ? (
+                      dpsBreakdown.lines
+                        .filter((line) => !["base", "crit", "frequency", "dps"].includes(line.type))
+                        .slice(0, 8)
+                        .map((line) => (
+                          <span className={line.active ? "modifier-status modifier-active" : "modifier-status modifier-standby"} key={line.id}>
+                            <small>{line.active ? t("ui.damage.active") : t("ui.damage.standby")}</small>
+                            <strong>{term("modifier", line.type, line.type)} {statLabel(line.stat ?? "damage")} {formatPercent(line.value, 0)}</strong>
+                            <em>{t("ui.damage.source")}: {displaySourceName(line.sourceId)}</em>
+                          </span>
+                        ))
+                    ) : (
+                      <span className="empty-drop">{t("ui.damage.noConditional")}</span>
+                    )}
+                  </div>
+                </section>
+                <section className="inspection-card">
+                  <div className="inspection-card-head">
+                    <strong>{t("ui.section.breakpoints")}</strong>
+                    <span>{breakpointStatuses.filter((status) => status.triggered).length}/{breakpointStatuses.length}</span>
+                  </div>
+                  <div className="breakpoint-list">
+                    {breakpointStatuses.length > 0 ? (
+                      breakpointStatuses.map((status) => (
+                        <span className={status.triggered ? "breakpoint-line breakpoint-active" : "breakpoint-line breakpoint-waiting"} key={`${status.id}_${status.attr}_${status.op}`}>
+                          <strong>{displaySourceName(status.sourceId)}</strong>
+                          <small>
+                            {term("stat", status.attr)} {formatNumber(status.currentValue, status.attr === "spinEnergyRatio" || status.attr === "fluxRatio" ? 2 : 1)} / {status.op} {formatNumber(status.value, status.attr === "spinEnergyRatio" || status.attr === "fluxRatio" ? 2 : 1)}
+                          </small>
+                          <em>{breakpointDeltaText(status)}</em>
+                        </span>
+                      ))
+                    ) : (
+                      <span className="empty-drop">{t("ui.breakpoint.none")}</span>
+                    )}
+                  </div>
+                </section>
+              </div>
             </div>
             <div className="event-feed compact-events">
               {showDebugHud
@@ -2722,7 +2870,7 @@ export function CombatArena() {
                 : null}
               {runtime.events.map((event) => (
                 <div className={`event-line event-line-${event.tone}`} key={event.id}>
-                  {event.text}
+                  {translateRuntimeText(event.text)}
                 </div>
               ))}
             </div>
@@ -2734,12 +2882,12 @@ export function CombatArena() {
           <section className="screen-panel map-screen-panel">
             <div className="screen-panel-head">
               <div>
-                <span className="arena-kicker">{currentArenaKey ? "Key Device Armed" : "Circuit Map"}</span>
-                <h1>Route Map</h1>
+                <span className="arena-kicker">{currentArenaKey ? t("ui.map.deviceArmed") : t("ui.map.circuitMap")}</span>
+                <h1>{t("ui.map.routeMap")}</h1>
               </div>
               <button className="arena-button" onClick={() => setScreen("combat")} type="button">
                 <Play size={15} aria-hidden />
-                Combat
+                {t("ui.control.combat")}
               </button>
             </div>
             <div className="workbench-content screen-content">
@@ -2750,13 +2898,13 @@ export function CombatArena() {
 
         {screen === "workbench" ? (
         <aside className={showTuningHud ? "workbench-panel workbench-panel-tuning workbench-panel-full" : "workbench-panel workbench-panel-full"}>
-          <nav className="panel-tabs" aria-label="Workbench">
-            <PanelTab active={activePanel === "loadout"} icon={<CircleDot size={15} aria-hidden />} label="Loadout" onClick={() => openPanel("loadout")} />
-            <PanelTab active={activePanel === "inventory"} icon={<PackageOpen size={15} aria-hidden />} label="Inventory" onClick={() => openPanel("inventory")} />
-            <PanelTab active={activePanel === "skills"} icon={<Sparkles size={15} aria-hidden />} label="Skills" onClick={() => openPanel("skills")} />
-            <PanelTab active={activePanel === "forge"} icon={<Recycle size={15} aria-hidden />} label="Forge" onClick={() => openPanel("forge")} />
-            <PanelTab active={activePanel === "route"} icon={<Flame size={15} aria-hidden />} label="Route" onClick={() => openPanel("route")} />
-            <PanelTab active={activePanel === "talents"} icon={<Network size={15} aria-hidden />} label="Talents" onClick={() => openPanel("talents")} />
+          <nav className="panel-tabs" aria-label={t("ui.aria.workbench")}>
+            <PanelTab active={activePanel === "loadout"} icon={<CircleDot size={15} aria-hidden />} label={t("ui.panel.loadout")} onClick={() => openPanel("loadout")} />
+            <PanelTab active={activePanel === "inventory"} icon={<PackageOpen size={15} aria-hidden />} label={t("ui.panel.inventory")} onClick={() => openPanel("inventory")} />
+            <PanelTab active={activePanel === "skills"} icon={<Sparkles size={15} aria-hidden />} label={t("ui.panel.skills")} onClick={() => openPanel("skills")} />
+            <PanelTab active={activePanel === "forge"} icon={<Recycle size={15} aria-hidden />} label={t("ui.panel.forge")} onClick={() => openPanel("forge")} />
+            <PanelTab active={activePanel === "route"} icon={<Flame size={15} aria-hidden />} label={t("ui.panel.route")} onClick={() => openPanel("route")} />
+            <PanelTab active={activePanel === "talents"} icon={<Network size={15} aria-hidden />} label={t("ui.panel.talents")} onClick={() => openPanel("talents")} />
           </nav>
           {showTuningHud ? renderTuningPanel() : null}
           <div className="workbench-content">

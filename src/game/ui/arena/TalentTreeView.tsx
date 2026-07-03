@@ -1,6 +1,7 @@
 import { LocateFixed, ZoomIn, ZoomOut } from "lucide-react";
 import { useRef, useState, type CSSProperties, type PointerEvent, type WheelEvent } from "react";
 import type { TalentNodeDef } from "../../engine/topTypes";
+import { dataDescription, dataName, t } from "../../locale/zh-Hant";
 
 type TalentTreeViewProps = {
   nodes: TalentNodeDef[];
@@ -84,7 +85,7 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
 
   return (
     <div
-      aria-label="Talent board"
+      aria-label="天賦盤"
       className={dragging ? "talent-board talent-board-dragging" : "talent-board"}
       onPointerCancel={endDrag}
       onPointerDown={onPointerDown}
@@ -93,14 +94,14 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
       onWheel={onWheel}
     >
       <div className="talent-board-controls">
-        <button aria-label="Zoom out" onClick={() => adjustScale(-0.14)} title="Zoom out" type="button">
+        <button aria-label="縮小" onClick={() => adjustScale(-0.14)} title="縮小" type="button">
           <ZoomOut size={15} aria-hidden />
         </button>
         <span>{Math.round(view.scale * 100)}%</span>
-        <button aria-label="Zoom in" onClick={() => adjustScale(0.14)} title="Zoom in" type="button">
+        <button aria-label="放大" onClick={() => adjustScale(0.14)} title="放大" type="button">
           <ZoomIn size={15} aria-hidden />
         </button>
-        <button aria-label="Reset view" onClick={() => setView(initialView)} title="Reset view" type="button">
+        <button aria-label={t("ui.control.reset")} onClick={() => setView(initialView)} title={t("ui.control.reset")} type="button">
           <LocateFixed size={15} aria-hidden />
         </button>
       </div>
@@ -130,11 +131,11 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
               key={node.id}
               onClick={() => onSelectTalent(node.id)}
               style={{ "--talent-x": `${position.x}%`, "--talent-y": `${position.y}%` } as CSSProperties}
-              title={node.description}
+              title={dataDescription("talent", node.id, node.description)}
               type="button"
             >
-              <small>{node.cost} pt</small>
-              <strong>{node.displayName}</strong>
+              <small>{node.cost} {t("ui.point.short")}</small>
+              <strong>{dataName("talent", node.id, node.displayName)}</strong>
             </button>
           );
         })}
