@@ -115,6 +115,7 @@ import { TalentTreeView } from "./TalentTreeView";
 import {
   selectAttackFrequency,
   selectBreakpointStatus,
+  selectBuildArchetypeProjection,
   selectDpsBreakdown,
   selectDriveGateStatus,
   selectEquipCompare,
@@ -123,12 +124,19 @@ import {
   selectFluxRatio,
   selectLifeRatio,
   selectOmega,
+  selectRecommendedRunes,
+  selectRouteStrategyRecommendations,
+  selectRouteStrategyProjection,
   isFeatureUnlocked,
   selectVisibleNetworkNodeIds,
-  selectVisibleRunes,
   shouldCollapseCircuitAtlas,
   type BreakpointStatus,
+  type BuildArchetypeGap,
+  type BuildArchetypeId,
   type FeatureUnlockId,
+  type RouteRewardTarget,
+  type RouteStrategyAction,
+  type RouteStrategyReason,
 } from "./runtimeSelectors";
 import "./CombatArena.css";
 
@@ -173,6 +181,12 @@ type PartVerdict = {
   tone: "neutral" | "good" | "warn" | "rare";
   action: "equip" | "forge" | "salvage" | "equipped";
   score: number;
+};
+
+type PartRetention = {
+  label: string;
+  detail: string;
+  tone: "keep" | "upgrade" | "forge" | "salvage";
 };
 
 type DecisionCueTone = "neutral" | "good" | "warn" | "rare";
@@ -354,6 +368,106 @@ function anomalyRuleLabel(rule: ArenaAnomalyRule | undefined): string {
   return rule ? t(`ui.anomaly.rule.${rule}`) : t("ui.anomaly.rule.none");
 }
 
+function routeStrategyActionLabel(action: RouteStrategyAction): string {
+  switch (action) {
+    case "locked":
+      return "先解鎖";
+    case "stabilize":
+      return "先穩定配置";
+    case "farm":
+      return "安全刷場";
+    case "duel":
+      return "挑戰名宿";
+    case "offline":
+      return "適合離線";
+    case "push":
+    default:
+      return "推進路線";
+  }
+}
+
+function routeStrategyReasonLabel(reason: RouteStrategyReason): string {
+  switch (reason) {
+    case "locked":
+      return "未解鎖";
+    case "requiresBossGate":
+      return "需要 Boss 門";
+    case "requiresRival":
+      return "需要名宿";
+    case "lowDamage":
+      return "傷害不足";
+    case "lowControl":
+      return "控制不足";
+    case "fragile":
+      return "防線偏薄";
+    case "ringout":
+      return "出界風險";
+    case "anomaly":
+      return "異象加壓";
+    case "rival":
+      return "名宿節點";
+    case "highReward":
+      return "高收益";
+    case "idleReady":
+      return "離線穩定";
+    case "safeFarm":
+    default:
+      return "安全農場";
+  }
+}
+
+function routeRewardTargetLabel(target: RouteRewardTarget): string {
+  switch (target) {
+    case "parts":
+      return "零件";
+    case "forgeMedia":
+      return "鍛材";
+    case "keySustain":
+      return "鑰匙";
+    case "rivalUnique":
+      return "名宿裝";
+    case "bossFragment":
+      return "Boss";
+    case "atlasProgress":
+    default:
+      return "星圖";
+  }
+}
+
+function buildArchetypeLabel(id: BuildArchetypeId): string {
+  switch (id) {
+    case "projectileClear":
+      return "高速投射清圖";
+    case "fireTrail":
+      return "火痕持續控場";
+    case "chainTrigger":
+      return "連鎖觸發";
+    case "heavyDuel":
+      return "重撞決鬥";
+    case "bossing":
+      return "Boss 爆發";
+    case "idleSafety":
+    default:
+      return "安全掛機";
+  }
+}
+
+function buildArchetypeGapLabel(gap: BuildArchetypeGap): string {
+  switch (gap) {
+    case "lowClear":
+      return "清場不足";
+    case "lowBossing":
+      return "單體不足";
+    case "lowSafety":
+      return "掛機偏危險";
+    case "lowSynergy":
+      return "符文不協同";
+    case "highRisk":
+    default:
+      return "風險偏高";
+  }
+}
+
 function buildPartVerdict(part: TopPartInstance, currentStats: TopRuntimeStats, previewStats: TopRuntimeStats, equipped: boolean): PartVerdict {
   const impactDelta = statFromRuntime(previewStats, "impact") - statFromRuntime(currentStats, "impact");
   const ehpDelta =
@@ -401,6 +515,22 @@ function buildPartVerdict(part: TopPartInstance, currentStats: TopRuntimeStats, 
     action: "salvage",
     score,
   };
+}
+
+function buildPartRetention(part: TopPartInstance, verdict: PartVerdict): PartRetention {
+  if (verdict.action === "equipped") {
+    return { label: "已裝備", detail: verdict.detail, tone: "keep" };
+  }
+  if (part.locked) {
+    return { label: "已鎖定", detail: "手動保留，不列為拆解候選。", tone: "keep" };
+  }
+  if (verdict.action === "equip") {
+    return { label: "裝備升級", detail: verdict.detail, tone: "upgrade" };
+  }
+  if (verdict.action === "forge") {
+    return { label: part.rarity === "relic" || part.rarity === "engraved" ? "高稀有保留" : "鍛造候選", detail: verdict.detail, tone: "forge" };
+  }
+  return { label: "拆解候選", detail: verdict.detail, tone: "salvage" };
 }
 
 function formatStatLines(stats: TopStatBlock | undefined): string[] {
@@ -1017,9 +1147,73 @@ export function CombatArena() {
     () => circuitNetworkNodes.find((node) => node.id === selectedNetworkNodeId && visibleNetworkNodeIds.has(node.id)) ?? circuitNetworkNodes.find((node) => visibleNetworkNodeIds.has(node.id)) ?? circuitNetworkNodes[0]!,
     [selectedNetworkNodeId, visibleNetworkNodeIds],
   );
+  const routeStrategyByNodeId = useMemo(
+    () =>
+      new Map(
+        circuitNetworkNodes.map((node) => [
+          node.id,
+          selectRouteStrategyProjection({
+            node,
+            frameId,
+            driveId,
+            loadout,
+            unlockedNodeIds: unlockedCircuitNodeIds,
+            clearedBossGateIds,
+            clearedRivalIds,
+            partQuantity: currentStats.partQuantity,
+            partRarity: currentStats.partRarity,
+          }),
+        ]),
+      ),
+    [clearedBossGateIds, clearedRivalIds, currentStats.partQuantity, currentStats.partRarity, driveId, frameId, loadout, unlockedCircuitNodeIds],
+  );
+  const selectedRouteStrategy =
+    routeStrategyByNodeId.get(selectedNetworkNode.id) ??
+    selectRouteStrategyProjection({
+        node: selectedNetworkNode,
+        frameId,
+        driveId,
+        loadout,
+        unlockedNodeIds: unlockedCircuitNodeIds,
+        clearedBossGateIds,
+        clearedRivalIds,
+        partQuantity: currentStats.partQuantity,
+        partRarity: currentStats.partRarity,
+      });
+  const activeRunes = useMemo(() => runeIds.map((runeId) => tuningRunes.find((entry) => entry.id === runeId)).filter((rune): rune is TuningRuneDef => Boolean(rune)), [runeIds]);
+  const buildArchetypeProjection = useMemo(
+    () =>
+      selectBuildArchetypeProjection({
+        drive,
+        runes: activeRunes,
+        stats: currentStats,
+        dps: dpsBreakdown,
+        routeStrategy: selectedRouteStrategy,
+      }),
+    [activeRunes, currentStats, dpsBreakdown, drive, selectedRouteStrategy],
+  );
+  const routeRecommendations = useMemo(
+    () =>
+      selectRouteStrategyRecommendations({
+        nodes: circuitNetworkNodes,
+        visibleNodeIds: visibleNetworkNodeIds,
+        unlockedNodeIds: unlockedCircuitNodeIds,
+        strategyByNodeId: routeStrategyByNodeId,
+      }),
+    [routeStrategyByNodeId, unlockedCircuitNodeIds, visibleNetworkNodeIds],
+  );
+  const recommendedOfflineNode = routeRecommendations.offlineNodeId ? circuitNetworkNodes.find((node) => node.id === routeRecommendations.offlineNodeId) ?? null : null;
+  const recommendedProgressNode = routeRecommendations.progressNodeId ? circuitNetworkNodes.find((node) => node.id === routeRecommendations.progressNodeId) ?? null : null;
+  const offlineReportNode = useMemo(
+    () => (offlineReport?.circuitNodeId ? circuitNetworkNodes.find((node) => node.id === offlineReport.circuitNodeId) ?? null : null),
+    [offlineReport?.circuitNodeId],
+  );
   const shouldShowAtlasSummary = shouldCollapseCircuitAtlas(availableAtlasPoints, circuitAtlasNodeIds);
   const ownedRuneIds = useMemo(() => new Set(runeIds), [runeIds]);
-  const visibleRunes = useMemo(() => selectVisibleRunes(tuningRunes, ownedRuneIds, runeCatalogExpanded), [ownedRuneIds, runeCatalogExpanded]);
+  const visibleRunes = useMemo(
+    () => selectRecommendedRunes(tuningRunes, ownedRuneIds, runeCatalogExpanded, { driveTags: drive.tags, buildArchetype: buildArchetypeProjection }),
+    [buildArchetypeProjection, drive.tags, ownedRuneIds, runeCatalogExpanded],
+  );
   const chapterOne = chapters[0]!;
   const chapterProgress = useMemo(() => {
     const nodeDone = chapterOne.nodeIds.filter((nodeId) => unlockedCircuitNodeIds.has(nodeId)).length;
@@ -1126,6 +1320,39 @@ export function CombatArena() {
     if (node.arenaId !== arenaId) {
       selectArena(node.arenaId);
     }
+  };
+
+  const continueOfflineRoute = () => {
+    setOfflineReport(null);
+    const node = offlineReportNode ?? (selectedOfflineNodeId ? circuitNetworkNodes.find((entry) => entry.id === selectedOfflineNodeId) ?? null : null) ?? recommendedOfflineNode;
+    if (node) {
+      selectOfflineNode(node.id);
+    }
+    openMap();
+  };
+
+  const switchToRecommendedOfflineRoute = () => {
+    setOfflineReport(null);
+    if (recommendedOfflineNode) {
+      selectOfflineNode(recommendedOfflineNode.id);
+    }
+    openMap();
+  };
+
+  const inspectRecommendedProgressRoute = () => {
+    setOfflineReport(null);
+    if (recommendedProgressNode) {
+      setSelectedNetworkNodeId(recommendedProgressNode.id);
+      if (recommendedProgressNode.arenaId !== arenaId) {
+        selectArena(recommendedProgressNode.arenaId);
+      }
+    }
+    openMap();
+  };
+
+  const openOfflineWorkbench = () => {
+    setOfflineReport(null);
+    openPanel(offlineReport && offlineReport.parts.length > 0 ? "inventory" : "forge");
   };
 
   const equipPart = (part: TopPartInstance) => {
@@ -1622,6 +1849,16 @@ export function CombatArena() {
     () => (selectedPart ? buildPartVerdict(selectedPart, currentStats, previewStats, selectedPartEquipped) : null),
     [currentStats, previewStats, selectedPart, selectedPartEquipped],
   );
+  const partRetentionById = useMemo(() => {
+    const entries = allKnownParts.map((part) => {
+      const equipped = equipment[part.slot]?.id === part.id;
+      const partPreviewStats = equipped ? currentStats : resolveTopRuntimeStats(frameId, driveId, makeLoadout({ ...equipment, [part.slot]: part }));
+      const verdict = buildPartVerdict(part, currentStats, partPreviewStats, equipped);
+      return [part.id, buildPartRetention(part, verdict)] as const;
+    });
+    return new Map(entries);
+  }, [allKnownParts, currentStats, driveId, equipment, frameId, makeLoadout]);
+  const selectedPartRetention = selectedPart ? partRetentionById.get(selectedPart.id) ?? (selectedPartVerdict ? buildPartRetention(selectedPart, selectedPartVerdict) : null) : null;
   const runReview = useMemo(() => {
     const bestDrop = runtime.drops.reduce<(typeof runtime.drops)[number] | null>(
       (best, drop) => (!best || rarityRank[drop.rarity] > rarityRank[best.rarity] ? drop : best),
@@ -1812,6 +2049,15 @@ export function CombatArena() {
               </div>
             </div>
           ) : null}
+          {selectedPartRetention ? (
+            <div className={`part-retention part-retention-${selectedPartRetention.tone}`}>
+              {selectedPartRetention.tone === "salvage" ? <Recycle size={16} aria-hidden /> : <Shield size={16} aria-hidden />}
+              <div>
+                <strong>{selectedPartRetention.label}</strong>
+                <span>{selectedPartRetention.detail}</span>
+              </div>
+            </div>
+          ) : null}
           <div className="delta-list">
             {trackedStats.map((stat) => {
               const delta = statFromRuntime(previewStats, stat) - statFromRuntime(currentStats, stat);
@@ -1928,23 +2174,25 @@ export function CombatArena() {
           ))}
         </div>
         <div className="inventory-grid" aria-label={t("ui.aria.inventoryGrid")}>
-          {inventoryCells.map((part, index) =>
-            part ? (
+          {inventoryCells.map((part, index) => {
+            if (!part) {
+              return <div className="inventory-cell inventory-cell-empty" key={`empty-${inventoryFilter}-${index}`} aria-hidden />;
+            }
+            const retention = partRetentionById.get(part.id);
+            return (
               <button
                 className={part.id === selectedPartId ? `inventory-cell inventory-cell-${part.rarity} inventory-cell-active` : `inventory-cell inventory-cell-${part.rarity}`}
                 key={part.id}
                 onClick={() => inspectPart(part.id)}
-                title={`${displayPartName(part)} / ${displaySlot(part.slot)}`}
+                title={`${displayPartName(part)} / ${displaySlot(part.slot)} / ${retention?.label ?? displayRarity(part.rarity)}`}
                 type="button"
               >
                 <small>{displaySlot(part.slot)}</small>
                 <strong>{displayPartName(part)}</strong>
-                <span>{part.locked ? t("ui.inventory.locked") : displayRarity(part.rarity)}</span>
+                <span className={retention ? `inventory-retention inventory-retention-${retention.tone}` : undefined}>{retention?.label ?? (part.locked ? t("ui.inventory.locked") : displayRarity(part.rarity))}</span>
               </button>
-            ) : (
-              <div className="inventory-cell inventory-cell-empty" key={`empty-${inventoryFilter}-${index}`} aria-hidden />
-            ),
-          )}
+            );
+          })}
         </div>
       </section>
 
@@ -2072,6 +2320,36 @@ export function CombatArena() {
 
   const renderSkillsPanel = () => (
     <>
+      <section className="workbench-section build-archetype-section">
+        <div className="section-title">
+          <Activity size={17} aria-hidden />
+          <h2>Build Identity</h2>
+          <span className="section-counter">{buildArchetypeLabel(buildArchetypeProjection.primary)}</span>
+        </div>
+        <div className="build-archetype-card">
+          <div className="build-archetype-head">
+            <span>
+              <small>目前流派</small>
+              <strong>{buildArchetypeLabel(buildArchetypeProjection.primary)}</strong>
+            </span>
+            <b>{formatPercent(buildArchetypeProjection.scores[0]?.score ?? 0, 0)}</b>
+          </div>
+          <div className="build-archetype-bars" aria-label="Build archetype scores">
+            {buildArchetypeProjection.scores.slice(0, 4).map((score) => (
+              <span key={score.id}>
+                <small>{buildArchetypeLabel(score.id)}</small>
+                <i>
+                  <b style={{ width: `${score.score * 100}%` }} />
+                </i>
+              </span>
+            ))}
+          </div>
+          <div className="build-archetype-gaps">
+            {buildArchetypeProjection.gaps.length > 0 ? buildArchetypeProjection.gaps.map((gap) => <small key={gap}>{buildArchetypeGapLabel(gap)}</small>) : <small>配置協同</small>}
+          </div>
+        </div>
+      </section>
+
       <section className="workbench-section">
         <div className="section-title">
           <Sparkles size={17} aria-hidden />
@@ -2200,6 +2478,53 @@ export function CombatArena() {
               {t("ui.section.bossGate")} <strong>{bossGateCleared ? t("ui.route.cleared") : t("ui.route.locked")}</strong>
             </span>
           ) : null}
+        </div>
+        <div className={`route-strategy-card route-strategy-${selectedRouteStrategy.action}`}>
+          <div className="route-strategy-head">
+            <span>
+              <small>路線策略</small>
+              <strong>{routeStrategyActionLabel(selectedRouteStrategy.action)}</strong>
+            </span>
+            <b>{formatPercent(selectedRouteStrategy.idleScore, 0)} 離線</b>
+          </div>
+          <div className="route-strategy-bars" aria-hidden>
+            {[
+              ["風險", selectedRouteStrategy.riskScore],
+              ["獎勵", selectedRouteStrategy.rewardScore],
+              ["清場", selectedRouteStrategy.clearSpeedScore],
+            ].map(([label, value]) => (
+              <span key={label}>
+                <small>{label}</small>
+                <i>
+                  <b style={{ width: `${Number(value) * 100}%` }} />
+                </i>
+              </span>
+            ))}
+          </div>
+          <div className="route-strategy-tags">
+            {selectedRouteStrategy.reasons.slice(0, 4).map((reason) => (
+              <small key={reason}>{routeStrategyReasonLabel(reason)}</small>
+            ))}
+          </div>
+          <div className="route-strategy-rates">
+            <span>
+              <small>每小時擊殺</small>
+              <strong>{formatNumber(selectedRouteStrategy.offline.killsPerHour, 0)}</strong>
+            </span>
+            <span>
+              <small>每小時掉落</small>
+              <strong>{formatNumber(selectedRouteStrategy.offline.dropsPerHour, 1)}</strong>
+            </span>
+            <span>
+              <small>溢出拆解</small>
+              <strong>{formatNumber(selectedRouteStrategy.offline.overflowSalvagePerHour, 1)}</strong>
+            </span>
+          </div>
+          <div className="route-strategy-targets" aria-label="收益目標">
+            {selectedRouteStrategy.rewardTargets.map((target) => (
+              <small key={target}>{routeRewardTargetLabel(target)}</small>
+            ))}
+          </div>
         </div>
         <div className="route-node-actions">
           <button className="arena-button" disabled={!unlocked || node.arenaId === arenaId} onClick={() => selectArena(node.arenaId)} type="button">
@@ -2576,13 +2901,30 @@ export function CombatArena() {
             const anomaly = node.anomalyId ? getArenaAnomalyDef(node.anomalyId) : null;
             const rival = node.unlocksRivalId ? rivalById.get(node.unlocksRivalId) : null;
             const rivalCleared = rival ? clearedRivalIds.includes(rival.id) : false;
+            const strategy = routeStrategyByNodeId.get(node.id)!;
+            const routeLineClass = [
+              "route-clear-line",
+              `route-clear-line-${strategy.action}`,
+              unlocked ? "" : "route-clear-line-locked",
+              selectedOfflineNodeId === node.id ? "route-clear-line-offline" : "",
+            ]
+              .filter(Boolean)
+              .join(" ");
             return (
-              <div className={unlocked ? "route-clear-line" : "route-clear-line route-clear-line-locked"} key={node.id}>
-                <span>
-                  {dataName("network", node.id, node.displayName)}
+              <div className={routeLineClass} key={node.id}>
+                <div className="route-line-copy">
+                  <strong>{dataName("network", node.id, node.displayName)}</strong>
+                  <small>
+                    {routeStrategyActionLabel(strategy.action)} / {formatNumber(strategy.offline.killsPerHour, 0)} 擊殺/時 / {formatNumber(strategy.offline.dropsPerHour, 1)} 件/時
+                  </small>
                   {rival ? <small>{dataName("rival", rival.id, rival.displayName)}</small> : null}
                   {anomaly ? <small>{anomalyRuleLabel(anomaly.playerRule)} / {formatPercent(anomaly.rewardQuantity + anomaly.rewardRarity, 0)} {t("ui.route.reward")}</small> : null}
-                </span>
+                  <div className="route-line-targets">
+                    {strategy.rewardTargets.slice(0, 4).map((target) => (
+                      <small key={target}>{routeRewardTargetLabel(target)}</small>
+                    ))}
+                  </div>
+                </div>
                 <div className="route-line-actions">
                   {rival ? (
                     <button className="arena-button" disabled={!unlocked || rivalCleared} onClick={() => startRivalDuel(rival.id)} type="button">
@@ -3285,9 +3627,41 @@ export function CombatArena() {
                     {t("ui.resource.echo")} <strong>{offlineReport.wallet.echo}</strong>
                   </span>
                 </div>
-                <button className="arena-button" onClick={() => setOfflineReport(null)} type="button">
-                  {t("ui.control.collect")}
-                </button>
+                <div className="offline-report-next">
+                  <span>
+                    <small>目前掛點</small>
+                    <strong>{offlineReportNode ? dataName("network", offlineReportNode.id, offlineReportNode.displayName) : dataName("arena", offlineReport.targetArenaId, getArenaCircuitDef(offlineReport.targetArenaId).displayName)}</strong>
+                  </span>
+                  <span>
+                    <small>推薦掛點</small>
+                    <strong>{recommendedOfflineNode ? dataName("network", recommendedOfflineNode.id, recommendedOfflineNode.displayName) : "-"}</strong>
+                  </span>
+                  <span>
+                    <small>推進線</small>
+                    <strong>{recommendedProgressNode ? dataName("network", recommendedProgressNode.id, recommendedProgressNode.displayName) : "-"}</strong>
+                  </span>
+                </div>
+                <div className="offline-report-actions">
+                  <button className="arena-button" onClick={continueOfflineRoute} type="button">
+                    <RotateCcw size={15} aria-hidden />
+                    繼續掛
+                  </button>
+                  <button className="arena-button" disabled={!recommendedOfflineNode} onClick={switchToRecommendedOfflineRoute} type="button">
+                    <Radar size={15} aria-hidden />
+                    改掛推薦
+                  </button>
+                  <button className="arena-button" disabled={!recommendedProgressNode} onClick={inspectRecommendedProgressRoute} type="button">
+                    <MapIcon size={15} aria-hidden />
+                    推進線
+                  </button>
+                  <button className="arena-button" onClick={openOfflineWorkbench} type="button">
+                    <Hammer size={15} aria-hidden />
+                    回工坊
+                  </button>
+                  <button className="arena-button arena-button-secondary" onClick={() => setOfflineReport(null)} type="button">
+                    {t("ui.control.collect")}
+                  </button>
+                </div>
               </div>
             ) : null}
             {dangerCue ? (

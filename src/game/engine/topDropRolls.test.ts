@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDropPity, dropRarityChancesForTier, minimumRarityFromPity, rollDropOutcome } from "./topDropRolls";
+import { advanceDropPity, dropChanceForArena, dropRarityChancesForTier, minimumRarityFromPity, rollDropOutcome } from "./topDropRolls";
 
 describe("top drop rolls", () => {
   it("uses tier rarity weights with a soft-capped rarity bonus", () => {
@@ -13,6 +13,16 @@ describe("top drop rolls", () => {
     expect(base.engraved + base.relic).toBeCloseTo(0.05, 3);
     expect(boostedRare).toBeGreaterThan(base.engraved + base.relic);
     expect(boostedRare).toBeLessThan(linearRare);
+  });
+
+  it("shares drop chance scaling for live and projected rewards", () => {
+    const base = dropChanceForArena("arena_cinder_crucible", 0, 0);
+    const rewarded = dropChanceForArena("arena_cinder_crucible", 0.5, 0.5);
+    const capped = dropChanceForArena("arena_resonant_apex", 20, 20);
+
+    expect(base).toBeCloseTo(0.26, 3);
+    expect(rewarded).toBeGreaterThan(base);
+    expect(capped).toBe(0.95);
   });
 
   it("promotes the next dropped part when pity thresholds are reached", () => {

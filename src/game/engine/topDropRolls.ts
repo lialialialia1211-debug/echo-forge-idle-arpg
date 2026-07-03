@@ -97,6 +97,11 @@ export function dropRarityChancesForTier(tier: number, rarityScore = 0): DropRar
   };
 }
 
+export function dropChanceForArena(arenaId: string, playerPartQuantity: number, rewardQuantity = 0): number {
+  const arena = getArenaCircuitDef(arenaId);
+  return clamp(0.26 * arena.rewardMultiplier * (1 + rewardQuantity) * (1 + playerPartQuantity), 0.08, 0.95);
+}
+
 function chooseDropRarity(rng: Rng, tier: number, rarityScore: number, pity?: ArenaDropPityState): ArenaDrop["rarity"] {
   const rarity = rng.weighted(rarityOrder, (entry) => dropRarityWeightsForTier(tier, rarityScore)[entry]);
   const minimumRarity = minimumRarityFromPity(pity);
@@ -146,9 +151,9 @@ export function rollDropOutcome({
   x = 0,
   y = 0,
 }: RollDropOutcomeInput): ArenaDrop | null {
-  const arena = getArenaCircuitDef(arenaId);
   const rng = createRng(seed);
-  const dropChance = clamp(0.26 * arena.rewardMultiplier * (1 + rewardQuantity) * (1 + playerPartQuantity), 0.08, 0.95);
+  const arena = getArenaCircuitDef(arenaId);
+  const dropChance = dropChanceForArena(arenaId, playerPartQuantity, rewardQuantity);
 
   if (rng.next() > dropChance) {
     return null;
