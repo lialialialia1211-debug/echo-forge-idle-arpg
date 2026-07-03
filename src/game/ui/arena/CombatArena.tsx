@@ -19,6 +19,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Swords,
+  X,
   Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type ReactNode } from "react";
@@ -125,7 +126,7 @@ import "./CombatArena.css";
 
 type ArenaScreen = "combat" | "map" | "workbench";
 
-type ActivePanel = "loadout" | "inventory" | "skills" | "forge" | "route" | "talents";
+type ActivePanel = "loadout" | "inventory" | "skills" | "forge" | "talents";
 
 type LootNotice = {
   id: string;
@@ -771,6 +772,8 @@ export function CombatArena() {
   const [selectedAtlasNodeId, setSelectedAtlasNodeId] = useState(circuitAtlasNodes[0].id);
   const [selectedArenaKeyId, setSelectedArenaKeyId] = useState<string | null>((initialSave.top.arenaKeys as ArenaKey[])[0]?.id ?? null);
   const [selectedOfflineNodeId, setSelectedOfflineNodeId] = useState<string | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [doctrineExpanded, setDoctrineExpanded] = useState(false);
   const [currentArenaKey, setCurrentArenaKey] = useState<ArenaKey | null>(null);
   const [activeAnomalyId, setActiveAnomalyId] = useState<string | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
@@ -786,11 +789,12 @@ export function CombatArena() {
   const openPanel = useCallback((panel: ActivePanel) => {
     setActivePanel(panel);
     setScreen("workbench");
+    setInspectorOpen(false);
   }, []);
 
   const openMap = useCallback(() => {
-    setActivePanel("route");
     setScreen("map");
+    setInspectorOpen(false);
   }, []);
 
   const makeLoadout = useCallback(
@@ -858,6 +862,8 @@ export function CombatArena() {
   );
   const selectedPart = allKnownParts.find((part) => part.id === selectedPartId) ?? inventory[0] ?? equipment.core;
   const selectedCurrentPart = selectedPart ? equipment[selectedPart.slot] : null;
+  const selectedRuneId = runeSlots[selectedRuneSocket];
+  const selectedRune = selectedRuneId ? tuningRunes.find((entry) => entry.id === selectedRuneId) : null;
   const currentStats = useMemo(() => resolveTopRuntimeStats(frameId, driveId, loadout), [driveId, frameId, loadout]);
   const previewStats = useMemo(() => {
     if (!selectedPart) {
@@ -873,7 +879,13 @@ export function CombatArena() {
   const defeatCauseDetail = formatDefeatDetail(runtime.defeatCause);
   const playerOmega = selectOmega(runtime.player);
   const playerAttackFrequency = selectAttackFrequency(runtime.player);
-  const dpsBreakdown = selectDpsBreakdown(runtime.player, runtime.combatEvents, driveId, { arenaId, frameId, driveId, loadout });
+  const target = runtime.enemies[0] ?? null;
+  const targetIntegrity = target ? selectLifeRatio(target) : 0;
+  const bossEnemy = runtime.enemies.find((enemy) => enemy.rank === "boss") ?? null;
+  const bossIntegrity = bossEnemy ? selectLifeRatio(bossEnemy) : 0;
+  const eliteEnemies = runtime.enemies.filter((enemy) => enemy.rank === "elite").slice(0, 4);
+  const dpsTarget = bossEnemy ?? target;
+  const dpsBreakdown = selectDpsBreakdown(runtime.player, runtime.combatEvents, driveId, { arenaId, frameId, driveId, loadout, targetStats: dpsTarget?.stats, targetName: dpsTarget?.name });
   const damageModifierLines = dpsBreakdown.lines.filter((line) => !["base", "crit", "frequency", "dps"].includes(line.type));
   const breakpointStatuses = selectBreakpointStatus(runtime.player, driveId, runtime.combatEvents);
   const equipCompare = useMemo(() => selectEquipCompare(currentStats, previewStats, driveId), [currentStats, driveId, previewStats]);
@@ -883,11 +895,6 @@ export function CombatArena() {
   const routeMechanic = runtime.routeMechanic;
   const routeMechanicProgress = routeMechanic ? clamp(routeMechanic.progress / routeMechanic.maxProgress, 0, 1) : 0;
   const activeAnomaly = runtime.loadout.anomalyId ? getArenaAnomalyDef(runtime.loadout.anomalyId) : null;
-  const target = runtime.enemies[0] ?? null;
-  const targetIntegrity = target ? selectLifeRatio(target) : 0;
-  const bossEnemy = runtime.enemies.find((enemy) => enemy.rank === "boss") ?? null;
-  const bossIntegrity = bossEnemy ? selectLifeRatio(bossEnemy) : 0;
-  const eliteEnemies = runtime.enemies.filter((enemy) => enemy.rank === "elite").slice(0, 4);
   const dangerCue = useMemo(() => {
     const cues = [
       ...runtime.enemies.map((enemy) => buildEnemyDangerCue(enemy, runtime.player)),
@@ -988,6 +995,31 @@ export function CombatArena() {
     const nextState = accountReducer(account, action);
     dispatchAccount(action);
     resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState), null);
+  };
+
+  const inspectPart = (partId: string) => {
+    setSelectedPartId(partId);
+    setInspectorOpen(true);
+  };
+
+  const inspectRuneSocket = (socketIndex: number) => {
+    setSelectedRuneSocket(socketIndex);
+    setInspectorOpen(true);
+  };
+
+  const inspectTalent = (talentId: string) => {
+    setSelectedTalentId(talentId);
+    setInspectorOpen(true);
+  };
+
+  const inspectAtlasNode = (nodeId: string) => {
+    setSelectedAtlasNodeId(nodeId);
+    setInspectorOpen(true);
+  };
+
+  const inspectArenaKey = (keyId: string) => {
+    setSelectedArenaKeyId(keyId);
+    setInspectorOpen(true);
   };
 
   const selectOfflineNode = (nodeId: string) => {
@@ -1512,9 +1544,9 @@ export function CombatArena() {
         : remainingToBoss === 0
           ? t("ui.objective.fieldClear")
           : t("ui.objective.rivalsBeforeBoss", { count: remainingToBoss });
-    const actionPanel: ActivePanel =
+    const actionPanel: ActivePanel | "map" =
       runtimeDefeated
-        ? "route"
+        ? "map"
         : runtime.drops.length > 0
         ? "inventory"
         : selectedPartVerdict?.action === "forge"
@@ -1522,13 +1554,13 @@ export function CombatArena() {
           : selectedPartVerdict?.action === "equip"
             ? "inventory"
             : bossProjection.successChance >= 0.5
-              ? "route"
+              ? "map"
               : "loadout";
     const tone: "neutral" | "good" | "warn" | "rare" =
       runtimeError || runtimeDefeated || dangerCue?.tone === "danger" ? "warn" : bestDrop?.rarity === "relic" || runtime.routeClears > 0 ? "rare" : runtime.drops.length > 0 ? "good" : "neutral";
 
     return {
-      actionLabel: actionPanel === "inventory" ? t("ui.panel.inventory") : actionPanel === "forge" ? t("ui.panel.forge") : actionPanel === "route" ? t("ui.panel.route") : t("ui.panel.loadout"),
+      actionLabel: actionPanel === "inventory" ? t("ui.panel.inventory") : actionPanel === "forge" ? t("ui.panel.forge") : actionPanel === "map" ? t("ui.screen.map") : t("ui.panel.loadout"),
       actionPanel,
       bestDropText: bestDrop ? `${displayRarity(bestDrop.rarity)} ${displayDropLabel(bestDrop.label, bestDrop.baseId)}` : t("ui.drop.none"),
       detail: runtimeDefeated ? defeatCauseDetail : dangerCue ? dangerCue.label : selectedPartVerdict ? selectedPartVerdict.label : t("ui.build.stable"),
@@ -1650,7 +1682,7 @@ export function CombatArena() {
               <button
                 className={`equip-slot equip-slot-${part.rarity}`}
                 key={slot}
-                onClick={() => setSelectedPartId(part.id)}
+                onClick={() => inspectPart(part.id)}
                 type="button"
               >
                 <small>{displaySlot(slot)}</small>
@@ -1703,7 +1735,7 @@ export function CombatArena() {
               <button
                 className={part.id === selectedPartId ? `inventory-cell inventory-cell-${part.rarity} inventory-cell-active` : `inventory-cell inventory-cell-${part.rarity}`}
                 key={part.id}
-                onClick={() => setSelectedPartId(part.id)}
+                onClick={() => inspectPart(part.id)}
                 title={`${displayPartName(part)} / ${displaySlot(part.slot)}`}
                 type="button"
               >
@@ -1734,163 +1766,159 @@ export function CombatArena() {
         </section>
       ) : null}
 
-      {renderSelectedPartInspector({ title: t("ui.section.selectedPart") })}
     </>
   );
 
-  const renderSkillsPanel = () => {
-    const selectedRuneId = runeSlots[selectedRuneSocket];
-    const selectedRune = selectedRuneId ? tuningRunes.find((entry) => entry.id === selectedRuneId) : null;
-
-    return (
-      <>
-        <section className="workbench-section">
-          <div className="section-title">
-            <Sparkles size={17} aria-hidden />
-            <h2>{t("ui.section.driveCore")}</h2>
-          </div>
-          <div className="drive-grid">
-            {driveCores.map((entry) => (
-              <button className={entry.id === driveId ? "drive-chip drive-chip-active" : "drive-chip"} key={entry.id} onClick={() => selectDrive(entry.id)} type="button">
-                <strong>{displayDriveName(entry.id, entry.displayName)}</strong>
-                <span>{formatTags(entry.tags.slice(0, 4))}</span>
-              </button>
+  const renderSkillInspector = () => (
+    <>
+      <section className="workbench-section">
+        <div className="section-title">
+          <Zap size={17} aria-hidden />
+          <h2>{t("ui.section.skillDetail")}</h2>
+        </div>
+        <div className="skill-detail">
+          <strong>{displayDriveName(drive.id, drive.displayName)}</strong>
+          <span>{term("trigger", drive.trigger, drive.trigger)} / {round(drive.baseCooldown, 2)}秒</span>
+          <div className={driveGateStatus.unlocked ? "skill-gate skill-gate-ready" : "skill-gate skill-gate-locked"}>
+            <small>{t("ui.skill.driveGate")}</small>
+            <strong>{driveGateStatus.unlocked ? t("ui.skill.ready") : t("ui.skill.locked")}</strong>
+            {driveGateStatus.missing.map((requirement) => (
+              <span key={`${requirement.attr}_${requirement.op}_${requirement.value}`}>
+                {term("stat", requirement.attr)} {round(requirement.currentValue, 2)} / {requirement.op} {requirement.value}
+              </span>
             ))}
           </div>
-        </section>
-
-        <section className="workbench-section">
-          <div className="section-title">
-            <Zap size={17} aria-hidden />
-            <h2>{t("ui.section.skillDetail")}</h2>
-          </div>
-          <div className="skill-detail">
-            <strong>{displayDriveName(drive.id, drive.displayName)}</strong>
-            <span>{term("trigger", drive.trigger, drive.trigger)} / {round(drive.baseCooldown, 2)}秒</span>
-            <div className={driveGateStatus.unlocked ? "skill-gate skill-gate-ready" : "skill-gate skill-gate-locked"}>
-              <small>{t("ui.skill.driveGate")}</small>
-              <strong>{driveGateStatus.unlocked ? t("ui.skill.ready") : t("ui.skill.locked")}</strong>
-              {driveGateStatus.missing.map((requirement) => (
-                <span key={`${requirement.attr}_${requirement.op}_${requirement.value}`}>
-                  {term("stat", requirement.attr)} {round(requirement.currentValue, 2)} / {requirement.op} {requirement.value}
-                </span>
+          <div className="damage-tags">
+            {Object.entries(drive.baseDamage)
+              .filter(([, value]) => value > 0)
+              .map(([type, value]) => (
+                <em key={type}>{term("damage", type, type)} {value}</em>
               ))}
+          </div>
+          <div className="skill-physics">
+            <small>{t("ui.skill.collisionHooks")}</small>
+            {drivePhysicsLines(drive.id).map((line) => (
+              <span key={line}>{line}</span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="workbench-section skill-link-section">
+        <div className="section-title">
+          <Boxes size={17} aria-hidden />
+          <h2>{t("ui.section.linkedSockets")}</h2>
+          <span className="section-counter">{runeIds.length}/3</span>
+        </div>
+        <div className="skill-link-board" aria-label={t("ui.aria.linkedSockets")}>
+          <svg className="socket-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+            <line x1="50" y1="50" x2="19" y2="24" />
+            <line x1="50" y1="50" x2="80" y2="24" />
+            <line x1="50" y1="50" x2="50" y2="82" />
+          </svg>
+          <button className="socket-node socket-drive" onClick={() => openPanel("loadout")} type="button">
+            <small>{t("ui.section.driveCore")}</small>
+            <strong>{displayDriveName(drive.id, drive.displayName)}</strong>
+            <span>{formatTags(drive.tags.slice(0, 3))}</span>
+          </button>
+          {[0, 1, 2].map((socketIndex) => {
+            const socketRuneId = runeSlots[socketIndex];
+            const rune = socketRuneId ? tuningRunes.find((entry) => entry.id === socketRuneId) : null;
+            const socketClasses = [
+              "socket-node",
+              "socket-rune",
+              rune ? "socket-rune-filled" : "socket-rune-empty",
+              selectedRuneSocket === socketIndex ? "socket-rune-selected" : "",
+            ]
+              .filter(Boolean)
+              .join(" ");
+            return (
+              <button
+                className={socketClasses}
+                key={`rune-socket-${socketIndex}`}
+                onClick={() => inspectRuneSocket(socketIndex)}
+                style={{ "--socket-x": socketIndex === 0 ? "19%" : socketIndex === 1 ? "80%" : "50%", "--socket-y": socketIndex === 2 ? "82%" : "24%" } as CSSProperties}
+                type="button"
+              >
+                <small>{t("ui.socket.label", { index: socketIndex + 1 })}</small>
+                <strong>{rune ? displayRuneName(rune) : t("ui.inventory.open")}</strong>
+                <span>{rune ? formatTags(rune.requiredTags) : t("ui.inventory.empty")}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="socket-detail-panel">
+          <div className="socket-detail-header">
+            <div>
+              <small>{t("ui.socket.label", { index: selectedRuneSocket + 1 })}</small>
+              <strong>{selectedRune ? displayRuneName(selectedRune) : t("ui.socket.openLink")}</strong>
             </div>
-            <div className="damage-tags">
-              {Object.entries(drive.baseDamage)
-                .filter(([, value]) => value > 0)
-                .map(([type, value]) => (
-                  <em key={type}>{term("damage", type, type)} {value}</em>
-                ))}
-            </div>
-            <div className="skill-physics">
-              <small>{t("ui.skill.collisionHooks")}</small>
-              {drivePhysicsLines(drive.id).map((line) => (
+            <button className="arena-button arena-button-danger" disabled={!selectedRune} onClick={() => clearRuneSocket()} type="button">
+              <Recycle size={15} aria-hidden />
+              {t("ui.control.clear")}
+            </button>
+          </div>
+          {selectedRune ? (
+            <div className="socket-detail-lines">
+              {formatRuneLines(selectedRune).map((line) => (
                 <span key={line}>{line}</span>
               ))}
             </div>
-          </div>
-        </section>
+          ) : (
+            <span className="empty-drop">{t("ui.inventory.chooseRune")}</span>
+          )}
+        </div>
+      </section>
+    </>
+  );
 
-        <section className="workbench-section skill-link-section">
-          <div className="section-title">
-            <Boxes size={17} aria-hidden />
-            <h2>{t("ui.section.linkedSockets")}</h2>
-            <span className="section-counter">{runeIds.length}/3</span>
-          </div>
-          <div className="skill-link-board" aria-label={t("ui.aria.linkedSockets")}>
-            <svg className="socket-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
-              <line x1="50" y1="50" x2="19" y2="24" />
-              <line x1="50" y1="50" x2="80" y2="24" />
-              <line x1="50" y1="50" x2="50" y2="82" />
-            </svg>
-            <button className="socket-node socket-drive" onClick={() => openPanel("loadout")} type="button">
-              <small>{t("ui.section.driveCore")}</small>
-              <strong>{displayDriveName(drive.id, drive.displayName)}</strong>
-              <span>{formatTags(drive.tags.slice(0, 3))}</span>
+  const renderSkillsPanel = () => (
+    <>
+      <section className="workbench-section">
+        <div className="section-title">
+          <Sparkles size={17} aria-hidden />
+          <h2>{t("ui.section.driveCore")}</h2>
+        </div>
+        <div className="drive-grid">
+          {driveCores.map((entry) => (
+            <button className={entry.id === driveId ? "drive-chip drive-chip-active" : "drive-chip"} key={entry.id} onClick={() => selectDrive(entry.id)} type="button">
+              <strong>{displayDriveName(entry.id, entry.displayName)}</strong>
+              <span>{formatTags(entry.tags.slice(0, 4))}</span>
             </button>
-            {[0, 1, 2].map((socketIndex) => {
-              const socketRuneId = runeSlots[socketIndex];
-              const rune = socketRuneId ? tuningRunes.find((entry) => entry.id === socketRuneId) : null;
-              const socketClasses = [
-                "socket-node",
-                "socket-rune",
-                rune ? "socket-rune-filled" : "socket-rune-empty",
-                selectedRuneSocket === socketIndex ? "socket-rune-selected" : "",
-              ]
-                .filter(Boolean)
-                .join(" ");
-              return (
-                <button
-                  className={socketClasses}
-                  key={`rune-socket-${socketIndex}`}
-                  onClick={() => setSelectedRuneSocket(socketIndex)}
-                  style={{ "--socket-x": socketIndex === 0 ? "19%" : socketIndex === 1 ? "80%" : "50%", "--socket-y": socketIndex === 2 ? "82%" : "24%" } as CSSProperties}
-                  type="button"
-                >
-                  <small>{t("ui.socket.label", { index: socketIndex + 1 })}</small>
-                  <strong>{rune ? displayRuneName(rune) : t("ui.inventory.open")}</strong>
-                  <span>{rune ? formatTags(rune.requiredTags) : t("ui.inventory.empty")}</span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="socket-detail-panel">
-            <div className="socket-detail-header">
-              <div>
-                <small>{t("ui.socket.label", { index: selectedRuneSocket + 1 })}</small>
-                <strong>{selectedRune ? displayRuneName(selectedRune) : t("ui.socket.openLink")}</strong>
-              </div>
-              <button className="arena-button arena-button-danger" disabled={!selectedRune} onClick={() => clearRuneSocket()} type="button">
-                <Recycle size={15} aria-hidden />
-                {t("ui.control.clear")}
-              </button>
-            </div>
-            {selectedRune ? (
-              <div className="socket-detail-lines">
-                {formatRuneLines(selectedRune).map((line) => (
-                  <span key={line}>{line}</span>
-                ))}
-              </div>
-            ) : (
-              <span className="empty-drop">{t("ui.inventory.chooseRune")}</span>
-            )}
-          </div>
-        </section>
+          ))}
+        </div>
+      </section>
 
-        <section className="workbench-section">
-          <div className="section-title">
-            <Boxes size={17} aria-hidden />
-            <h2>{t("ui.section.runeLibrary")}</h2>
-          </div>
-          <div className="rune-library">
-            {tuningRunes.map((rune) => {
-              const compatible = isRuneCompatible(rune, drive.tags);
-              const active = runeIds.includes(rune.id);
-              return (
-                <button
-                  aria-pressed={active}
-                  className={active ? "rune-card rune-card-active" : "rune-card"}
-                  disabled={!compatible}
-                  key={rune.id}
-                  onClick={() => assignRuneToSocket(rune.id)}
-                  type="button"
-                >
-                  <strong>{displayRuneName(rune)}</strong>
-                  <span>{formatTags(rune.requiredTags)}</span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      </>
-    );
-  };
+      <section className="workbench-section rune-library-section">
+        <div className="section-title">
+          <Boxes size={17} aria-hidden />
+          <h2>{t("ui.section.runeLibrary")}</h2>
+        </div>
+        <div className="rune-library">
+          {tuningRunes.map((rune) => {
+            const compatible = isRuneCompatible(rune, drive.tags);
+            const active = runeIds.includes(rune.id);
+            return (
+              <button
+                aria-pressed={active}
+                className={active ? "rune-card rune-card-active" : "rune-card"}
+                disabled={!compatible}
+                key={rune.id}
+                onClick={() => assignRuneToSocket(rune.id)}
+                type="button"
+              >
+                <strong>{displayRuneName(rune)}</strong>
+                <span>{formatTags(rune.requiredTags)}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    </>
+  );
 
   const renderForgePanel = () => (
     <>
-      {renderSelectedPartInspector({ title: t("ui.section.forgeTarget"), showForgeAction: false })}
-
       <section className="workbench-section">
         <div className="section-title">
           <Gem size={17} aria-hidden />
@@ -1922,7 +1950,7 @@ export function CombatArena() {
 
   const renderRoutePanel = () => (
     <>
-      <section className="workbench-section">
+      <section className="workbench-section route-overview-section">
         <div className="section-title">
           <Flame size={17} aria-hidden />
           <h2>{t("ui.section.route")}</h2>
@@ -1938,6 +1966,7 @@ export function CombatArena() {
         </div>
       </section>
 
+      <div className="route-content-column route-main-column">
       <section className="workbench-section">
         <div className="section-title">
           <Radar size={17} aria-hidden />
@@ -2017,7 +2046,7 @@ export function CombatArena() {
                       aria-pressed={selected}
                       className={atlasClass}
                       key={node.id}
-                      onClick={() => setSelectedAtlasNodeId(node.id)}
+                      onClick={() => inspectAtlasNode(node.id)}
                       style={{ "--atlas-x": `${position.x}%`, "--atlas-y": `${position.y}%` } as CSSProperties}
                       title={dataDescription("atlas", node.id, node.description)}
                       type="button"
@@ -2051,7 +2080,9 @@ export function CombatArena() {
           );
         })()}
       </section>
+      </div>
 
+      <div className="route-content-column route-side-column">
       <section className="workbench-section">
         <div className="section-title">
           <PackageOpen size={17} aria-hidden />
@@ -2073,7 +2104,7 @@ export function CombatArena() {
             arenaKeys.map((key) => {
               const summary = summarizeArenaKeyRiskReward(key);
               return (
-                <button className={key.id === selectedArenaKeyId ? "key-card key-card-active" : "key-card"} key={key.id} onClick={() => setSelectedArenaKeyId(key.id)} type="button">
+                  <button className={key.id === selectedArenaKeyId ? "key-card key-card-active" : "key-card"} key={key.id} onClick={() => inspectArenaKey(key.id)} type="button">
                   <div>
                     <small>{displayRarity(key.rarity)} / 等級 {key.itemLevel}</small>
                     <strong>{formatKeyTitle(key)}</strong>
@@ -2191,45 +2222,89 @@ export function CombatArena() {
           ))}
         </div>
       </section>
+      </div>
     </>
   );
 
-  const renderTalentsPanel = () => {
+  const renderTalentInspector = () => {
     const selectedTalent = getTalentNodeDef(selectedTalentId);
     const selectedTalentActive = talentIds.includes(selectedTalent.id);
     const selectedTalentAvailable = selectedTalentActive ? canRefundTalent(selectedTalent.id) : canAllocateTalent(selectedTalent.id);
     const selectedTalentStatus = selectedTalentActive ? t("ui.route.active") : selectedTalentAvailable ? t("ui.route.available") : t("ui.route.locked");
-    const frameDoctrines = doctrineForFrame(frameId);
-    const selectedDoctrine = doctrineId ? getDoctrineDef(doctrineId) : null;
-    const requirementText =
-      selectedTalent.requiredNodeIds && selectedTalent.requiredNodeIds.length > 0
-        ? selectedTalent.requiredNodeIds.map((requiredId) => dataName("talent", requiredId, getTalentNodeDef(requiredId).displayName)).join(" / ")
-        : t("ui.route.root");
+    const requiredIds = selectedTalent.requiredNodeIds ?? [];
+    const missingRequiredIds = requiredIds.filter((requiredId) => !talentIds.includes(requiredId));
+    const requirementText = requiredIds.length > 0 ? requiredIds.map((requiredId) => dataName("talent", requiredId, getTalentNodeDef(requiredId).displayName)).join(" / ") : t("ui.route.root");
 
     return (
-      <section className="workbench-section">
+      <section className="workbench-section talent-detail-panel talent-detail-panel-layered">
+        <div className="talent-detail-layer talent-title-layer">
+          <div>
+            <small>{t(`talent.kind.${selectedTalent.kind}`)}</small>
+            <strong>{dataName("talent", selectedTalent.id, selectedTalent.displayName)}</strong>
+          </div>
+          <span className={`talent-kind-badge talent-kind-${selectedTalent.kind}`}>{t(`talent.kind.${selectedTalent.kind}`)}</span>
+        </div>
+        <p>{dataDescription("talent", selectedTalent.id, selectedTalent.description)}</p>
+        <div className="talent-detail-layer talent-status-layer">
+          <span className={selectedTalentActive ? "talent-status-badge talent-status-active" : selectedTalentAvailable ? "talent-status-badge talent-status-ready" : "talent-status-badge talent-status-locked"}>{selectedTalentStatus}</span>
+          <span className={missingRequiredIds.length > 0 ? "talent-requirement talent-requirement-missing" : "talent-requirement"}>
+            {t("ui.talent.requirement")}: {missingRequiredIds.length > 0 ? missingRequiredIds.map((requiredId) => dataName("talent", requiredId, getTalentNodeDef(requiredId).displayName)).join(" / ") : requirementText}
+          </span>
+          <span>{t("ui.talent.cost")}: {selectedTalent.cost} {t("ui.point.short")}</span>
+        </div>
+        <div className="talent-detail-layer talent-value-layer">
+          {formatTalentLines(selectedTalent).map((line) => (
+            <span className={line.includes("-") ? "talent-value-line talent-value-cost" : "talent-value-line"} key={line}>{line}</span>
+          ))}
+        </div>
+        <div className="talent-detail-layer talent-action-layer">
+          <button className="arena-button" disabled={!selectedTalentAvailable} onClick={() => toggleTalent(selectedTalent.id)} type="button">
+            <Network size={15} aria-hidden />
+            {selectedTalentActive ? t("ui.control.refund") : t("ui.control.allocate")}
+          </button>
+          <span>{talentIds.length} / {talentPoints} {t("ui.talent.allocated")} · {availableTalentPoints} {t("ui.talent.availablePoints")}</span>
+        </div>
+      </section>
+    );
+  };
+
+  const renderTalentsPanel = () => {
+    const frameDoctrines = doctrineForFrame(frameId);
+    const selectedDoctrine = doctrineId ? getDoctrineDef(doctrineId) : null;
+
+    return (
+      <section className="workbench-section talent-workbench-section">
         <div className="section-title">
           <Network size={17} aria-hidden />
           <h2>{t("ui.section.talents")}</h2>
           <span className="section-counter">{availableTalentPoints}/{talentPoints}</span>
         </div>
-        <div className="doctrine-grid" aria-label={t("ui.aria.doctrinePaths")}>
-          {frameDoctrines.map((doctrine) => {
-            const active = doctrine.id === doctrineId;
-            return (
-              <button className={active ? "doctrine-card doctrine-card-active" : "doctrine-card"} key={doctrine.id} onClick={() => selectDoctrine(active ? null : doctrine.id)} type="button">
-                <small>{active ? "教義已啟用" : displayFrameName(frame.id, frame.displayName)}</small>
-                <strong>{dataName("doctrine", doctrine.id, doctrine.displayName)}</strong>
-                <span>{dataDescription("doctrine", doctrine.id, doctrine.description)}</span>
-              </button>
-            );
-          })}
+        <div className="talent-doctrine-strip">
+          <div>
+            <small>{displayFrameName(frame.id, frame.displayName)}</small>
+            <strong>{selectedDoctrine ? dataName("doctrine", selectedDoctrine.id, selectedDoctrine.displayName) : t("ui.talent.noDoctrine")}</strong>
+          </div>
+          <button className="arena-button" onClick={() => setDoctrineExpanded((value) => !value)} type="button">
+            {doctrineExpanded ? t("ui.control.collapse") : t("ui.control.expand")}
+          </button>
         </div>
-        {selectedDoctrine ? (
-          <div className="doctrine-detail">
-            <strong>{dataName("doctrine", selectedDoctrine.id, selectedDoctrine.displayName)}</strong>
+        {doctrineExpanded ? (
+          <div className="doctrine-grid doctrine-grid-compact" aria-label={t("ui.aria.doctrinePaths")}>
+            {frameDoctrines.map((doctrine) => {
+              const active = doctrine.id === doctrineId;
+              return (
+                <button className={active ? "doctrine-card doctrine-card-active" : "doctrine-card"} key={doctrine.id} onClick={() => selectDoctrine(active ? null : doctrine.id)} type="button">
+                  <small>{active ? t("ui.talent.doctrineActive") : displayFrameName(frame.id, frame.displayName)}</small>
+                  <strong>{dataName("doctrine", doctrine.id, doctrine.displayName)}</strong>
+                  <span>{dataDescription("doctrine", doctrine.id, doctrine.description)}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : selectedDoctrine ? (
+          <div className="doctrine-detail doctrine-detail-compact">
             <div className="talent-detail-lines">
-              {formatDoctrineLines(selectedDoctrine).map((line) => (
+              {formatDoctrineLines(selectedDoctrine).slice(0, 2).map((line) => (
                 <span key={line}>{line}</span>
               ))}
             </div>
@@ -2239,28 +2314,9 @@ export function CombatArena() {
           activeTalentIds={talentIds}
           canUseTalent={(talentId) => (talentIds.includes(talentId) ? canRefundTalent(talentId) : canAllocateTalent(talentId))}
           nodes={talentNodes}
-          onSelectTalent={setSelectedTalentId}
+          onSelectTalent={inspectTalent}
           selectedTalentId={selectedTalentId}
         />
-        <div className="talent-detail-panel">
-          <div className="talent-detail-header">
-            <div>
-              <small>{t(`talent.kind.${selectedTalent.kind}`)} / {selectedTalentStatus} / {requirementText}</small>
-              <strong>{dataName("talent", selectedTalent.id, selectedTalent.displayName)}</strong>
-            </div>
-            <span>{selectedTalent.cost} {t("ui.point.short")}</span>
-          </div>
-          <p>{dataDescription("talent", selectedTalent.id, selectedTalent.description)}</p>
-          <div className="talent-detail-lines">
-            {formatTalentLines(selectedTalent).map((line) => (
-              <span key={line}>{line}</span>
-            ))}
-          </div>
-          <button className="arena-button" disabled={!selectedTalentAvailable} onClick={() => toggleTalent(selectedTalent.id)} type="button">
-            <Network size={15} aria-hidden />
-            {selectedTalentActive ? t("ui.control.refund") : t("ui.control.allocate")}
-          </button>
-        </div>
         <div className="talent-note">
           {talentIds.length} 個已啟用節點 / {availableTalentPoints} 點可用
         </div>
@@ -2283,21 +2339,57 @@ export function CombatArena() {
     <>
       {renderBuildSummaryPanel()}
       {renderLoadoutPanel()}
-      {renderSelectedPartInspector({ title: t("ui.section.selectedPart") })}
     </>
   );
 
-  const renderWorkbenchContent = () => (
-    <>
+  const renderWorkbenchMainContent = () => (
+    <div className="workbench-main">
       {activePanel === "loadout" && renderLoadoutWorkbench()}
       {activePanel === "inventory" && renderInventoryPanel()}
       {activePanel === "skills" && renderSkillsPanel()}
       {activePanel === "forge" && renderForgePanel()}
-      {activePanel === "route" && renderRoutePanel()}
       {activePanel === "talents" && renderTalentsPanel()}
-    </>
+    </div>
   );
 
+  const renderWorkbenchInspectorContent = () => {
+    if (activePanel === "skills") {
+      return renderSkillInspector();
+    }
+    if (activePanel === "talents") {
+      return renderTalentInspector();
+    }
+    if (activePanel === "forge") {
+      return renderSelectedPartInspector({ title: t("ui.section.forgeTarget"), showForgeAction: false });
+    }
+    if (activePanel === "loadout" || activePanel === "inventory") {
+      return renderSelectedPartInspector({ title: t("ui.section.selectedPart") });
+    }
+    return null;
+  };
+
+  const renderWorkbenchContent = () => {
+    const inspectorContent = renderWorkbenchInspectorContent();
+    return (
+      <div className={`workbench-split workbench-split-${activePanel}`}>
+        {renderWorkbenchMainContent()}
+        {inspectorContent ? (
+          <>
+            <button className={inspectorOpen ? "inspector-backdrop inspector-backdrop-open" : "inspector-backdrop"} aria-label={t("ui.control.close")} onClick={() => setInspectorOpen(false)} type="button" />
+            <aside className={inspectorOpen ? "workbench-inspector workbench-inspector-open" : "workbench-inspector"} aria-label={t("ui.section.inspector")}>
+              <div className="inspector-drawer-head">
+                <strong>{t("ui.section.inspector")}</strong>
+                <button className="icon-button" aria-label={t("ui.control.close")} onClick={() => setInspectorOpen(false)} type="button">
+                  <X size={15} aria-hidden />
+                </button>
+              </div>
+              {inspectorContent}
+            </aside>
+          </>
+        ) : null}
+      </div>
+    );
+  };
   const renderTuningPanel = () => (
     <div className="arena-tuning-panel" aria-label={t("ui.aria.combatTuning")}>
       <div className="arena-tuning-head">
@@ -2361,7 +2453,7 @@ export function CombatArena() {
         icon: <AlertTriangle size={17} aria-hidden />,
         label: t("ui.next.runDefeated"),
         detail: `${defeatCauseLabel} / ${defeatCauseDetail}`,
-        button: t("ui.panel.route"),
+        button: t("ui.screen.map"),
         cues: [
           { label: t("ui.next.now"), value: defeatCauseLabel, tone: "warn" },
           { label: t("ui.next.signal"), value: defeatCauseDetail, tone: "warn" },
@@ -2490,7 +2582,7 @@ export function CombatArena() {
         icon: <Flame size={17} aria-hidden />,
         label: t("ui.next.keyReady"),
         detail: formatKeyTitle(selectedArenaKey),
-        button: t("ui.panel.route"),
+        button: t("ui.screen.map"),
         cues: [
           { label: t("ui.next.now"), value: t("ui.next.chooseRoute"), tone: "rare" },
           { label: t("ui.next.signal"), value: `風險 ${formatPercent(keyEnemyPressure, 0)}`, tone: keyEnemyPressure > 0 ? "warn" : "neutral" },
@@ -2504,7 +2596,7 @@ export function CombatArena() {
         icon: <Network size={17} aria-hidden />,
         label: t("ui.next.bossViable"),
         detail: `推估 ${formatPercent(bossProjection.successChance, 0)}`,
-        button: t("ui.panel.route"),
+        button: t("ui.screen.map"),
         cues: [
           { label: t("ui.next.now"), value: t("ui.next.attemptGate"), tone: "rare" },
           { label: t("ui.next.signal"), value: `${formatPercent(bossProjection.successChance, 0)} 機率`, tone: "rare" },
@@ -2841,7 +2933,7 @@ export function CombatArena() {
                     {t("ui.hud.map")} <strong>{runtime.mapKills}/{runtime.mapKillTarget}</strong>
                   </span>
                 </div>
-                <button className="arena-button" onClick={() => openPanel(runReview.actionPanel)} type="button">
+                <button className="arena-button" onClick={() => (runReview.actionPanel === "map" ? openMap() : openPanel(runReview.actionPanel))} type="button">
                   {runReview.actionLabel}
                 </button>
               </div>
@@ -2876,7 +2968,10 @@ export function CombatArena() {
               <div className="inspection-grid">
                 <section className="inspection-card">
                   <div className="inspection-card-head">
-                    <strong>{t("ui.section.damageBreakdown")}</strong>
+                    <div className="inspection-card-title">
+                      <strong>{t("ui.section.damageBreakdown")}</strong>
+                      <small>{t("ui.damage.target")}: {dpsBreakdown.targetName ? localizeEntityName(dpsBreakdown.targetName) : dataName("arena", arena.id, arena.displayName)}</small>
+                    </div>
                     <span>{formatNumber(dpsBreakdown.totalDps, 1)} DPS</span>
                   </div>
                   <div className="damage-pipeline">
@@ -2964,7 +3059,7 @@ export function CombatArena() {
                 {t("ui.control.combat")}
               </button>
             </div>
-            <div className="workbench-content screen-content">
+            <div className="workbench-content screen-content route-screen-content">
               {renderRoutePanel()}
             </div>
           </section>
@@ -2977,7 +3072,6 @@ export function CombatArena() {
             <PanelTab active={activePanel === "inventory"} icon={<PackageOpen size={15} aria-hidden />} label={t("ui.panel.inventory")} onClick={() => openPanel("inventory")} />
             <PanelTab active={activePanel === "skills"} icon={<Sparkles size={15} aria-hidden />} label={t("ui.panel.skills")} onClick={() => openPanel("skills")} />
             <PanelTab active={activePanel === "forge"} icon={<Recycle size={15} aria-hidden />} label={t("ui.panel.forge")} onClick={() => openPanel("forge")} />
-            <PanelTab active={activePanel === "route"} icon={<Flame size={15} aria-hidden />} label={t("ui.panel.route")} onClick={() => openPanel("route")} />
             <PanelTab active={activePanel === "talents"} icon={<Network size={15} aria-hidden />} label={t("ui.panel.talents")} onClick={() => openPanel("talents")} />
           </nav>
           {showTuningHud ? renderTuningPanel() : null}

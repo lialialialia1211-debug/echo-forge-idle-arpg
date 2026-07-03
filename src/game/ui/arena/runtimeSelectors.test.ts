@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createTopArenaRuntime } from "../../engine/arenaRuntime";
-import { projectTopCombat } from "../../engine/topCombat";
+import { createProjectionEnemyStats, projectTopCombat } from "../../engine/topCombat";
+import { zeroResistances } from "../../engine/topTypes";
 import { selectBreakpointStatus, selectDpsBreakdown } from "./runtimeSelectors";
 
 describe("arena runtime selectors", () => {
@@ -24,6 +25,30 @@ describe("arena runtime selectors", () => {
     expect(breakdown.driveDps).toBe(projection.driveDps);
     expect(breakdown.dotDps).toBe(projection.dotDps);
     expect(breakdown.totalDps).toBe(projection.totalDps);
+  });
+
+  it("uses live target stats when a combat target is provided", () => {
+    const arenaId = "arena_cinder_crucible";
+    const frameId = "frame_swift_razor";
+    const driveId = "drive_shard_barrage";
+    const runtime = createTopArenaRuntime({
+      arenaId,
+      frameId,
+      driveId,
+      loadout: {},
+      seed: "selector_live_target_test",
+    });
+    const baseTarget = createProjectionEnemyStats(arenaId);
+    const weakTarget = { ...baseTarget, guard: 0, drift: 0, resistances: zeroResistances() };
+    const armoredTarget = { ...baseTarget, guard: 8000, drift: 8000, resistances: zeroResistances() };
+
+    const weakBreakdown = selectDpsBreakdown(runtime.player, [], driveId, { arenaId, frameId, driveId, loadout: {}, targetStats: weakTarget, targetName: "Weak Target" });
+    const armoredBreakdown = selectDpsBreakdown(runtime.player, [], driveId, { arenaId, frameId, driveId, loadout: {}, targetStats: armoredTarget, targetName: "Armored Target" });
+
+    expect(weakBreakdown.targetName).toBe("Weak Target");
+    expect(armoredBreakdown.targetName).toBe("Armored Target");
+    expect(weakBreakdown.collisionDps).toBeGreaterThan(armoredBreakdown.collisionDps);
+    expect(weakBreakdown.driveDps).toBeGreaterThan(armoredBreakdown.driveDps);
   });
 
   it("marks less-threshold breakpoints as penalties", () => {

@@ -6,7 +6,7 @@ import { clamp } from "../../engine/math";
 import { createCollisionPacket, createProjectionEnemyStats, projectTopCombat } from "../../engine/topCombat";
 import { resolveTopHit } from "../../engine/topDamage";
 import { effectiveCooldownFromOmega, resolveStatsPhysics } from "../../engine/topPhysics";
-import type { CombatCondition, CombatEvent, DriveCoreDef, TopLoadoutConfig, TopModifierDef, TopRuntimeEntity, TopRuntimeStats } from "../../engine/topTypes";
+import type { CombatCondition, CombatEvent, DamagePacket, DriveCoreDef, TopLoadoutConfig, TopModifierDef, TopRuntimeEntity, TopRuntimeStats } from "../../engine/topTypes";
 
 export type DamageBreakdownLine = {
   id: string;
@@ -38,6 +38,7 @@ export type DamageBreakdown = {
   driveDps: number;
   dotDps: number;
   totalDps: number;
+  targetName?: string;
   lines: DamageBreakdownLine[];
 };
 
@@ -47,6 +48,7 @@ export type DpsBreakdownProjectionInput = {
   driveId: string;
   loadout?: TopLoadoutConfig;
   targetStats?: TopRuntimeStats;
+  targetName?: string;
 };
 
 export type BreakpointStatus = {
@@ -141,6 +143,17 @@ function modifierAffectsDamageBreakdown(modifier: TopModifierDef): boolean {
 
 function sumDamagePacket(packet: Record<string, number>): number {
   return Object.values(packet).reduce((sum, value) => sum + value, 0);
+}
+
+function scaleDotDpsForTarget(baseDps: number, damageType: keyof DamagePacket, attacker: TopRuntimeStats, defender: TopRuntimeStats): number {
+  const increased = attacker.modifiers
+    .filter((modifier) => (modifier.stat === damageType || modifier.stat === "damage") && modifier.type === "increased")
+    .reduce((sum, modifier) => sum + modifier.value, 0);
+  const more = attacker.modifiers
+    .filter((modifier) => (modifier.stat === damageType || modifier.stat === "damage") && modifier.type === "more")
+    .reduce((product, modifier) => product * (1 + modifier.value), 1);
+  const resistance = clamp(defender.resistances[damageType] ?? 0, -0.75, 0.9);
+  return baseDps * (1 + increased) * more * (1 - resistance);
 }
 
 function collectAttrConditions(condition: CombatCondition | undefined): Extract<CombatCondition, { kind: "attr" }>[] {
@@ -287,7 +300,7 @@ export function selectDpsBreakdown(entity: TopRuntimeEntity, events: CombatEvent
   const critChance = collisionHit.critChance;
   const critExpectedMultiplier = collisionHit.expectedCritMultiplier;
   const effectiveCooldown = effectiveCooldownFromOmega(drive.cooldown?.baseSeconds ?? drive.baseCooldown, physics.omega, entity.stats.resonance, entity.stats.cooldownRecovery ?? 0);
-  const projected = projectionInput
+  const projected = projectionInput && !projectionInput.targetStats
     ? projectTopCombat({
         arenaId: projectionInput.arenaId,
         frameId: projectionInput.frameId,
@@ -297,7 +310,7 @@ export function selectDpsBreakdown(entity: TopRuntimeEntity, events: CombatEvent
     : null;
   const collisionDps = projected?.collisionDps ?? collisionHit.totalDamage * Math.max(0.25, attackFrequency);
   const driveDps = projected?.driveDps ?? driveHit.totalDamage / Math.max(0.25, effectiveCooldown);
-  const dotDps = projected?.dotDps ?? drive.dot?.baseDps ?? 0;
+  const dotDps = projected?.dotDps ?? (drive.dot ? scaleDotDpsForTarget(drive.dot.baseDps, drive.dot.damageType, entity.stats, defender) : 0);
   const totalDps = projected?.totalDps ?? collisionDps + driveDps + dotDps;
   lines.push(
     {
@@ -363,6 +376,7 @@ export function selectDpsBreakdown(entity: TopRuntimeEntity, events: CombatEvent
     driveDps,
     dotDps,
     totalDps,
+    targetName: projectionInput?.targetName,
     lines,
   };
 }

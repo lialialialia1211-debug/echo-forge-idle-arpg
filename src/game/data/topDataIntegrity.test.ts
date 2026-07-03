@@ -255,6 +255,12 @@ describe("top ARPG data integrity", () => {
       expect(talent.position.x).toBeLessThanOrEqual(100);
       expect(talent.position.y).toBeGreaterThanOrEqual(0);
       expect(talent.position.y).toBeLessThanOrEqual(100);
+      if (talent.kind === "keystone") {
+        expect(talent.position.x).toBeGreaterThanOrEqual(6);
+        expect(talent.position.x).toBeLessThanOrEqual(94);
+        expect(talent.position.y).toBeGreaterThanOrEqual(6);
+        expect(talent.position.y).toBeLessThanOrEqual(94);
+      }
       for (const requiredId of talent.requiredNodeIds ?? []) {
         expect(talentIds.has(requiredId)).toBe(true);
       }

@@ -51,6 +51,14 @@ describe("resolveOfflineSettlement", () => {
     expect(result.elapsedSeconds).toBe(0);
   });
 
+  it("returns elapsed seconds for a normal past settlement timestamp", () => {
+    const now = Date.parse("2026-07-03T12:00:00.000Z");
+    const result = resolveOfflineElapsedSeconds("2026-07-03T11:42:30.000Z", now);
+
+    expect(result.futureClockSkew).toBe(false);
+    expect(result.elapsedSeconds).toBe(1050);
+  });
+
   it("does not reduce kills for a stronger loadout", () => {
     const weak = resolveOfflineSettlement(input({ loadout: {} }));
     const strongLoadout: TopLoadoutConfig = {

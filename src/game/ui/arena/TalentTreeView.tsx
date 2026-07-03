@@ -1,7 +1,7 @@
 import { LocateFixed, ZoomIn, ZoomOut } from "lucide-react";
-import { useRef, useState, type CSSProperties, type PointerEvent, type WheelEvent } from "react";
+import { useMemo, useRef, useState, type CSSProperties, type PointerEvent, type WheelEvent } from "react";
 import type { TalentNodeDef } from "../../engine/topTypes";
-import { dataDescription, dataName, t } from "../../locale/zh-Hant";
+import { dataName, t } from "../../locale/zh-Hant";
 
 type TalentTreeViewProps = {
   nodes: TalentNodeDef[];
@@ -19,14 +19,22 @@ type TalentTreeViewState = {
 
 type DragState = {
   pointerId: number;
-  x: number;
-  y: number;
+  startX: number;
+  startY: number;
+  lastX: number;
+  lastY: number;
+  dragging: boolean;
 };
 
 const initialView: TalentTreeViewState = { x: 0, y: 0, scale: 1 };
+export const TALENT_DRAG_THRESHOLD_PX = 6;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+export function shouldStartTalentDrag(startX: number, startY: number, currentX: number, currentY: number, threshold = TALENT_DRAG_THRESHOLD_PX): boolean {
+  return Math.hypot(currentX - startX, currentY - startY) >= threshold;
 }
 
 export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUseTalent, onSelectTalent }: TalentTreeViewProps) {
@@ -35,12 +43,31 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
   const dragRef = useRef<DragState | null>(null);
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const activeSet = new Set(activeTalentIds);
+  const clusterRegions = useMemo(() => {
+    const groups = new Map<string, TalentNodeDef[]>();
+    for (const node of nodes) {
+      if (!node.clusterId || node.clusterId === "core") {
+        continue;
+      }
+      groups.set(node.clusterId, [...(groups.get(node.clusterId) ?? []), node]);
+    }
+    return Array.from(groups.entries()).map(([clusterId, clusterNodes], index) => {
+      const xs = clusterNodes.map((node) => node.position.x);
+      const ys = clusterNodes.map((node) => node.position.y);
+      const left = clamp(Math.min(...xs) - 8, 0, 100);
+      const top = clamp(Math.min(...ys) - 8, 0, 100);
+      const right = clamp(Math.max(...xs) + 8, 0, 100);
+      const bottom = clamp(Math.max(...ys) + 8, 0, 100);
+      return { clusterId, index, left, top, width: Math.max(8, right - left), height: Math.max(8, bottom - top) };
+    });
+  }, [nodes]);
 
   const adjustScale = (delta: number) => {
     setView((current) => ({ ...current, scale: clamp(current.scale + delta, 0.62, 1.85) }));
   };
 
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
     adjustScale(event.deltaY > 0 ? -0.12 : 0.12);
   };
 
@@ -48,9 +75,14 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
     if ((event.target as HTMLElement).closest(".talent-board-controls")) {
       return;
     }
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
-    setDragging(true);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      dragging: false,
+    };
   };
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
@@ -58,9 +90,18 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
     if (!drag || drag.pointerId !== event.pointerId) {
       return;
     }
-    const dx = event.clientX - drag.x;
-    const dy = event.clientY - drag.y;
-    dragRef.current = { ...drag, x: event.clientX, y: event.clientY };
+    if (!drag.dragging && !shouldStartTalentDrag(drag.startX, drag.startY, event.clientX, event.clientY)) {
+      return;
+    }
+
+    if (!drag.dragging) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setDragging(true);
+    }
+
+    const dx = event.clientX - drag.lastX;
+    const dy = event.clientY - drag.lastY;
+    dragRef.current = { ...drag, lastX: event.clientX, lastY: event.clientY, dragging: true };
     setView((current) => ({
       ...current,
       x: clamp(current.x + dx, -420, 420),
@@ -72,6 +113,9 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) {
       return;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
     }
     dragRef.current = null;
     setDragging(false);
@@ -106,6 +150,20 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
         </button>
       </div>
       <div className="talent-board-viewport" style={viewportStyle}>
+        {clusterRegions.map((region) => (
+          <div
+            className={`talent-cluster-region talent-cluster-region-${region.index % 6}`}
+            key={region.clusterId}
+            style={
+              {
+                "--talent-cluster-left": `${region.left}%`,
+                "--talent-cluster-top": `${region.top}%`,
+                "--talent-cluster-width": `${region.width}%`,
+                "--talent-cluster-height": `${region.height}%`,
+              } as CSSProperties
+            }
+          />
+        ))}
         <svg className="talent-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
           {nodes.flatMap((node) =>
             (node.requiredNodeIds ?? []).map((requiredId) => {
@@ -131,7 +189,6 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
               key={node.id}
               onClick={() => onSelectTalent(node.id)}
               style={{ "--talent-x": `${position.x}%`, "--talent-y": `${position.y}%` } as CSSProperties}
-              title={dataDescription("talent", node.id, node.description)}
               type="button"
             >
               <small>{node.cost} {t("ui.point.short")}</small>

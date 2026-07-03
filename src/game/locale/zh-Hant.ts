@@ -26,6 +26,9 @@ const messages: Record<string, string> = {
   "ui.control.speed": "速度",
   "ui.control.collect": "收取",
   "ui.control.clear": "清除",
+  "ui.control.close": "關閉",
+  "ui.control.expand": "展開",
+  "ui.control.collapse": "收合",
   "ui.control.equip": "裝備",
   "ui.control.lock": "鎖定",
   "ui.control.unlock": "解鎖",
@@ -66,6 +69,7 @@ const messages: Record<string, string> = {
   "ui.section.circuitNetwork": "迴路網路",
   "ui.section.clears": "通關",
   "ui.section.talents": "天賦",
+  "ui.section.inspector": "檢視器",
   "ui.section.damageBreakdown": "傷害拆解",
   "ui.section.breakpoints": "門檻狀態",
   "ui.section.equipCompare": "裝備比較",
@@ -175,11 +179,12 @@ const messages: Record<string, string> = {
   "ui.damage.source": "來源",
   "ui.damage.noConditional": "目前沒有條件加成。",
   "ui.damage.moreModifiers": "還有 {count} 條詞綴，可捲動查看",
+  "ui.damage.target": "對象",
   "ui.breakpoint.triggered": "已觸發",
   "ui.breakpoint.waiting": "未觸發",
   "ui.breakpoint.needMore": "還差 {value}",
   "ui.breakpoint.needLess": "需降低 {value}",
-  "ui.breakpoint.penaltyPrefix": "懲罰",
+  "ui.breakpoint.penaltyPrefix": "代價：",
   "ui.breakpoint.none": "目前沒有可顯示的門檻。",
   "ui.anomaly.active": "異象作用中",
   "ui.anomaly.rule.none": "無玩家規則",
@@ -230,6 +235,12 @@ const messages: Record<string, string> = {
   "ui.next.attemptGate": "嘗試 Boss 門",
   "ui.next.unlockRoute": "解鎖路線",
   "ui.next.startFarming": "開始刷場",
+  "ui.talent.doctrineActive": "教義已啟用",
+  "ui.talent.noDoctrine": "未選擇教義",
+  "ui.talent.requirement": "前置",
+  "ui.talent.cost": "花費",
+  "ui.talent.allocated": "已配點",
+  "ui.talent.availablePoints": "可用",
   "ui.tuning.title": "戰鬥手感",
   "ui.tuning.dev": "開發調校",
   "ui.tuning.basinPullMultiplier": "盆地拉力",
@@ -322,7 +333,7 @@ const terms: Record<string, string> = {
   "event.discharge": "放電",
   "event.stabilize": "回穩",
   "event.stance_shift": "姿態切換",
-  "event.reflect": "反射",
+  "event.reflect": "反彈",
   "modifier.flat": "固定加成",
   "modifier.increased": "增益（加法）",
   "modifier.reduced": "降低（加法）",
@@ -680,7 +691,7 @@ const talentDescriptions: Record<string, string> = {
   talent_keystone_overload_bearing: "高轉速時全傷害暴漲；低於門檻時同一顆軸承會拖慢輸出。",
   talent_keystone_centrifugal_orbit: "邊環壓力加倍，但抓地降低讓壞反彈更危險。",
   talent_keystone_resonance_meltdown: "滿核心能量讓每次放電都變得狂暴；空核心能量會拖垮循環。",
-  talent_keystone_rim_fortress: "寬邊環把配重轉為懲罰性接觸，代價是放電節奏變慢。",
+  talent_keystone_rim_fortress: "寬邊環把配重轉為高代價接觸，代價是放電節奏變慢。",
   talent_keystone_greedy_route: "製圖者迴路支付更多，但風險標籤傷害成為唯一乾淨輸出。",
 };
 
@@ -865,7 +876,7 @@ export function translateRuntimeText(text: string): string {
   match = text.match(/^(.+) enters the basin$/);
   if (match) return `${localizeEntityName(match[1])} 進入盆地`;
   match = text.match(/^(.+) reflects projectile pressure$/);
-  if (match) return `${localizeEntityName(match[1])} 反射投射壓力`;
+  if (match) return `${localizeEntityName(match[1])} 反彈投射壓力`;
   match = text.match(/^(.+) folds the basin into a gravity well$/);
   if (match) return `${localizeEntityName(match[1])} 將盆地折成重力井`;
   match = text.match(/^(.+) hammers the rim with a heavy crash$/);
