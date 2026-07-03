@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>戰鬥陀螺 — UI/UX 優化（第二版·依回饋重設計）</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: ui-sans-serif, system-ui, "Noto Sans TC","PingFang TC","Microsoft JhengHei", sans-serif; background:#0f172a; color:#cbd5e1; line-height:1.6; }
+  .wrap { max-width:70rem; margin:0 auto; padding:0 1.5rem; }
+  header.site { position:sticky; top:0; z-index:10; background:linear-gradient(90deg,#0f172a,#1e293b,#0f172a); border-bottom:1px solid #334155; }
+  header.site .bar { display:flex; align-items:baseline; justify-content:space-between; padding:1rem 0; }
+  .brand { font-size:1.2rem; font-weight:700; color:#f1f5f9; margin:0; }
+  .sub { font-size:.75rem; color:#64748b; margin:.25rem 0 0; }
+  main.wrap { padding:2rem 1.5rem; }
+  section.card { background:rgba(30,41,59,.6); border:1px solid #334155; border-radius:.75rem; padding:1.5rem; margin-bottom:1.5rem; }
+  h2 { font-size:1.35rem; font-weight:600; color:#f1f5f9; margin:0 0 1rem; display:flex; align-items:center; gap:.5rem; }
+  h2::before { content:""; width:.25rem; height:1.4rem; background:#818cf8; border-radius:9999px; }
+  h3 { font-size:1.05rem; color:#e2e8f0; margin:1.25rem 0 .5rem; }
+  p { margin:.5rem 0; }
+  .callout-info { background:rgba(99,102,241,.1); border-left:4px solid #818cf8; color:#e0e7ff; padding:1rem; border-radius:0 .5rem .5rem 0; }
+  .callout-ok { background:rgba(16,185,129,.1); border-left:4px solid #34d399; color:#d1fae5; padding:1rem; border-radius:0 .5rem .5rem 0; }
+  .callout-warn { background:rgba(245,158,11,.1); border-left:4px solid #fbbf24; color:#fef3c7; padding:1rem; border-radius:0 .5rem .5rem 0; }
+  .badge { display:inline-flex; align-items:center; justify-content:center; min-width:1.4rem; height:1.4rem; padding:0 .35rem; border-radius:.4rem; font-size:.8rem; font-weight:700; background:#6366f1; color:#fff; }
+  .anno { display:inline-flex; align-items:center; justify-content:center; min-width:1.2rem; height:1.2rem; padding:0 .3rem; border-radius:.35rem; font-size:.72rem; font-weight:700; background:#f59e0b; color:#111; margin-left:.3rem; vertical-align:middle; }
+  code { background:#1e293b; color:#fcd34d; padding:.1rem .35rem; border-radius:.25rem; font-size:.9em; }
+  table.tbl { width:100%; border-collapse:collapse; font-size:.85rem; border:1px solid #334155; margin:.5rem 0; }
+  table.tbl th { background:rgba(15,23,42,.8); color:#e2e8f0; padding:.5rem .8rem; text-align:left; border:1px solid #334155; }
+  table.tbl td { padding:.5rem .8rem; border:1px solid #334155; color:#cbd5e1; vertical-align:top; }
+  .note { font-size:.72rem; color:#64748b; }
+  del { color:#64748b; }
+
+  /* ── 戰鬥畫面 wireframe ── */
+  .combat { position:relative; border:2px solid #475569; border-radius:.6rem; background:radial-gradient(circle at 50% 46%, rgba(99,102,241,.10), #0b1220 62%); height:420px; overflow:hidden; margin:1rem 0; }
+  .boss-bar { position:absolute; top:8px; left:8px; right:8px; height:20px; border:1px solid #fb7185; border-radius:5px; background:#1e293b; overflow:hidden; }
+  .boss-bar > span { display:block; height:100%; width:72%; background:linear-gradient(90deg,#fb7185,#e11d48); }
+  .boss-bar .label { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:.66rem; color:#fff; text-shadow:0 1px 2px #000; }
+  .combat-top { position:absolute; top:34px; left:8px; right:8px; display:flex; align-items:center; gap:.6rem; font-size:.7rem; color:#94a3b8; }
+  .combat-top .grow { flex:1; }
+  .arena-big { position:absolute; left:50%; top:52%; transform:translate(-50%,-50%); width:300px; height:300px; border-radius:50%; border:2px solid #475569; box-shadow:0 0 40px rgba(99,102,241,.15) inset; }
+  .arena-big .me { position:absolute; width:34px; height:34px; border-radius:50%; background:#818cf8; left:38%; top:44%; box-shadow:0 0 12px #818cf8; }
+  .arena-big .enemy { position:absolute; width:22px; height:22px; border-radius:50%; background:#fb7185; left:60%; top:56%; }
+  .arena-big .elite { position:absolute; width:26px; height:26px; border-radius:50%; background:#fbbf24; left:56%; top:30%; }
+  .elite-hp { position:absolute; left:52%; top:23%; width:40px; height:5px; border:1px solid #fbbf24; border-radius:3px; background:#1e293b; overflow:hidden; }
+  .elite-hp > span { display:block; height:100%; width:55%; background:#fbbf24; }
+  .arena-cap { position:absolute; left:50%; bottom:8px; transform:translateX(-50%); font-size:.66rem; color:#475569; }
+
+  /* 雙球 HUD */
+  .orb-hud { position:absolute; left:16px; bottom:14px; width:120px; height:110px; }
+  .orb { position:absolute; border-radius:50%; overflow:hidden; border:2px solid; }
+  .orb .liquid { position:absolute; left:0; right:0; bottom:0; }
+  .orb-life { width:92px; height:92px; left:0; bottom:0; border-color:#34d399; background:#0b2018; }
+  .orb-life .liquid { height:60%; background:linear-gradient(#34d399,#059669); }
+  .orb-mana { width:56px; height:56px; right:0; top:0; border-color:#818cf8; background:#12122e; z-index:2; box-shadow:0 0 0 3px #0b1220; }
+  .orb-mana .liquid { height:42%; background:linear-gradient(#a5b4fc,#6366f1); }
+  .orb-tag { position:absolute; font-size:.6rem; color:#94a3b8; }
+  .loot-toast { position:absolute; right:14px; bottom:20px; border:1px solid #34d399; border-radius:.4rem; padding:.3rem .6rem; font-size:.66rem; color:#6ee7b7; background:rgba(16,185,129,.08); }
+
+  /* ── 地圖畫面 ── */
+  .screen { border:2px solid #475569; border-radius:.6rem; background:#0b1220; padding:.8rem; margin:1rem 0; }
+  .map-top { display:flex; justify-content:space-between; font-size:.72rem; color:#94a3b8; margin-bottom:.6rem; }
+  .map-flex { display:grid; grid-template-columns:2.2fr 1.3fr; gap:.8rem; }
+  .map-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:.5rem; }
+  .map-tile { border:1px dashed #475569; border-radius:.4rem; padding:.5rem; text-align:center; font-size:.7rem; color:#cbd5e1; min-height:66px; display:flex; flex-direction:column; justify-content:center; gap:.15rem; }
+  .map-tile.open { border-color:#34d399; }
+  .map-tile.locked { border-color:#64748b; color:#64748b; background:repeating-linear-gradient(45deg,transparent,transparent 6px,rgba(100,116,139,.08) 6px,rgba(100,116,139,.08) 12px); }
+  .map-tile.boss { border-color:#fb7185; color:#fda4af; }
+  .key-device { border:2px solid #818cf8; border-radius:.5rem; padding:.7rem; background:rgba(99,102,241,.06); font-size:.72rem; }
+  .key-slot { border:1px dashed #818cf8; border-radius:.4rem; padding:.5rem; text-align:center; margin:.4rem 0; color:#c7d2fe; }
+  .key-aff { font-size:.66rem; color:#94a3b8; margin:.15rem 0; }
+  .go-btn { display:block; text-align:center; border:1px solid #34d399; border-radius:.4rem; padding:.35rem; color:#6ee7b7; margin-top:.4rem; font-weight:700; }
+  .key-bag { margin-top:.6rem; font-size:.68rem; color:#94a3b8; display:flex; gap:.6rem; flex-wrap:wrap; }
+  .key-chip { border:1px solid #475569; border-radius:.3rem; padding:.15rem .4rem; }
+  .key-chip.rare { border-color:#fbbf24; color:#fde68a; }
+  .key-chip.boss { border-color:#fb7185; color:#fda4af; }
+
+  /* ── 工作台 ── */
+  .wb-grid { display:grid; grid-template-columns:1.1fr 1.9fr 1.4fr; gap:.7rem; }
+  .wb-col { border:1px dashed #475569; border-radius:.4rem; padding:.6rem; min-height:200px; }
+  .wf-label { font-size:.66rem; color:#64748b; text-transform:uppercase; letter-spacing:.04em; margin-bottom:.4rem; }
+  .circle-mini { width:96px; height:96px; border-radius:50%; border:2px solid #475569; margin:.4rem auto; display:flex; align-items:center; justify-content:center; }
+  .circle-mini .dotc { width:26px; height:26px; border-radius:50%; background:#818cf8; }
+  .slot-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:3px; margin-top:.4rem; }
+  .slot { aspect-ratio:1; border:1px dashed #475569; border-radius:.3rem; display:flex; align-items:center; justify-content:center; font-size:.6rem; color:#64748b; }
+  .inv-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:3px; }
+  .tabs { display:flex; gap:.3rem; font-size:.68rem; margin-bottom:.4rem; }
+  .tabs span { border:1px solid #475569; border-radius:.3rem; padding:.15rem .5rem; color:#94a3b8; }
+  .tabs span.active { background:#6366f1; color:#fff; border-color:#6366f1; }
+
+  .wf-toggle { text-align:center; margin-top:.7rem; }
+  .toggle-pill { display:inline-flex; border:1px solid #475569; border-radius:9999px; overflow:hidden; font-size:.72rem; }
+  .toggle-pill span { padding:.3rem .9rem; color:#94a3b8; }
+  .toggle-pill span.active { background:#6366f1; color:#fff; }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap bar">
+    <div>
+      <p class="brand">🌀 戰鬥陀螺 — UI/UX 優化（第二版）</p>
+      <p class="sub">依回饋重設計 · 2026-07-02 · 戰鬥畫面極簡化 + POE2 地圖鑰匙系統 + 雙球 HUD</p>
+    </div>
+    <span class="badge">v2</span>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- 這版改了什麼 -->
+  <section class="card">
+    <h2>這版依你的回饋改了什麼</h2>
+    <table class="tbl">
+      <thead><tr><th>你的回饋</th><th>這版怎麼改</th></tr></thead>
+      <tbody>
+        <tr><td>流派缺什麼不要做在表上，讓玩家自由發揮</td><td><del>移除流派狀態面板</del>。不做任何「還差幾件」的提示，流派完全交給玩家自己摸索。</td></tr>
+        <tr><td>戰鬥畫面只保留 HUD + 場地</td><td>戰鬥畫面極簡化，只剩大圓場地 + 疊在角落的 HUD，其餘全部移出。</td></tr>
+        <tr><td>圓形場地要覆蓋螢幕至少 2/3</td><td>場地放大置中，佔畫面主體；HUD 用「覆蓋」方式疊在角落，不佔版面、不擋戰鬥。</td></tr>
+        <tr><td>生命 + 魔力做成兩顆球疊在一起</td><td>E（命）大球 + Flux（魔力）小球，小球覆蓋在大球上，合成一組雙球 HUD。</td></tr>
+        <tr><td>只有 BOSS 給畫面血條；菁英在小陀螺上給；其餘不給</td><td>三級血條規則（見線框圖 A 與 §血條規則）。</td></tr>
+        <tr><td>刷圖跟 POE2 一樣，高難地圖需要 key</td><td>新增「地圖 / 刷圖」畫面：POE2 式鑰匙裝置，高階地圖要插鑰匙，鑰匙有詞綴（更難更肥）。</td></tr>
+        <tr><td>養成畫面才好好調裝備/天賦/技能</td><td>養成獨立成一個畫面，全屏處理裝備、天賦、技能。</td></tr>
+      </tbody>
+    </table>
+    <div class="callout-ok">
+      <strong>新的三畫面結構：</strong>① <strong>戰鬥</strong>（用看的，極簡）② <strong>地圖/刷圖</strong>（POE2 鑰匙，決定去哪刷）③ <strong>養成/工作台</strong>（全屏改裝備天賦技能）。戰鬥畫面只負責「呈現戰鬥」，決策都在另外兩個畫面。
+    </div>
+  </section>
+
+  <!-- 線框圖 A:戰鬥畫面 -->
+  <section class="card">
+    <h2>線框圖 A ｜ 戰鬥畫面（極簡·場地佔 2/3）</h2>
+    <div class="combat">
+      <div class="boss-bar"><span></span><div class="label">👑 BOSS — 磐石霸王　（只有 BOSS 時才出現這條）</div></div>
+      <div class="combat-top">
+        <span>≡ 地圖 T12</span><span class="grow"></span><span>▶ 暫停</span><span>1× <b style="color:#c7d2fe;">2×</b> 3×</span>
+      </div>
+      <div class="arena-big">
+        <div class="me"></div>
+        <div class="elite"></div>
+        <div class="elite-hp"><span></span></div>
+        <div class="enemy"></div>
+        <div class="arena-cap">大圓場地 ≥ 螢幕 2/3｜●我　🟡菁英(帶血條)　🔴雜怪(無血條)</div>
+      </div>
+      <!-- 雙球 HUD -->
+      <div class="orb-hud">
+        <div class="orb orb-life"><div class="liquid"></div></div>
+        <div class="orb orb-mana"><div class="liquid"></div></div>
+        <span class="orb-tag" style="left:2px;bottom:-2px;">E 命</span>
+        <span class="orb-tag" style="right:0;top:-2px;">Flux 魔</span>
+      </div>
+      <div class="loot-toast">✦ 掉落：稀有配重盤</div>
+    </div>
+    <p class="note">虛線/實線 = 區塊示意（線框，非最終視覺）。畫面上除了場地與角落雙球 HUD，什麼都沒有 —— 沉浸在戰鬥本身。</p>
+    <div class="callout-info">
+      <strong>雙球 HUD 的巧思：</strong>E（命，綠大球）與 Flux（魔，藍小球）疊成一組，小球覆蓋在大球右上。液面即時升降 → 一眼看能量。當 <code>Flux 乾 → 死亡螺旋</code> 觸發，兩球接觸處泛紅預警。放在左下角，完全不擋中央戰鬥。
+    </div>
+  </section>
+
+  <!-- 血條規則 -->
+  <section class="card">
+    <h2>血條顯示規則（三級）</h2>
+    <table class="tbl">
+      <thead><tr><th>敵人等級</th><th>血條怎麼顯示</th><th>為什麼</th></tr></thead>
+      <tbody>
+        <tr><td><strong>BOSS</strong></td><td>畫面頂部橫跨的大血條</td><td>王戰是重點事件，值得一條專屬大血條營造壓迫感與里程碑感</td></tr>
+        <tr><td><strong>菁英怪</strong></td><td>血條浮在該小陀螺正上方</td><td>菁英值得盯，但不需搶走畫面；血條跟著它走，玩家自然聚焦</td></tr>
+        <tr><td><strong>雜怪</strong></td><td>不顯示血條</td><td>雜怪靠「停轉 = 死」表達即可；不給血條，畫面才乾淨、不淪為血條海</td></tr>
+      </tbody>
+    </table>
+    <p class="note">補充：我方的命/魔一律看左下雙球，不在陀螺上另掛血條，避免資訊重複。</p>
+  </section>
+
+  <!-- 線框圖 B:地圖/刷圖 -->
+  <section class="card">
+    <h2>線框圖 B ｜ 地圖 / 刷圖（POE2 鑰匙系統）</h2>
+    <div class="screen">
+      <div class="map-top"><span>🗺 地圖 / 刷圖</span><span>💰 1,240　🔧 8</span></div>
+      <div class="map-flex">
+        <div>
+          <div class="wf-label">已解鎖地圖（越高階越肥，但要鑰匙）</div>
+          <div class="map-grid">
+            <div class="map-tile open">T1 熔爐<br><span class="note">自由進入</span></div>
+            <div class="map-tile open">T5 風洞<br><span class="note">自由進入</span></div>
+            <div class="map-tile locked">T10 🔒<br><span class="note">需鑰匙</span></div>
+            <div class="map-tile locked">T15 🔒<br><span class="note">需稀有鑰匙</span></div>
+            <div class="map-tile boss">👑 王域<br><span class="note">需王鑰</span></div>
+            <div class="map-tile locked">T20 🔒<br><span class="note">需鑰匙</span></div>
+          </div>
+        </div>
+        <div class="key-device">
+          <div class="wf-label" style="color:#c7d2fe;">鑰匙裝置</div>
+          <div class="key-slot">插入鑰匙<br><b>[稀有鑰匙 T12]</b></div>
+          <div class="key-aff">◆ 敵方強度 +40%</div>
+          <div class="key-aff">◆ 稀有掉落率 +25%</div>
+          <div class="key-aff">◆ 額外一隻菁英</div>
+          <span class="go-btn">▶ 出發</span>
+          <div class="key-bag">
+            <span class="key-chip">普通 ×3</span>
+            <span class="key-chip rare">稀有 ×1</span>
+            <span class="key-chip boss">王鑰 ×0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="callout-info">
+      <strong>對接你 repo 現成資產：</strong>這套幾乎是 repo 已有的 <code>arenaKeys.ts</code>（鑰匙生成/合法檢查）+ <code>arenaKeyAffixes.ts</code>（鑰匙詞綴）+ <code>bossGates.ts</code>（王域門檻）。POE2 玩法：<strong>鑰匙是掉落物，有稀有度與詞綴，詞綴讓地圖更難但更肥</strong>；高階地圖沒鑰匙進不去，王域要專屬王鑰。刷圖動機閉環天然成立。
+    </div>
+  </section>
+
+  <!-- 線框圖 C:養成 -->
+  <section class="card">
+    <h2>線框圖 C ｜ 養成 / 工作台（全屏調裝備·天賦·技能）</h2>
+    <div class="screen">
+      <div class="tabs"><span class="active">裝備</span><span>技能（Drive+符文）</span><span>天賦</span><span>熔煉</span></div>
+      <div class="wb-grid">
+        <div class="wb-col">
+          <div class="wf-label">我的陀螺（七槽）</div>
+          <div class="circle-mini"><div class="dotc"></div></div>
+          <div class="slot-grid">
+            <div class="slot">核</div><div class="slot">環</div><div class="slot">盤</div><div class="slot">尖</div>
+            <div class="slot">射</div><div class="slot">封</div><div class="slot">晶</div><div class="slot">＋</div>
+          </div>
+        </div>
+        <div class="wb-col">
+          <div class="wf-label">背包 / 掉落</div>
+          <div class="inv-grid">
+            <div class="slot"></div><div class="slot"></div><div class="slot"></div><div class="slot"></div><div class="slot"></div>
+            <div class="slot"></div><div class="slot"></div><div class="slot"></div><div class="slot"></div><div class="slot"></div>
+          </div>
+        </div>
+        <div class="wb-col">
+          <div class="wf-label">詞綴 / 比較</div>
+          <p class="note">選中一件 → 顯示前綴/後綴、與現有比較（↑↓）。<strong>不顯示「這推進了哪個流派」</strong> —— 讓玩家自己判讀詞綴、自己組流派。</p>
+        </div>
+      </div>
+    </div>
+    <p class="note">養成畫面才是密集資訊的家。這裡可以慢慢看、慢慢比、慢慢想 —— 因為不在 live 戰鬥旁邊，怎麼複雜都不影響戰鬥沉浸。</p>
+  </section>
+
+  <!-- 三畫面切換 -->
+  <section class="card">
+    <h2>三畫面怎麼切</h2>
+    <div class="wf-toggle" style="text-align:left;">
+      <span class="toggle-pill"><span class="active">戰鬥</span><span>地圖/刷圖</span><span>養成</span></span>
+    </div>
+    <p class="note" style="margin-top:.6rem;">戰鬥打完 → 回地圖選下一張（要鑰匙就插鑰匙）→ 想變強就進養成 → 再回戰鬥。三個畫面各司其職，戰鬥畫面永遠保持乾淨。</p>
+  </section>
+
+  <!-- 待確認 -->
+  <section class="card">
+    <h2>設計定案（已拍板）</h2>
+    <ul>
+      <li><strong>雙球位置 → 左下角</strong>（定案）。</li>
+      <li><strong>鑰匙 → 可合成，但高難 BOSS 鑰匙只能靠掉落</strong>（定案）。一般鑰匙可用素材合成/升階；頂級王鑰維持稀有掉落，保住王戰的分量與稀缺性。</li>
+      <li><strong>雜怪死亡 → 直接碎裂消失</strong>（定案）。無血條、無倒地過場，致死即碎裂 fade out，畫面乾淨俐落。</li>
+      <li><strong>天賦節點 → 尚未設計</strong>。養成畫面的天賦頁先留空框，節點內容之後再設計。</li>
+      <li class="note">地圖呈現先用「格狀列表」；PoE 式節點圖集（Atlas）列為之後可選升級。</li>
+    </ul>
+    <p class="note">實作交接：本線框為視覺目標，實作規格見 docs/13（給 Codex 的 UI 實作規格）。</p>
+  </section>
+
+</main>
+
+<footer style="text-align:center;font-size:.72rem;color:#475569;padding:2rem;">戰鬥陀螺 UI/UX 優化想法稿 v2 · 2026-07-02 · 線框為概念示意，非最終視覺</footer>
+
+</body>
+</html>

@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>戰鬥陀螺爬塔 × POE2 — 底層設計規格（分層合併版）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      background: '#0f172a',
+      primaryColor: '#1e293b',
+      primaryTextColor: '#e2e8f0',
+      primaryBorderColor: '#475569',
+      lineColor: '#94a3b8',
+      secondaryColor: '#1e293b',
+      tertiaryColor: '#0f172a',
+    },
+    flowchart: { curve: 'basis', htmlLabels: true },
+    securityLevel: 'loose',
+  });
+</script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/atom-one-dark.min.css">
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
+<script>document.addEventListener('DOMContentLoaded', () => hljs.highlightAll());</script>
+<style type="text/tailwindcss">
+  :root { color-scheme: dark; }
+  body { font-family: ui-sans-serif, system-ui, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif; }
+  .card { @apply bg-slate-800/60 border border-slate-700 rounded-xl p-6 shadow-lg backdrop-blur; }
+  .callout-info { @apply bg-indigo-500/10 border-l-4 border-indigo-400 text-indigo-100 p-4 rounded-r-lg; }
+  .callout-warn { @apply bg-amber-500/10 border-l-4 border-amber-400 text-amber-100 p-4 rounded-r-lg; }
+  .callout-danger { @apply bg-rose-500/10 border-l-4 border-rose-400 text-rose-100 p-4 rounded-r-lg; }
+  .callout-ok { @apply bg-emerald-500/10 border-l-4 border-emerald-400 text-emerald-100 p-4 rounded-r-lg; }
+  table.tbl { @apply w-full border-collapse text-sm border border-slate-700 rounded-lg overflow-hidden; }
+  table.tbl th { @apply bg-slate-900/80 text-slate-200 px-4 py-2 text-left font-semibold border border-slate-700; }
+  table.tbl td { @apply px-4 py-2 text-slate-300 border border-slate-700 align-top; }
+  table.tbl tr:hover td { @apply bg-slate-800/40; }
+  .badge { @apply inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium; }
+  .badge-indigo { @apply bg-indigo-500/20 text-indigo-300 border border-indigo-500/30; }
+  .badge-emerald { @apply bg-emerald-500/20 text-emerald-300 border border-emerald-500/30; }
+  .badge-amber { @apply bg-amber-500/20 text-amber-300 border border-amber-500/30; }
+  .badge-rose { @apply bg-rose-500/20 text-rose-300 border border-rose-500/30; }
+  .badge-slate { @apply bg-slate-700 text-slate-300 border border-slate-600; }
+  pre { @apply rounded-lg overflow-x-auto text-sm leading-relaxed my-3; }
+  pre code.hljs { @apply p-4 rounded-lg; }
+  .mermaid { @apply bg-slate-900/60 rounded-lg p-4 my-3 flex justify-center; }
+  h1 { @apply text-3xl font-bold text-slate-100 mb-2; }
+  h2 { @apply text-2xl font-semibold text-slate-100 mt-8 mb-4 flex items-center gap-2; }
+  h2::before { content: ''; @apply w-1 h-6 bg-indigo-400 rounded-full; }
+  h3 { @apply text-lg font-semibold text-slate-200 mt-4 mb-2; }
+  p { @apply text-slate-300 leading-relaxed my-2; }
+  ul { @apply list-disc list-outside ml-6 text-slate-300 space-y-1 my-2; }
+  ol { @apply list-decimal list-outside ml-6 text-slate-300 space-y-1 my-2; }
+  a { @apply text-indigo-400 hover:text-indigo-300 underline underline-offset-2; }
+  code:not(.hljs) { @apply bg-slate-800 text-amber-300 px-1.5 py-0.5 rounded text-[0.9em] font-mono; }
+  blockquote { @apply border-l-4 border-slate-600 pl-4 text-slate-400 italic my-3; }
+  dl { @apply grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm my-3; }
+  dt { @apply font-semibold text-slate-400; }
+  dd { @apply text-slate-200; }
+</style>
+</head>
+<body class="bg-slate-900 text-slate-300 min-h-screen">
+
+<!-- HEADER -->
+<header class="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border-b border-slate-700 sticky top-0 z-10 backdrop-blur-md">
+  <div class="max-w-5xl mx-auto px-6 py-4 flex items-baseline justify-between">
+    <div>
+      <h1 class="text-xl font-bold text-slate-100">🌀 戰鬥陀螺爬塔 × POE2 — 底層設計規格</h1>
+      <p class="text-xs text-slate-500 mt-1">分層合併版 · 2026-07-02 · 肉體層（物理）× build 層（POE2 刷寶）· 承接核心數值交接文件</p>
+    </div>
+    <span class="badge badge-indigo">📐 底層規格</span>
+  </div>
+</header>
+
+<main class="max-w-5xl mx-auto px-6 py-8 space-y-6">
+
+  <!-- 0. 設計定位 -->
+  <section class="card">
+    <h2>0. 設計定位：分層合併</h2>
+    <div class="callout-info">
+      <strong>一句話：</strong>POE2 是骨架（刷寶湊 build、加法桶/乘法桶/稀有度/門檻），戰鬥陀螺是皮肉（把那套骨架用「旋轉、撞擊、能量」的物理型態演出來）。兩層各自完整，只在一個點咬合：<strong>肉體層算出的傷害種子與頻率，餵進 build 層的傷害乘算鏈。</strong>
+    </div>
+    <div class="mermaid">
+flowchart LR
+  subgraph BODY[肉體層 · 物理身體]
+    F[力量 F] --> W[旋轉能量 E = 命]
+    M[質量 M] --> D[單發種子 D]
+    F --> OM[轉速 ω = 頻率]
+    M --> I[慣量 I]
+    I --> OM
+  end
+  subgraph BUILD[build 層 · POE2 靈魂]
+    FLAT[加法桶] --> MORE[乘法桶 more]
+    MORE --> CONV[轉換 / 觸發 / keystone]
+  end
+  D -->|base| FLAT
+  OM -->|×頻率| OUT[實際 DPS]
+  CONV --> OUT
+    </div>
+    <p><strong>本文件範圍：</strong>只定義「底層」——物理模型、屬性、稀有度、傷害管線接口、成長與門檻。具體流派、關卡內容、美術不在此列（那是底層鎖定後的下一層）。</p>
+  </section>
+
+  <!-- 1. 肉體層:三輸入與質量兩張臉 -->
+  <section class="card">
+    <h2>1. 肉體層：三個輸入、質量的兩張臉</h2>
+    <p>每一場戰鬥由三個輸入決定：</p>
+    <table class="tbl">
+      <thead><tr><th>輸入</th><th>白話</th><th>來源</th></tr></thead>
+      <tbody>
+        <tr><td><strong>力量 F</strong></td><td>發射灌進的勁道，動能來源</td><td>等級（唯一）</td></tr>
+        <tr><td><strong>體積 V</strong></td><td>陀螺大小 → 半徑</td><td>屬性點道具（可洗，見 §7）</td></tr>
+        <tr><td><strong>質量 M</strong></td><td>陀螺有多少「料」</td><td>屬性點道具（可洗，見 §7）</td></tr>
+      </tbody>
+    </table>
+
+    <h3>質量的兩張臉：質量 ≠ 重量</h3>
+    <p>質量是唯一輸入，但它有兩張臉，這兩張臉天生綁在一起、不可分割——這正是取捨的來源：</p>
+    <table class="tbl">
+      <thead><tr><th>臉</th><th>物理意義</th><th>遊戲效果</th></tr></thead>
+      <tbody>
+        <tr><td><strong>質量臉</strong>（攻擊/慣性）</td><td>有多少料 → 動量、轉動慣量</td><td>單發傷害 D↑、抗擊退↑、慣量 I↑（儲能久）</td></tr>
+        <tr><td><strong>重量臉</strong>（地面效應）</td><td>料被重力往下壓的力 → 對地壓力</td><td>抓地/抗出界↑、<strong>但地面摩擦↑ → 旋轉能量掉更快</strong></td></tr>
+      </tbody>
+    </table>
+    <div class="callout-ok mt-3">
+      <strong>主張：不做「重量」獨立屬性。</strong>固定重力下重量 = 質量 × 常數，做兩個屬性只是多記一個沒有獨立決策的數字。堆質量 → 自動同時拿到「撞得痛、推不動、儲能久」與付出「掉速快、要靠抓地補」。物理誠實，且取捨天然成立。
+    </div>
+    <p class="text-xs text-slate-500">真實佐證：beyblade 分攻擊/防禦/持久型，差別不只總質量，更在「質量分布」（料在邊緣 vs 中心）→ 慣量不同。本設計用體積 V 與質量 M 的組合近似分布（見 §2 的 I 公式）。</p>
+  </section>
+
+  <!-- 2. 轉速 vs 旋轉能量 -->
+  <section class="card">
+    <h2>2. 轉速 vs 旋轉能量（兩個不同的東西）</h2>
+    <p>物理鐵律：<strong>旋轉能量 E = ½ × 轉動慣量 I × 轉速²</strong>。轉速與能量是兩回事，分開後系統更好玩：</p>
+    <pre><code class="language-text"># 派生量
+I = M × V^(2/3)          # 轉動慣量 ∝ 質量 × 半徑²（半徑 ∝ 體積開三次方）
+
+# 旋轉能量 = 命（會消耗、要補充）
+E                        # 進場初值由 F 決定；每 tick 被摩擦與碰撞扣
+
+# 轉速 = 由「當下剩多少能量」算出來（不是固定值）
+ω = sqrt( 2E / I )       # 能量滿 → 轉得快；能量見底 → 自然慢下來、失穩
+
+# 三個戰鬥表現
+攻擊頻率  ∝ ω            # 轉速就是攻擊快慢
+單發種子  D = M          # 只看質量 —— 力量再高單發也不變痛
+抗擊退    ∝ M            # 越重越站得穩</code></pre>
+    <div class="callout-ok">
+      <strong>好處：失穩是免費送的。</strong>能量快見底 → ω 自然下降 → 攻擊變慢、開始搖晃、最後停轉。不需要額外寫「失穩規則」，它是物理的自然結果。而且「持久型 = 邊緣配重 = 高慣量 = 轉得久」這種真實流派，直接從公式長出來。
+    </div>
+    <div class="callout-ok mt-3">
+      <strong>✅ 已定案 A：採物理版。</strong>轉速隨能量衰減（ω 由 E 算出），失穩免費送，放棄簡化版（ω=F/I 固定）。代價是平衡較難調——用 §10 的「地面摩擦」與「Flux 回充率」兩個旋鈕，壓制「重陀螺慢轉存超多能量」的物理副作用。
+    </div>
+  </section>
+
+  <!-- 3. 兩池能量迴圈 -->
+  <section class="card">
+    <h2>3. 兩池能量迴圈（戰鬥的心臟）</h2>
+    <p>真實陀螺只會掉速、不會自己回充——「能量補充」是我們加的奇幻層，說法藏在 <code>Drive Core</code>（驅動核心）：<strong>它是陀螺內建的小馬達/飛輪</strong>。做成兩池：</p>
+    <table class="tbl">
+      <thead><tr><th>能量池</th><th>是什麼</th><th>消耗</th><th>補充</th></tr></thead>
+      <tbody>
+        <tr><td><strong>旋轉能量 E</strong>（命）</td><td>血量 + 轉速來源</td><td>摩擦持續掉 + 被撞掉</td><td>靠 Flux 灌回</td></tr>
+        <tr><td><strong>核心能量 Flux</strong>（馬達電）</td><td>內建馬達的電</td><td>放主動技能 / 灌回旋轉</td><td>持續回充（共振 Resonance）+ 撞擊回充 + 擊殺回充</td></tr>
+      </tbody>
+    </table>
+    <div class="mermaid">
+flowchart TD
+  L[發射力量 F] -->|進場| E[旋轉能量 E · 命]
+  FR[共振 Resonance] -->|每秒回充| FX[核心能量 Flux]
+  HIT[撞到人 / 擊殺] -->|跳電| FX
+  E -->|摩擦 + 被撞| DR[持續流失]
+  FX -->|灌回旋轉| E
+  FX -->|放主動技能| SK[爆發輸出]
+  DR --> Q{Flux 還夠嗎?}
+  Q -->|夠| E
+  Q -->|乾了| DEAD[E 只掉不回<br/>死亡螺旋 → 停轉]
+    </div>
+    <div class="callout-info">
+      <strong>藏在裡面的核心決策：</strong>Flux 有限，你要花在「灌回旋轉（苟活）」還是「放技能（爆發打人）」？激進派用 Flux 轟人、靠撞擊回充滾雪球；穩健派用 Flux 續命、磨死對手。<strong>這一個選擇就撐起兩種流派</strong>，而且回充（共振）是可以刷的 POE 詞綴，直接咬回 build 層。
+    </div>
+  </section>
+
+  <!-- 4. 三圍 -->
+  <section class="card">
+    <h2>4. 三圍（剛 / 旋 / 蓄）＝ 門檻 + 升級成長</h2>
+    <div class="callout-danger"><strong>⚠️ 本節已作廢（2026-07-02 定案）：砍掉三圍。</strong>兩輪獨立分析發現剛/旋/蓄與物理量並非 1:1（旋=ω 是動態衍生值、蓄=能量是衍生容量、只有剛=配重是原生），別名會讓玩家誤以為是三條可獨立加點的屬性＝製造謊言。改為：門檻與顯示一律直接用誠實物理名（<strong>配重 / 體積 / 旋能 / 核心能量 / 轉速</strong>），零翻譯層。以下三圍內容僅存查，實作依 docs/15。</div>
+    <p>對應 POE2 的 力/敏/智。<strong>一個系統身兼兩職</strong>：既是升級的成長物，也是裝備/技能的門檻（＝「白裝」機制的判定來源）。</p>
+    <table class="tbl">
+      <thead><tr><th>陀螺三圍</th><th>對應 POE2</th><th>管什麼 / 當誰的門檻</th></tr></thead>
+      <tbody>
+        <tr><td><strong>剛</strong></td><td>STR 力</td><td>重量、撞擊 —— 重配重盤、轟擊 Drive 的資格</td></tr>
+        <tr><td><strong>旋</strong></td><td>DEX 敏</td><td>轉速、抓地 —— 高速軸尖、多段 Drive 的資格</td></tr>
+        <tr><td><strong>蓄</strong></td><td>INT 智</td><td>能量、回充 —— 能量爆發 Drive、共振裝的資格</td></tr>
+      </tbody>
+    </table>
+    <ul class="mt-3">
+      <li><strong>等級</strong>：給力量 F（驅動 ω 與 E＝「量」），並依陀螺類型（職業）少量偏向地加三圍（照 POE2 職業偏向）。</li>
+      <li><strong>屬性點道具</strong>（可洗）：讓玩家自己加碼三圍或體積/質量，決定要達成哪些門檻。</li>
+      <li><strong>三圍作用</strong>：① 當裝備/Drive 的門檻（＝白裝機制）② 提供少量被動加成。</li>
+    </ul>
+    <div class="callout-ok mt-2">
+      <strong>✅ 已定案 C：三圍給「很少」的加成，主要當門檻。</strong>三圍本身只提供極小的被動加成（點綴級，<strong>不是傷害來源</strong>）。真正的傷害成長來自「<strong>天賦點 × 裝備</strong>」的連動——玩家靠天賦樹的乘算節點與裝備詞綴湊出流派，而不是靠堆三圍變強。三圍只負責「開資格」與微幅調味。
+    </div>
+  </section>
+
+  <!-- 5. build層:七槽 + 稀有度 -->
+  <section class="card">
+    <h2>5. build 層：七槽定位 × POE2 對照</h2>
+    <p>repo 現有七槽（<code>topTypes.ts:168</code>）：<code>core / attackRing / weightDisk / tip / launcher / seal / circuitChip</code>。每槽有唯一數學職責，不再每槽都塞純加法。</p>
+    <table class="tbl">
+      <thead><tr><th>槽位</th><th>肉體層職責</th><th>build 層職責</th><th>對應 POE2</th></tr></thead>
+      <tbody>
+        <tr><td><strong>core 核心</strong></td><td>續航/血 + 能量底</td><td>flat + 條件詞綴載體</td><td>胸甲</td></tr>
+        <tr><td><strong>attackRing 攻擊環</strong></td><td>碰撞半徑、傷害類型</td><td>local base + more 主場 + 轉換來源 + 暴擊</td><td>武器</td></tr>
+        <tr><td><strong>weightDisk 配重盤</strong></td><td><strong>質量主來源</strong>（D 種子）</td><td>flat（餵 D）+ 質量閾值載體</td><td>盾/重甲</td></tr>
+        <tr><td><strong>tip 軸尖</strong></td><td>轉速、抓地（抗出界）</td><td>increased 行動速度 + 移動條件</td><td>靴子</td></tr>
+        <tr><td><strong>launcher 發射器</strong></td><td><strong>力量注入點</strong>（開局 ω）</td><td>flat torque + on-launch 觸發</td><td>藥劑/引擎</td></tr>
+        <tr><td><strong>seal 封印</strong></td><td>幾乎不碰</td><td><strong>條件/觸發（流派開關主力）</strong></td><td>珠寶/護符</td></tr>
+        <tr><td><strong>circuitChip 迴路晶片</strong></td><td>不碰（純被動）</td><td><strong>keystone 質變閘門</strong></td><td>被動樹珠寶</td></tr>
+      </tbody>
+    </table>
+
+    <h3>稀有度階梯（比照 POE2）</h3>
+    <p><strong>稀有度決定「有幾條詞綴」，掉落樓層（item level）決定「詞綴能滾到多好的階（T1 最好）」。</strong></p>
+    <table class="tbl">
+      <thead><tr><th>稀有度</th><th>詞綴數</th><th>陀螺零件定位</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge badge-slate">普通 白</span></td><td>0，只有基礎值</td><td>純底盤</td></tr>
+        <tr><td><span class="badge badge-indigo">魔法 藍</span></td><td>1 前綴 + 1 後綴（2）</td><td>入門零件</td></tr>
+        <tr><td><span class="badge badge-amber">稀有 黃</span></td><td>最多 3 前綴 + 3 後綴（6）</td><td>主力追求</td></tr>
+        <tr><td><span class="badge badge-rose">傳奇 橙</span></td><td>固定特殊效果（不滾詞綴）</td><td>流派核心（repo 已有 4 個雛形）</td></tr>
+      </tbody>
+    </table>
+    <div class="callout-danger mt-3">
+      <strong>關鍵鐵律：裝備詞綴只給「加法（flat / increased）」，不給「more 乘法」。</strong>稀有度高 = 詞綴格子多 + 能滾更高階，但給的還是加法。<strong>「more 乘法」不在裝備上</strong>（見 §6），這是永不因神裝崩盤的護城河。
+    </div>
+    <h3>前綴 / 後綴分池（POE2 兩池互斥）</h3>
+    <dl>
+      <dt>前綴 = 身體/輸出</dt><dd>flat 撞擊傷害、質量、續航/血、扭力</dd>
+      <dt>後綴 = 功能</dt><dd>抓地、飄移、追蹤、能量回充、抗性、暴擊、轉速</dd>
+    </dl>
+    <p class="text-xs text-slate-500">repo 的 <code>engravings.ts</code> 已有 prefix/suffix/group/tier/weight，完全對得上，不需重寫。</p>
+  </section>
+
+  <!-- 6. 傷害管線 -->
+  <section class="card">
+    <h2>6. 傷害公式管線 × 稀有度（越後段越稀有）</h2>
+    <p>一發傷害從「種子」被層層放大的生產線。<strong>越靠後段（乘法、轉換、質變）越稀有；越靠前段（加法）越普通。</strong></p>
+    <pre><code class="language-text">肉體層                         build 層 (resolveTopHit, topDamage.ts)
+────────                       ───────────────────────────────────────
+M ─► D=M ─► base ─────────┐
+                          ├─► conversion   ← attackRing/seal 轉換詞綴（稀有 T3）
+flat 詞綴（普通 T1）───────┤
+                          ▼
+             (base + Σflat)                  ← 加法（白/藍裝，豐富）
+             × (1 + Σincreased − Σreduced)   ← 加法桶（藍/黃裝，會鈍化）
+             × Π(1+more) × Π(1−less)         ← 乘法桶 ← 只從符文/keystone（稀有 T3）
+                          ▼
+             mitigate( guard / resist / 敵護甲 A: max(D−A,0) )
+             × hitChance × critEV            ← attackRing 暴擊（稀有 T2–T3）
+                          ▼
+             單發傷害 perHit  ── 這是「質」
+
+ω(由 E 算出) ──► × 攻擊頻率 ──► DPS = perHit × freq(ω)  ── 這是「量」
+E ──► 血量（每次被扣對方 perHit）</code></pre>
+
+    <h3>算例：親眼看到每個屬性怎麼進乘算</h3>
+    <table class="tbl">
+      <thead><tr><th>步驟</th><th>重擊流（M=8）</th><th>高速流（M=2）</th></tr></thead>
+      <tbody>
+        <tr><td>① 種子 D=M</td><td>8</td><td>2</td></tr>
+        <tr><td>② +flat（+2）</td><td>10</td><td>4</td></tr>
+        <tr><td>③ ×(1+increased 40%)</td><td>14</td><td>5.6</td></tr>
+        <tr><td>④ ×more 60%（重擊 Drive）</td><td>22.4</td><td>—（速度流不帶 more）</td></tr>
+        <tr><td>⑤ 暴擊 EV ×1.2</td><td><strong>≈ 26.9</strong></td><td><strong>≈ 6.7</strong></td></tr>
+        <tr><td>頻率（ω）</td><td>慢（每秒約 0.4 下）</td><td>快（每秒約 1.6 下）</td></tr>
+        <tr><td>護甲前 DPS</td><td>≈ 10.6</td><td>≈ 10.7（量補質，打平）</td></tr>
+        <tr><td>對護甲 A=6</td><td>26.9−6 = <span class="badge badge-emerald">20.9 戳穿</span></td><td>6.7−6 = <span class="badge badge-rose">0.7 幾乎戳不動</span></td></tr>
+      </tbody>
+    </table>
+    <div class="callout-info mt-2">
+      <strong>證明使用者要的事成立：</strong>護甲前兩者 DPS 打平（等級買量不買質），護甲後重陀螺完勝（質破牆）。每個屬性——M 進 base、詞綴進 increased、Drive 進 more、ω 進頻率、護甲進 mitigate——都在乘算鏈上有各自明確的位置。
+    </div>
+  </section>
+
+  <!-- 7. 技能系統 + 洗點 -->
+  <section class="card">
+    <h2>7. 技能系統與洗點（比照 POE2）</h2>
+    <h3>組合規則</h3>
+    <ul>
+      <li>一顆陀螺帶 <strong>1 個主動 Drive + 最多 5 個輔助 Rune</strong>（＝ 6-link）；輔助插槽數隨進度 2 → 3 → 5。</li>
+      <li><strong>more 乘法只從 Rune（＝輔助寶石）來</strong>，稀缺性靠兩條：① 每顆 Drive 的插槽有限、② <strong>每顆符文整台陀螺只能用一次</strong>（POE2 規則）。repo <code>supportFamily</code> 已防同家族疊加，補一條「全 build 唯一」即對齊。</li>
+    </ul>
+    <h3>「白裝」＝ 裝了等於沒裝：三層發動門檻</h3>
+    <table class="tbl">
+      <thead><tr><th>條件層</th><th>POE2 做法</th><th>套進陀螺</th></tr></thead>
+      <tbody>
+        <tr><td>① 裝備資格</td><td>三圍不夠根本裝不上</td><td>剛/旋/蓄 不足 → Drive 裝不上</td></tr>
+        <tr><td>② 標籤相容</td><td>近戰輔助不能掛法術</td><td>符文 tag 要對得上 Drive（<code>isRuneCompatible</code> 已做）</td></tr>
+        <tr><td>③ 發動條件</td><td>連段/觸發前置</td><td><strong>質量&lt;門檻的重擊 Drive = 裝了也打不出 = 白裝</strong></td></tr>
+      </tbody>
+    </table>
+    <div class="callout-ok mt-2">
+      <strong>✅ 已定案 B：硬門檻（比照 POE2）。</strong>第 ③ 層條件不到 → Drive 完全不發動（裝了等於沒裝），不做打折。流派邊界清楚，湊條件的成就感明確。
+    </div>
+    <h3>洗點</h3>
+    <div class="callout-ok">
+      <strong>屬性點可洗，付代價（覆蓋交接文件「不可洗」）。</strong>比照 POE2：花遊戲金幣類資源洗，前期便宜、後期越貴。用「成本」讓決策有重量，而非「不可逆」——既能自由試流派、配錯不廢檔，又不會變成無重量的隨意切換。
+    </div>
+  </section>
+
+  <!-- 8. 兩層接口速查 -->
+  <section class="card">
+    <h2>8. 兩層接口速查（動工對照卡）</h2>
+    <table class="tbl">
+      <thead><tr><th>肉體層屬性</th><th>進公式哪一格</th><th>身分</th></tr></thead>
+      <tbody>
+        <tr><td>質量 M</td><td>① base 種子（D=M）</td><td>「質」——所有倍數乘它身上</td></tr>
+        <tr><td>力量 F</td><td>不進單發；驅動 ω 與 E</td><td>「量」的引擎</td></tr>
+        <tr><td>轉速 ω（由 E 算）</td><td>頻率（乘在總量外）</td><td>攻擊快慢</td></tr>
+        <tr><td>旋轉能量 E</td><td>血量</td><td>存活池</td></tr>
+        <tr><td>體積 V</td><td>進 I 壓低 ω + 開放 AoE + 裝備門檻</td><td>取捨旋鈕</td></tr>
+      </tbody>
+    </table>
+    <div class="callout-danger mt-2">
+      <strong>接口關鍵一刀（現有 code bug）：</strong><code>arenaRuntime.ts / topCombat.ts</code> 目前 <code>packet.impact = impact + mass × rpm × 18</code>，<strong>把質量與轉速都灌進單發 = 雙重灌水</strong>，違反「D=M、ω=頻率」。改成：per-hit base = <code>M × κ</code>（只吃質量），rpm 移出 per-hit、改乘在頻率項。這一刀拆開，兩層才無縫咬合。
+    </div>
+  </section>
+
+  <!-- 9. 爬塔節奏 -->
+  <section class="card">
+    <h2>9. 爬塔節奏（承接交接文件，維持不變）</h2>
+    <pre><code class="language-text">F(L)   = 10 × L^0.7        # 等級→力量：次線性，邊際遞減，逼玩家轉養成
+Req(n) = 50 × 1.15^n       # 塔層難度：每層 +15% 複利
+有效傷害 = max(D − A, 0)    # 後期敵人護甲 A</code></pre>
+    <p>複利成長終究甩開次線性 → <strong>純刷等級必然撞牆</strong>（設計目標）。純刷級推塔：10 層≈4 級、20≈10、30≈27、40≈73（軟牆）、50≈200（自殺）。卡關 → 換重陀螺/點乘算技能破牆 → 更高層再卡 → 再養成，這個循環是遊戲的心跳。</p>
+  </section>
+
+  <!-- 10. 調校旋鈕 -->
+  <section class="card">
+    <h2>10. 調校旋鈕（全部外置設定檔，不寫死）</h2>
+    <table class="tbl">
+      <thead><tr><th>旋鈕</th><th>初值</th><th>作用</th></tr></thead>
+      <tbody>
+        <tr><td>塔層難度成長率</td><td>1.15</td><td>最重要；每 ±0.01，軟牆移 ±3 層</td></tr>
+        <tr><td>每質量傷害常數 κ</td><td>待定</td><td>把抽象 D=M 對到 repo 的傷害量級</td></tr>
+        <tr><td>裝備門檻係數</td><td>1/4</td><td>壓制「小體積+大質量」高密度流</td></tr>
+        <tr><td>Flux 回充率（共振基準）</td><td>待定</td><td>調高 = 苟活流更強、能量迴圈更寬鬆</td></tr>
+        <tr><td>地面摩擦（能量流失率）</td><td>待定</td><td>平衡「重陀螺慢轉存超多能量」的物理副作用</td></tr>
+        <tr><td>符文插槽數曲線</td><td>2→3→5</td><td>控制 more 乘法的稀缺度</td></tr>
+        <tr><td>洗點成本曲線</td><td>待定</td><td>隨等級遞增，讓洗點有重量</td></tr>
+        <tr><td>等級成長指數</td><td>0.7</td><td>0.7=牆平緩；調到 1=前期更爽後期牆更硬</td></tr>
+        <tr><td>護甲曲線 A(n)</td><td>後期版本設計</td><td>決定輕陀螺後期「戳不穿」程度</td></tr>
+        <tr><td>開放場地出現比例</td><td>約 20 層起遞增</td><td>輕靈流轉型節奏的直接開關</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 11. 待拍板決策 -->
+  <section class="card">
+    <h2>11. 設計定案（三個岔路已鎖定）</h2>
+    <div class="callout-ok mb-3">
+      <strong>A. 轉速 → 物理版（已定案）。</strong>ω 由能量 E 衰減算出，失穩免費。用 §10 摩擦/回充旋鈕平衡「慢轉存超多能量」的副作用。
+    </div>
+    <div class="callout-ok mb-3">
+      <strong>B. 白裝門檻 → 硬（已定案，比照 POE2）。</strong>條件不到，Drive 完全不發動，不打折。
+    </div>
+    <div class="callout-ok mb-3">
+      <strong>C. 三圍 → 少量加成、主要當門檻（已定案）。</strong>三圍只點綴，<strong>主要傷害來自「天賦點 × 裝備」連動</strong>。
+    </div>
+    <div class="callout-info">
+      <strong>建議動工順序（底層鎖定後）：</strong>① 拆開「雙重灌水」接口一刀（§8）② 接通兩池能量迴圈（§3，讓玩家會輸）③ 質量/慣量/能量衍生公式（§2）④ 稀有度 + 前綴後綴詞綴池（§5）⑤ 條件門檻系統（§4、§7 白裝）⑥ more 稀缺化 + keystone（§6、§7）。這一步才建議動用 Fable 出正式實作計畫、派 Sonnet 執行。
+    </div>
+  </section>
+
+</main>
+
+<footer class="max-w-5xl mx-auto px-6 py-8 text-center text-xs text-slate-600">
+  戰鬥陀螺爬塔 × POE2 底層設計規格（分層合併版）· 2026-07-02 · 承接《核心數值設計交接文件》
+</footer>
+
+</body>
+</html>
