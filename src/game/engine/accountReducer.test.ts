@@ -184,7 +184,7 @@ describe("accountReducer", () => {
   });
 
   it("enforces atlas prerequisites and route-derived point budget", () => {
-    const state = createState();
+    const state = createState({ routeClears: { arena_cinder_crucible: 2 } });
     const root = accountReducer(state, { type: "allocateAtlasNode", nodeId: "atlas_breach_calibrator" });
     const child = accountReducer(root, { type: "allocateAtlasNode", nodeId: "atlas_dense_rail" });
     const tooExpensive = accountReducer(child, { type: "allocateAtlasNode", nodeId: "atlas_glass_lure" });
@@ -192,6 +192,11 @@ describe("accountReducer", () => {
     expect(child.circuitAtlasNodeIds).toEqual(["atlas_breach_calibrator", "atlas_dense_rail"]);
     expect(tooExpensive.circuitAtlasNodeIds).toEqual(child.circuitAtlasNodeIds);
     expect(availableAtlasPoints(child)).toBe(0);
+  });
+
+  it("starts atlas at zero points and clamps old overspent saves", () => {
+    expect(availableAtlasPoints(createState())).toBe(0);
+    expect(availableAtlasPoints(createState({ circuitAtlasNodeIds: ["atlas_breach_calibrator"] }))).toBe(0);
   });
 
   it("selects only doctrines that match the active frame", () => {

@@ -23,6 +23,8 @@ type TalentBoardSize = {
   height: number;
 };
 
+export type TalentFogState = "revealed" | "preview" | "fogged";
+
 type DragState = {
   pointerId: number;
   startX: number;
@@ -42,6 +44,16 @@ function clamp(value: number, min: number, max: number): number {
 
 export function shouldStartTalentDrag(startX: number, startY: number, currentX: number, currentY: number, threshold = TALENT_DRAG_THRESHOLD_PX): boolean {
   return Math.hypot(currentX - startX, currentY - startY) >= threshold;
+}
+
+export function selectTalentFogState(node: TalentNodeDef, activeTalentIds: ReadonlySet<string>, availableTalentIds: ReadonlySet<string>): TalentFogState {
+  if (activeTalentIds.has(node.id) || availableTalentIds.has(node.id)) {
+    return "revealed";
+  }
+  if ((node.requiredNodeIds ?? []).some((requiredId) => activeTalentIds.has(requiredId) || availableTalentIds.has(requiredId))) {
+    return "preview";
+  }
+  return "fogged";
 }
 
 function fitScaleForBoard(boardSize: TalentBoardSize): number {
@@ -75,6 +87,8 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
   const fitInitializedRef = useRef(false);
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const activeSet = new Set(activeTalentIds);
+  const availableSet = new Set(nodes.filter((node) => canUseTalent(node.id)).map((node) => node.id));
+  const fogStateById = new Map(nodes.map((node) => [node.id, selectTalentFogState(node, activeSet, availableSet)]));
   const clusterRegions = useMemo(() => {
     const groups = new Map<string, TalentNodeDef[]>();
     for (const node of nodes) {
@@ -227,7 +241,9 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
               const from = nodeById.get(requiredId)?.position;
               const to = node.position;
               const active = activeSet.has(requiredId) && activeSet.has(node.id);
-              return from && to ? <line className={active ? "talent-link talent-link-active" : "talent-link"} key={`${requiredId}-${node.id}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} /> : null;
+              const fogged = fogStateById.get(requiredId) === "fogged" || fogStateById.get(node.id) === "fogged";
+              const linkClass = active ? "talent-link talent-link-active" : fogged ? "talent-link talent-link-fog" : "talent-link";
+              return from && to ? <line className={linkClass} key={`${requiredId}-${node.id}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} /> : null;
             }),
           )}
         </svg>
@@ -235,21 +251,41 @@ export function TalentTreeView({ nodes, activeTalentIds, selectedTalentId, canUs
           const active = activeSet.has(node.id);
           const available = canUseTalent(node.id);
           const selected = selectedTalentId === node.id;
+          const fogState = fogStateById.get(node.id) ?? "fogged";
           const position = node.position;
-          const talentClass = ["talent-node", `talent-node-${node.kind}`, active ? "talent-node-active" : "", selected ? "talent-node-selected" : "", !active && !available ? "talent-node-locked" : ""]
+          const talentClass = [
+            "talent-node",
+            `talent-node-${node.kind}`,
+            `talent-node-${fogState}`,
+            active ? "talent-node-active" : "",
+            selected && fogState !== "fogged" ? "talent-node-selected" : "",
+            !active && !available && fogState !== "fogged" ? "talent-node-locked" : "",
+          ]
             .filter(Boolean)
             .join(" ");
           return (
             <button
-              aria-pressed={selected}
+              aria-label={fogState === "fogged" ? t("ui.talent.unknown") : undefined}
+              aria-pressed={fogState !== "fogged" && selected}
               className={talentClass}
+              disabled={fogState === "fogged"}
               key={node.id}
-              onClick={() => onSelectTalent(node.id)}
+              onClick={() => {
+                if (fogState !== "fogged") {
+                  onSelectTalent(node.id);
+                }
+              }}
               style={{ "--talent-x": `${position.x}%`, "--talent-y": `${position.y}%` } as CSSProperties}
               type="button"
             >
-              <small>{node.cost} {t("ui.point.short")}</small>
-              <strong>{dataName("talent", node.id, node.displayName)}</strong>
+              {fogState === "fogged" ? (
+                <span className="talent-node-silhouette" aria-hidden />
+              ) : (
+                <>
+                  <small>{node.cost} {t("ui.point.short")}</small>
+                  <strong>{dataName("talent", node.id, node.displayName)}</strong>
+                </>
+              )}
             </button>
           );
         })}

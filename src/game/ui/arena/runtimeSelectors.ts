@@ -1,12 +1,64 @@
 import { balanceConfig } from "../../data/balanceConfig";
 import { getDriveCoreDef } from "../../data/driveCores";
+import { tutorialSteps, type TutorialTrigger } from "../../data/tutorialSteps";
 import { attrValueForCondition, evaluateCombatCondition, type CombatContext } from "../../engine/conditionEval";
 import { evaluateDriveGate, type DriveGateStatus } from "../../engine/driveGate";
 import { clamp } from "../../engine/math";
 import { createCollisionPacket, createProjectionEnemyStats, projectTopCombat } from "../../engine/topCombat";
 import { resolveTopHit } from "../../engine/topDamage";
 import { effectiveCooldownFromOmega, resolveStatsPhysics } from "../../engine/topPhysics";
-import type { CombatCondition, CombatEvent, DamagePacket, DriveCoreDef, TopLoadoutConfig, TopModifierDef, TopRuntimeEntity, TopRuntimeStats } from "../../engine/topTypes";
+import type { CircuitNetworkNodeDef, CombatCondition, CombatEvent, DamagePacket, DriveCoreDef, TopLoadoutConfig, TopModifierDef, TopRuntimeEntity, TopRuntimeStats, TuningRuneDef } from "../../engine/topTypes";
+
+export type FeatureUnlockId = "skills" | "forge" | "talents" | "doctrine" | "arenaKeys" | "bossGate" | "wallet" | "anomaly";
+
+export type FeatureUnlockContext = {
+  seenTutorialIds: readonly string[];
+  activeTutorialTriggers: Partial<Record<TutorialTrigger, boolean>>;
+};
+
+export const featureUnlockTutorialIds: Record<FeatureUnlockId, string> = {
+  skills: "tut_first_rune",
+  forge: "tut_first_forge",
+  talents: "tut_first_talent",
+  doctrine: "tut_doctrine",
+  arenaKeys: "tut_first_key",
+  bossGate: "tut_boss_gate",
+  wallet: "tut_first_forge",
+  anomaly: "tut_first_anomaly",
+};
+
+const tutorialStepById = new Map(tutorialSteps.map((step) => [step.id, step]));
+
+export function isFeatureUnlocked(featureId: FeatureUnlockId, context: FeatureUnlockContext): boolean {
+  const tutorialId = featureUnlockTutorialIds[featureId];
+  const step = tutorialStepById.get(tutorialId);
+  if (!step) {
+    return false;
+  }
+  return context.seenTutorialIds.includes(tutorialId) || Boolean(context.activeTutorialTriggers[step.trigger]);
+}
+
+export function selectVisibleNetworkNodeIds(nodes: readonly CircuitNetworkNodeDef[], unlockedNodeIds: ReadonlySet<string>): Set<string> {
+  return new Set(
+    nodes
+      .filter((node) => {
+        if (unlockedNodeIds.has(node.id)) {
+          return true;
+        }
+        const requiredNodeIds = node.requiredNodeIds ?? [];
+        return requiredNodeIds.length === 0 || requiredNodeIds.every((nodeId) => unlockedNodeIds.has(nodeId));
+      })
+      .map((node) => node.id),
+  );
+}
+
+export function shouldCollapseCircuitAtlas(availableAtlasPoints: number, allocatedAtlasNodeIds: readonly string[]): boolean {
+  return availableAtlasPoints <= 0 && allocatedAtlasNodeIds.length === 0;
+}
+
+export function selectVisibleRunes(runes: readonly TuningRuneDef[], ownedRuneIds: ReadonlySet<string>, catalogExpanded: boolean): TuningRuneDef[] {
+  return catalogExpanded ? [...runes] : runes.filter((rune) => ownedRuneIds.has(rune.id));
+}
 
 export type DamageBreakdownLine = {
   id: string;

@@ -170,7 +170,7 @@ export function availableTalentPoints(state: Pick<AccountRuntimeState, "talentId
 }
 
 export function atlasPointTotal(totalKills: number, routeClears: Record<string, number>): number {
-  return 2 + Math.floor(Math.max(0, totalKills) / 28) + Object.values(routeClears).reduce((total, clears) => total + Math.max(0, Math.floor(clears)), 0);
+  return Math.floor(Math.max(0, totalKills) / 28) + Object.values(routeClears).reduce((total, clears) => total + Math.max(0, Math.floor(clears)), 0);
 }
 
 export function spentAtlasPoints(nodeIds: string[]): number {
@@ -178,7 +178,7 @@ export function spentAtlasPoints(nodeIds: string[]): number {
 }
 
 export function availableAtlasPoints(state: Pick<AccountRuntimeState, "circuitAtlasNodeIds" | "routeClears" | "totalKills">): number {
-  return atlasPointTotal(state.totalKills, state.routeClears) - spentAtlasPoints(state.circuitAtlasNodeIds);
+  return Math.max(0, atlasPointTotal(state.totalKills, state.routeClears) - spentAtlasPoints(state.circuitAtlasNodeIds));
 }
 
 export function isTalentReachable(allocatedTalentIds: string[], talentId: string): boolean {
