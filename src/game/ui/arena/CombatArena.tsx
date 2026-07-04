@@ -1117,6 +1117,8 @@ export function CombatArena() {
   const [selectedOfflineNodeId, setSelectedOfflineNodeId] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [doctrineExpanded, setDoctrineExpanded] = useState(false);
+  const [lootRulesExpanded, setLootRulesExpanded] = useState(false);
+  const [endgameMastersExpanded, setEndgameMastersExpanded] = useState(false);
   const [clearsExpanded, setClearsExpanded] = useState(false);
   const [currentArenaKey, setCurrentArenaKey] = useState<ArenaKey | null>(null);
   const [activeAnomalyId, setActiveAnomalyId] = useState<string | null>(null);
@@ -2448,8 +2450,8 @@ export function CombatArena() {
         <div className="loot-policy-panel" aria-label="戰利品規則">
           <div className="loot-policy-head">
             <span>
-              <small>戰利品規則</small>
-              <strong>{lootPolicy.autoSalvage ? "自動拆解啟用" : "手動確認"}</strong>
+              <small>背包整理</small>
+              <strong>{lootPolicy.autoSalvage ? "自動整理中" : "先保留，手動確認"}</strong>
             </span>
             <button
               aria-pressed={lootPolicy.autoSalvage}
@@ -2458,11 +2460,12 @@ export function CombatArena() {
               type="button"
             >
               <Recycle size={15} aria-hidden />
-              {lootPolicy.autoSalvage ? "自動" : "手動"}
+              {lootPolicy.autoSalvage ? "自動整理" : "手動整理"}
             </button>
           </div>
+          <p className="loot-policy-summary">{lootPolicy.autoSalvage ? "升級件會保留，低價值零件直接變材料。" : "掉落先進背包；背包滿時才容量回收。"}</p>
           <div className="loot-policy-control loot-policy-control-wide">
-            <small>快速預設</small>
+            <small>整理方式</small>
             <div className="loot-policy-preset-row" role="group" aria-label="戰利品規則預設">
               {lootPolicyPresets.map((preset) => (
                 <button
@@ -2514,102 +2517,115 @@ export function CombatArena() {
               <span>自動拆解目前關閉；掉落會先保留，背包滿時才容量回收。</span>
             </div>
           ) : null}
-          <div className="loot-policy-control">
-            <small>最低稀有度</small>
-            <div className="loot-policy-chip-row" role="group" aria-label="最低稀有度">
-              {lootPolicyRarities.map((rarity) => (
-                <button
-                  aria-pressed={lootPolicy.minRarity === rarity}
-                  className={lootPolicy.minRarity === rarity ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
-                  key={rarity}
-                  onClick={() => updateLootPolicy({ minRarity: rarity })}
-                  type="button"
-                >
-                  {displayRarity(rarity)}
-                </button>
-              ))}
-            </div>
+          <div className="loot-policy-advanced-head">
+            <span>
+              <small>進階條件</small>
+              <strong>{displayRarity(lootPolicy.minRarity)} / {lootPolicy.minItemLevel}+ / {lootPolicy.minScore >= 0 ? `+${lootPolicy.minScore}` : lootPolicy.minScore}</strong>
+            </span>
+            <button className="section-counter section-counter-button" aria-expanded={lootRulesExpanded} onClick={() => setLootRulesExpanded((value) => !value)} type="button">
+              {lootRulesExpanded ? "收合" : "展開"}
+            </button>
           </div>
-          <div className="loot-policy-control">
-            <small>物品等級</small>
-            <div className="loot-policy-chip-row" role="group" aria-label="物品等級">
-              {lootPolicyItemLevelPresets.map((itemLevel) => (
-                <button
-                  aria-pressed={lootPolicy.minItemLevel === itemLevel}
-                  className={lootPolicy.minItemLevel === itemLevel ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
-                  key={itemLevel}
-                  onClick={() => updateLootPolicy({ minItemLevel: itemLevel })}
-                  type="button"
-                >
-                  {itemLevel}+
-                </button>
-              ))}
+          {lootRulesExpanded ? (
+            <div className="loot-policy-advanced">
+              <div className="loot-policy-control">
+                <small>最低稀有度</small>
+                <div className="loot-policy-chip-row" role="group" aria-label="最低稀有度">
+                  {lootPolicyRarities.map((rarity) => (
+                    <button
+                      aria-pressed={lootPolicy.minRarity === rarity}
+                      className={lootPolicy.minRarity === rarity ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
+                      key={rarity}
+                      onClick={() => updateLootPolicy({ minRarity: rarity })}
+                      type="button"
+                    >
+                      {displayRarity(rarity)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="loot-policy-control">
+                <small>物品等級</small>
+                <div className="loot-policy-chip-row" role="group" aria-label="物品等級">
+                  {lootPolicyItemLevelPresets.map((itemLevel) => (
+                    <button
+                      aria-pressed={lootPolicy.minItemLevel === itemLevel}
+                      className={lootPolicy.minItemLevel === itemLevel ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
+                      key={itemLevel}
+                      onClick={() => updateLootPolicy({ minItemLevel: itemLevel })}
+                      type="button"
+                    >
+                      {itemLevel}+
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="loot-policy-control">
+                <small>戰力分數</small>
+                <div className="loot-policy-chip-row" role="group" aria-label="戰力分數">
+                  {lootPolicyScorePresets.map((score) => (
+                    <button
+                      aria-pressed={lootPolicy.minScore === score}
+                      className={lootPolicy.minScore === score ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
+                      key={score}
+                      onClick={() => updateLootPolicy({ minScore: score })}
+                      type="button"
+                    >
+                      {score >= 0 ? `+${score}` : score}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="loot-policy-control loot-policy-control-wide">
+                <small>目標槽位</small>
+                <div className="loot-policy-chip-row" role="group" aria-label="目標槽位">
+                  <button
+                    aria-pressed={lootPolicy.targetSlots.length === partSlotOrder.length}
+                    className={lootPolicy.targetSlots.length === partSlotOrder.length ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
+                    onClick={() => updateLootPolicy({ targetSlots: [...partSlotOrder] })}
+                    type="button"
+                  >
+                    全槽
+                  </button>
+                  {partSlotOrder.map((slot) => (
+                    <button
+                      aria-pressed={lootPolicy.targetSlots.includes(slot)}
+                      className={lootPolicy.targetSlots.includes(slot) ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
+                      key={slot}
+                      onClick={() => toggleLootPolicySlot(slot)}
+                      type="button"
+                    >
+                      {displaySlot(slot)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="loot-policy-control loot-policy-control-wide">
+                <small>追蹤標籤</small>
+                <div className="loot-policy-chip-row" role="group" aria-label="追蹤標籤">
+                  <button
+                    aria-pressed={lootPolicy.targetTags.length === 0}
+                    className={lootPolicy.targetTags.length === 0 ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
+                    onClick={() => updateLootPolicy({ targetTags: [] })}
+                    type="button"
+                  >
+                    全部
+                  </button>
+                  {lootPolicyDriveTags.map((tag) => (
+                    <button
+                      aria-pressed={lootPolicy.targetTags.includes(tag)}
+                      className={lootPolicy.targetTags.includes(tag) ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
+                      key={tag}
+                      onClick={() => toggleLootPolicyTag(tag)}
+                      type="button"
+                    >
+                      {formatTags([tag])}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="loot-policy-control">
-            <small>戰力分數</small>
-            <div className="loot-policy-chip-row" role="group" aria-label="戰力分數">
-              {lootPolicyScorePresets.map((score) => (
-                <button
-                  aria-pressed={lootPolicy.minScore === score}
-                  className={lootPolicy.minScore === score ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
-                  key={score}
-                  onClick={() => updateLootPolicy({ minScore: score })}
-                  type="button"
-                >
-                  {score >= 0 ? `+${score}` : score}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="loot-policy-control loot-policy-control-wide">
-            <small>目標槽位</small>
-            <div className="loot-policy-chip-row" role="group" aria-label="目標槽位">
-              <button
-                aria-pressed={lootPolicy.targetSlots.length === partSlotOrder.length}
-                className={lootPolicy.targetSlots.length === partSlotOrder.length ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
-                onClick={() => updateLootPolicy({ targetSlots: [...partSlotOrder] })}
-                type="button"
-              >
-                全槽
-              </button>
-              {partSlotOrder.map((slot) => (
-                <button
-                  aria-pressed={lootPolicy.targetSlots.includes(slot)}
-                  className={lootPolicy.targetSlots.includes(slot) ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
-                  key={slot}
-                  onClick={() => toggleLootPolicySlot(slot)}
-                  type="button"
-                >
-                  {displaySlot(slot)}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="loot-policy-control loot-policy-control-wide">
-            <small>追蹤標籤</small>
-            <div className="loot-policy-chip-row" role="group" aria-label="追蹤標籤">
-              <button
-                aria-pressed={lootPolicy.targetTags.length === 0}
-                className={lootPolicy.targetTags.length === 0 ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
-                onClick={() => updateLootPolicy({ targetTags: [] })}
-                type="button"
-              >
-                全部
-              </button>
-              {lootPolicyDriveTags.map((tag) => (
-                <button
-                  aria-pressed={lootPolicy.targetTags.includes(tag)}
-                  className={lootPolicy.targetTags.includes(tag) ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
-                  key={tag}
-                  onClick={() => toggleLootPolicyTag(tag)}
-                  type="button"
-                >
-                  {formatTags([tag])}
-                </button>
-              ))}
-            </div>
-          </div>
+          ) : null}
         </div>
         <div className="inventory-grid" aria-label={t("ui.aria.inventoryGrid")}>
           {inventoryCells.map((part, index) => {
@@ -2761,7 +2777,7 @@ export function CombatArena() {
       <section className="workbench-section build-archetype-section">
         <div className="section-title">
           <Activity size={17} aria-hidden />
-          <h2>Build Identity</h2>
+          <h2>戰鬥流派</h2>
           <span className="section-counter">{buildArchetypeLabel(buildArchetypeProjection.primary)}</span>
         </div>
         <div className="build-archetype-card">
@@ -2772,7 +2788,7 @@ export function CombatArena() {
             </span>
             <b>{formatPercent(buildArchetypeProjection.scores[0]?.score ?? 0, 0)}</b>
           </div>
-          <div className="build-archetype-bars" aria-label="Build archetype scores">
+          <div className="build-archetype-bars" aria-label="戰鬥流派分數">
             {buildArchetypeProjection.scores.slice(0, 4).map((score) => (
               <span key={score.id}>
                 <small>{buildArchetypeLabel(score.id)}</small>
@@ -3455,6 +3471,124 @@ export function CombatArena() {
     );
   };
 
+  const renderEndgameMasterPanel = () => (
+    <div className="endgame-master-panel">
+      <div className="endgame-master-heading">
+        <div>
+          <small>{t("ui.endgame.preview")}</small>
+          <strong>{t("ui.section.endgameMasters")}</strong>
+        </div>
+        <div className="endgame-master-actions">
+          <span>{t("ui.endgame.activeNodes")}: {endgameMasterBonuses.activeNodeCount}</span>
+          <button className="section-counter section-counter-button" aria-expanded={endgameMastersExpanded} onClick={() => setEndgameMastersExpanded((value) => !value)} type="button">
+            {endgameMastersExpanded ? t("ui.control.collapse") : t("ui.control.expand")}
+          </button>
+        </div>
+      </div>
+      <div className="endgame-effect-strip">
+        <small>{t("ui.endgame.effects")}</small>
+        <div>
+          {endgameEffectLines.length > 0 ? endgameEffectLines.map((line) => <span key={line}>{line}</span>) : <span>{t("ui.endgame.noEffects")}</span>}
+        </div>
+      </div>
+      {endgameMastersExpanded ? (
+        <div className="endgame-master-grid">
+          {endgameMasters.map((master) => {
+            const projection = endgameMasterProjections.find((entry) => entry.masterId === master.id);
+            if (!projection) {
+              return null;
+            }
+            const activeNodeIds = projection.activeNodeIds;
+            return (
+              <article className="endgame-master-card" key={master.id}>
+                <div className="endgame-master-card-head">
+                  <div>
+                    <small>{master.rewardTargets.map(formatEndgameRewardTarget).join(" / ")}</small>
+                    <strong>{dataName("endgameMaster", master.id, master.displayName)}</strong>
+                  </div>
+                  <span>{formatPercent(projection.readiness, 0)}</span>
+                </div>
+                <p>{dataDescription("endgameMaster", master.id, master.description)}</p>
+                <div className="endgame-master-meter" style={{ "--endgame-readiness": `${projection.readiness * 100}%` } as CSSProperties} aria-hidden>
+                  <span />
+                </div>
+                <div className="endgame-master-facts">
+                  <span>
+                    <small>{t("ui.endgame.activeSignal")}</small>
+                    <strong>{formatEndgameSignalProgress(projection, projection.activeSignal)}</strong>
+                  </span>
+                  <span>
+                    <small>{t("ui.endgame.missing")}</small>
+                    <strong>{formatEndgameMissing(projection)}</strong>
+                  </span>
+                  <span>
+                    <small>{t("ui.endgame.activeNodes")}</small>
+                    <strong>{activeNodeIds.length}/{master.maxActiveNodes}</strong>
+                  </span>
+                </div>
+                <div className="endgame-node-list">
+                  {master.nodes.map((node) => {
+                    const active = activeNodeIds.includes(node.id);
+                    const recommended = projection.suggestedNodeIds.includes(node.id);
+                    const canUse = canUseEndgameMasterNode(master.id, node.id);
+                    const nodeName = dataName("endgameMasterNode", node.id, node.displayName);
+                    const nodeDescription = dataDescription("endgameMasterNode", node.id, node.description);
+                    const nodeClassName = [
+                      "endgame-node-chip",
+                      active ? "endgame-node-chip-active" : "",
+                      recommended ? "endgame-node-chip-suggested" : "",
+                      !canUse ? "endgame-node-chip-locked" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ");
+                    return (
+                      <button
+                        aria-label={`${nodeName}: ${nodeDescription}`}
+                        className={nodeClassName}
+                        disabled={!canUse}
+                        key={node.id}
+                        onClick={() => toggleEndgameMasterNode(master.id, node.id)}
+                        title={nodeDescription}
+                        type="button"
+                      >
+                        <small>
+                          {active ? t("ui.endgame.active") : recommended ? t("ui.endgame.suggested") : t("ui.endgame.configurable")} / T{node.tier}
+                        </small>
+                        <strong>{nodeName}</strong>
+                        <em>{formatEndgameRewardTarget(node.rewardTarget)}</em>
+                      </button>
+                    );
+                  })}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="endgame-master-summary-grid">
+          {endgameMasters.map((master) => {
+            const projection = endgameMasterProjections.find((entry) => entry.masterId === master.id);
+            if (!projection) {
+              return null;
+            }
+            const activeNodeIds = projection.activeNodeIds;
+            const suggestedNode = master.nodes.find((node) => projection.suggestedNodeIds.includes(node.id));
+            return (
+              <button className="endgame-master-summary-card" key={master.id} onClick={() => setEndgameMastersExpanded(true)} type="button">
+                <span>
+                  <small>{dataName("endgameMaster", master.id, master.displayName)}</small>
+                  <strong>{formatPercent(projection.readiness, 0)}</strong>
+                </span>
+                <em>{suggestedNode ? dataName("endgameMasterNode", suggestedNode.id, suggestedNode.displayName) : formatEndgameMissing(projection)}</em>
+                <small>{activeNodeIds.length}/{master.maxActiveNodes} {t("ui.endgame.activeNodes")}</small>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
   const renderTalentsPanel = () => {
     const frameDoctrines = doctrineForFrame(frameId);
     const selectedDoctrine = doctrineId ? getDoctrineDef(doctrineId) : null;
@@ -3499,93 +3633,6 @@ export function CombatArena() {
             </div>
           </div>
         ) : null}
-        <div className="endgame-master-panel">
-          <div className="endgame-master-heading">
-            <div>
-              <small>{t("ui.endgame.preview")}</small>
-              <strong>{t("ui.section.endgameMasters")}</strong>
-            </div>
-            <span>{t("ui.endgame.activeNodes")}: {endgameMasterBonuses.activeNodeCount}</span>
-          </div>
-          <div className="endgame-effect-strip">
-            <small>{t("ui.endgame.effects")}</small>
-            <div>
-              {endgameEffectLines.length > 0 ? endgameEffectLines.map((line) => <span key={line}>{line}</span>) : <span>{t("ui.endgame.noEffects")}</span>}
-            </div>
-          </div>
-          <div className="endgame-master-grid">
-            {endgameMasters.map((master) => {
-              const projection = endgameMasterProjections.find((entry) => entry.masterId === master.id);
-              if (!projection) {
-                return null;
-              }
-              const activeNodeIds = projection.activeNodeIds;
-              return (
-                <article className="endgame-master-card" key={master.id}>
-                  <div className="endgame-master-card-head">
-                    <div>
-                      <small>{master.rewardTargets.map(formatEndgameRewardTarget).join(" / ")}</small>
-                      <strong>{dataName("endgameMaster", master.id, master.displayName)}</strong>
-                    </div>
-                    <span>{formatPercent(projection.readiness, 0)}</span>
-                  </div>
-                  <p>{dataDescription("endgameMaster", master.id, master.description)}</p>
-                  <div className="endgame-master-meter" style={{ "--endgame-readiness": `${projection.readiness * 100}%` } as CSSProperties} aria-hidden>
-                    <span />
-                  </div>
-                  <div className="endgame-master-facts">
-                    <span>
-                      <small>{t("ui.endgame.activeSignal")}</small>
-                      <strong>{formatEndgameSignalProgress(projection, projection.activeSignal)}</strong>
-                    </span>
-                    <span>
-                      <small>{t("ui.endgame.missing")}</small>
-                      <strong>{formatEndgameMissing(projection)}</strong>
-                    </span>
-                    <span>
-                      <small>{t("ui.endgame.activeNodes")}</small>
-                      <strong>{activeNodeIds.length}/{master.maxActiveNodes}</strong>
-                    </span>
-                  </div>
-                  <div className="endgame-node-list">
-                    {master.nodes.map((node) => {
-                      const active = activeNodeIds.includes(node.id);
-                      const recommended = projection.suggestedNodeIds.includes(node.id);
-                      const canUse = canUseEndgameMasterNode(master.id, node.id);
-                      const nodeName = dataName("endgameMasterNode", node.id, node.displayName);
-                      const nodeDescription = dataDescription("endgameMasterNode", node.id, node.description);
-                      const nodeClassName = [
-                        "endgame-node-chip",
-                        active ? "endgame-node-chip-active" : "",
-                        recommended ? "endgame-node-chip-suggested" : "",
-                        !canUse ? "endgame-node-chip-locked" : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" ");
-                      return (
-                        <button
-                          aria-label={`${nodeName}: ${nodeDescription}`}
-                          className={nodeClassName}
-                          disabled={!canUse}
-                          key={node.id}
-                          onClick={() => toggleEndgameMasterNode(master.id, node.id)}
-                          title={nodeDescription}
-                          type="button"
-                        >
-                          <small>
-                            {active ? t("ui.endgame.active") : recommended ? t("ui.endgame.suggested") : t("ui.endgame.configurable")} / T{node.tier}
-                          </small>
-                          <strong>{nodeName}</strong>
-                          <em>{formatEndgameRewardTarget(node.rewardTarget)}</em>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </div>
         <TalentTreeView
           activeTalentIds={talentIds}
           canUseTalent={(talentId) => (talentIds.includes(talentId) ? canRefundTalent(talentId) : canAllocateTalent(talentId))}
@@ -3596,6 +3643,7 @@ export function CombatArena() {
         <div className="talent-note">
           {talentIds.length} 個已啟用節點 / {availableTalentPoints} 點可用
         </div>
+        {renderEndgameMasterPanel()}
       </section>
     );
   };

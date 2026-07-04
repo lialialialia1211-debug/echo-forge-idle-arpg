@@ -2634,7 +2634,10 @@
 }
 
 .loot-policy-head,
+.loot-policy-summary,
 .loot-policy-preview,
+.loot-policy-advanced-head,
+.loot-policy-advanced,
 .loot-policy-control-wide {
   grid-column: 1 / -1;
 }
@@ -2648,6 +2651,7 @@
 }
 
 .loot-policy-head span,
+.loot-policy-advanced-head span,
 .loot-policy-preview span,
 .loot-policy-control {
   min-width: 0;
@@ -2656,6 +2660,7 @@
 }
 
 .loot-policy-head small,
+.loot-policy-advanced-head small,
 .loot-policy-preview small,
 .loot-policy-control > small {
   min-width: 0;
@@ -2673,6 +2678,39 @@
   font-size: 0.82rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.loot-policy-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.loot-policy-advanced-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid rgba(230, 215, 181, 0.1);
+  padding-top: 8px;
+}
+
+.loot-policy-advanced-head strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--soft);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loot-policy-advanced {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .loot-policy-toggle {
@@ -3465,7 +3503,7 @@
 
 .endgame-master-heading {
   display: flex;
-  align-items: end;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   border: 1px solid rgba(217, 165, 84, 0.18);
@@ -3480,6 +3518,13 @@
   gap: 2px;
 }
 
+.endgame-master-heading .endgame-master-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .endgame-master-heading small,
 .endgame-master-heading span {
   color: var(--muted);
@@ -3489,6 +3534,60 @@
 .endgame-master-heading strong {
   color: var(--brass);
   font-size: 0.9rem;
+}
+
+.endgame-master-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.endgame-master-summary-card {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(230, 215, 181, 0.12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  padding: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.endgame-master-summary-card:hover {
+  border-color: rgba(217, 165, 84, 0.38);
+  background: rgba(217, 165, 84, 0.075);
+}
+
+.endgame-master-summary-card span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.endgame-master-summary-card small,
+.endgame-master-summary-card em {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.endgame-master-summary-card strong {
+  flex: 0 0 auto;
+  color: var(--teal);
+  font-size: 0.72rem;
+}
+
+.endgame-master-summary-card em {
+  color: var(--soft);
+  font-style: normal;
 }
 
 .endgame-master-grid {
@@ -5184,6 +5283,10 @@
     grid-template-columns: 1fr;
   }
 
+  .loot-policy-advanced {
+    grid-template-columns: 1fr;
+  }
+
   .loot-policy-chip {
     flex: 1 1 58px;
   }
@@ -5201,6 +5304,16 @@
   }
 
   .endgame-master-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .endgame-master-heading,
+  .endgame-master-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .endgame-master-summary-grid {
     grid-template-columns: 1fr;
   }
 
