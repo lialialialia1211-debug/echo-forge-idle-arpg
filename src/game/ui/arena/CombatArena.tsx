@@ -30,6 +30,7 @@ import { circuitAtlasNodes, getCircuitAtlasNodeDef } from "../../data/circuitAtl
 import { circuitNetworkNodes } from "../../data/circuitNetwork";
 import { doctrineForFrame, getDoctrineDef } from "../../data/doctrines";
 import { driveCores, getDriveCoreDef } from "../../data/driveCores";
+import { endgameMasters, getEndgameMasterNodeDef, type EndgameMasterRewardTarget, type EndgameMasterSignal } from "../../data/endgameMasters";
 import { getNamedRivalDef, namedRivals } from "../../data/namedRivals";
 import { talentNodes, getTalentNodeDef } from "../../data/talentNodes";
 import { getTopFrameDef, topFrames } from "../../data/topFrames";
@@ -58,6 +59,7 @@ import { createTopArenaRuntime, defaultArenaTuning, stepTopArenaRuntime } from "
 import { generateArenaKey, summarizeArenaKeyRiskReward } from "../../engine/arenaKeys";
 import { projectBossGateAttempt } from "../../engine/bossGate";
 import { validateRuneLoadout } from "../../engine/driveRuneValidation";
+import { projectAllEndgameMasters, type EndgameMasterProjection } from "../../engine/endgameMasterProjection";
 import { clamp, formatNumber, formatPercent, round } from "../../engine/math";
 import { resolveOfflineElapsedSeconds, resolveOfflineSettlement, type OfflineSettlementResult } from "../../engine/offlineSettlement";
 import { resolveTopRuntimeStats } from "../../engine/topAssembly";
@@ -719,6 +721,26 @@ function formatDoctrineLines(doctrine: DoctrineDef): string[] {
   ]);
 }
 
+function formatEndgameSignal(signal: EndgameMasterSignal): string {
+  return term("endgameSignal", signal, signal);
+}
+
+function formatEndgameRewardTarget(target: EndgameMasterRewardTarget): string {
+  return term("endgameReward", target, target);
+}
+
+function formatEndgameSignalProgress(projection: EndgameMasterProjection, signal: EndgameMasterSignal): string {
+  const progress = projection.signalProgress.find((entry) => entry.signal === signal);
+  if (!progress) {
+    return formatEndgameSignal(signal);
+  }
+  return `${formatEndgameSignal(signal)} ${formatNumber(progress.value, 0)}/${formatNumber(progress.target, 0)}`;
+}
+
+function formatEndgameMissing(projection: EndgameMasterProjection): string {
+  return projection.missingSignals.length > 0 ? projection.missingSignals.map(formatEndgameSignal).join(" / ") : "訊號已對齊";
+}
+
 function distanceBetween(left: Pick<TopRuntimeEntity, "x" | "y">, right: Pick<TopRuntimeEntity, "x" | "y">): number {
   const dx = left.x - right.x;
   const dy = left.y - right.y;
@@ -1127,6 +1149,18 @@ export function CombatArena() {
         arenaKey: selectedArenaKey ?? undefined,
       }),
     [driveId, frameId, loadout, selectedArenaKey],
+  );
+  const endgameMasterProjections = useMemo(
+    () =>
+      projectAllEndgameMasters({
+        arenaKeys,
+        clearedBossGateIds,
+        clearedRivalIds,
+        routeClears,
+        totalKills,
+        wallet,
+      }),
+    [arenaKeys, clearedBossGateIds, clearedRivalIds, routeClears, totalKills, wallet],
   );
   const allKnownParts = useMemo(() => [...inventory, ...Object.values(equipment).filter(isPart)], [equipment, inventory]);
   const filteredInventory = useMemo(
@@ -3389,6 +3423,59 @@ export function CombatArena() {
             </div>
           </div>
         ) : null}
+        <div className="endgame-master-panel">
+          <div className="endgame-master-heading">
+            <div>
+              <small>{t("ui.endgame.preview")}</small>
+              <strong>{t("ui.section.endgameMasters")}</strong>
+            </div>
+            <span>{t("ui.endgame.recommendedNodes")}</span>
+          </div>
+          <div className="endgame-master-grid">
+            {endgameMasters.map((master) => {
+              const projection = endgameMasterProjections.find((entry) => entry.masterId === master.id);
+              if (!projection) {
+                return null;
+              }
+              return (
+                <article className="endgame-master-card" key={master.id}>
+                  <div className="endgame-master-card-head">
+                    <div>
+                      <small>{master.rewardTargets.map(formatEndgameRewardTarget).join(" / ")}</small>
+                      <strong>{dataName("endgameMaster", master.id, master.displayName)}</strong>
+                    </div>
+                    <span>{formatPercent(projection.readiness, 0)}</span>
+                  </div>
+                  <p>{dataDescription("endgameMaster", master.id, master.description)}</p>
+                  <div className="endgame-master-meter" style={{ "--endgame-readiness": `${projection.readiness * 100}%` } as CSSProperties} aria-hidden>
+                    <span />
+                  </div>
+                  <div className="endgame-master-facts">
+                    <span>
+                      <small>{t("ui.endgame.activeSignal")}</small>
+                      <strong>{formatEndgameSignalProgress(projection, projection.activeSignal)}</strong>
+                    </span>
+                    <span>
+                      <small>{t("ui.endgame.missing")}</small>
+                      <strong>{formatEndgameMissing(projection)}</strong>
+                    </span>
+                  </div>
+                  <div className="endgame-node-list">
+                    {projection.suggestedNodeIds.map((nodeId) => {
+                      const node = getEndgameMasterNodeDef(nodeId);
+                      return (
+                        <span key={node.id}>
+                          <small>T{node.tier}</small>
+                          {dataName("endgameMasterNode", node.id, node.displayName)}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
         <TalentTreeView
           activeTalentIds={talentIds}
           canUseTalent={(talentId) => (talentIds.includes(talentId) ? canRefundTalent(talentId) : canAllocateTalent(talentId))}

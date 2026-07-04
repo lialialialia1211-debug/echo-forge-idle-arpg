@@ -3457,6 +3457,153 @@
   font-size: 0.86rem;
 }
 
+.endgame-master-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.endgame-master-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgba(217, 165, 84, 0.18);
+  border-radius: 7px;
+  background: rgba(217, 165, 84, 0.06);
+  padding: 8px 9px;
+}
+
+.endgame-master-heading div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.endgame-master-heading small,
+.endgame-master-heading span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.endgame-master-heading strong {
+  color: var(--brass);
+  font-size: 0.9rem;
+}
+
+.endgame-master-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+}
+
+.endgame-master-card {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  border: 1px solid rgba(230, 215, 181, 0.13);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 9px;
+}
+
+.endgame-master-card-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.endgame-master-card-head div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.endgame-master-card-head small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.endgame-master-card-head strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--soft);
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.endgame-master-card-head span {
+  border: 1px solid rgba(101, 198, 176, 0.28);
+  border-radius: 5px;
+  background: rgba(101, 198, 176, 0.08);
+  color: var(--teal);
+  padding: 3px 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.endgame-master-card p {
+  min-height: 48px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.endgame-master-meter {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.endgame-master-meter span {
+  display: block;
+  width: var(--endgame-readiness);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--teal), var(--brass));
+}
+
+.endgame-master-facts,
+.endgame-node-list {
+  display: grid;
+  gap: 6px;
+}
+
+.endgame-master-facts span,
+.endgame-node-list span {
+  min-width: 0;
+  border-left: 2px solid rgba(217, 165, 84, 0.44);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 5px 7px;
+}
+
+.endgame-master-facts small,
+.endgame-node-list small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.2;
+}
+
+.endgame-master-facts strong,
+.endgame-node-list span {
+  overflow-wrap: anywhere;
+  color: var(--soft);
+  font-size: 0.73rem;
+  line-height: 1.25;
+}
+
 .talent-board {
   position: relative;
   min-height: 0;
@@ -4941,6 +5088,10 @@
   }
 
   .doctrine-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .endgame-master-grid {
     grid-template-columns: 1fr;
   }
 

@@ -11,6 +11,7 @@ import { circuitNetworkNodes } from "./circuitNetwork";
 import { doctrines } from "./doctrines";
 import { driveCores } from "./driveCores";
 import { enemyModifiers } from "./enemyModifiers";
+import { endgameMasters, endgameMasterRewardTargets, endgameMasterSignals } from "./endgameMasters";
 import { topEngravings } from "./engravings";
 import { namedRivals, rivalMechanicIds } from "./namedRivals";
 import { talentNodes } from "./talentNodes";
@@ -325,6 +326,44 @@ describe("top ARPG data integrity", () => {
       expect(doctrine.nodes.length).toBeLessThanOrEqual(4);
       for (const node of doctrine.nodes) {
         expect((node.modifiers ?? []).every((modifier) => !modifier.tags || modifier.tags.every((tag) => validDriveTags.includes(tag)))).toBe(true);
+      }
+    }
+  });
+
+  it("keeps endgame master preview data legal", () => {
+    const validSignals = new Set(endgameMasterSignals);
+    const validRewardTargets = new Set(endgameMasterRewardTargets);
+
+    expect(endgameMasters).toHaveLength(3);
+    expectUnique(endgameMasters.map((master) => master.id));
+    expectUnique(endgameMasters.flatMap((master) => master.nodes.map((node) => node.id)));
+
+    for (const master of endgameMasters) {
+      const nodeIds = new Set(master.nodes.map((node) => node.id));
+      const masterSignals = new Set(master.signalWeights.map((entry) => entry.signal));
+
+      expect(master.maxActiveNodes).toBe(4);
+      expect(master.nodes).toHaveLength(12);
+      expect(master.signalWeights.length).toBeGreaterThan(0);
+      expect(master.rewardTargets.length).toBeGreaterThan(0);
+      expect(master.rewardTargets.every((target) => validRewardTargets.has(target))).toBe(true);
+      expect(master.signalWeights.every((entry) => validSignals.has(entry.signal) && entry.weight > 0 && entry.target > 0)).toBe(true);
+
+      for (const tier of [1, 2, 3, 4] as const) {
+        expect(master.nodes.filter((node) => node.tier === tier)).toHaveLength(3);
+      }
+
+      for (const node of master.nodes) {
+        expect(node.id.startsWith(`${master.id}_`)).toBe(true);
+        expect(validSignals.has(node.signal)).toBe(true);
+        expect(masterSignals.has(node.signal)).toBe(true);
+        expect(validRewardTargets.has(node.rewardTarget)).toBe(true);
+        expect(master.rewardTargets).toContain(node.rewardTarget);
+        expect(node.weight).toBeGreaterThan(0);
+        for (const requiredId of node.requiredNodeIds ?? []) {
+          expect(requiredId).not.toBe(node.id);
+          expect(nodeIds.has(requiredId)).toBe(true);
+        }
       }
     }
   });
