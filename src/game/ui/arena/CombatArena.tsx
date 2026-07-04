@@ -64,8 +64,10 @@ import { resolveTopRuntimeStats } from "../../engine/topAssembly";
 import {
   decideLootPolicy,
   evaluateLootPolicy,
+  applyLootPolicyPreset,
   loadoutWithPart,
   lootPolicyDriveTags,
+  lootPolicyPresets,
   lootPolicyRarities,
   selectPartVerdict,
   type LootPolicy,
@@ -161,6 +163,12 @@ type LootNotice = {
   tone: "drop" | "salvage" | "reward";
   text: string;
   rarity?: TopPartRarity;
+};
+
+type LootRunSummary = {
+  kept: number;
+  salvaged: number;
+  wallet: AccountWallet;
 };
 
 type OfflineReport = OfflineSettlementResult & {
@@ -821,6 +829,53 @@ function formatCost(cost: AccountWallet): string {
   return [`${t("ui.resource.ash")} ${cost.ash}`, `${t("ui.resource.glass")} ${cost.glass}`, `${t("ui.resource.echo")} ${cost.echo}`].join(" / ");
 }
 
+function emptyLootRunSummary(): LootRunSummary {
+  return {
+    kept: 0,
+    salvaged: 0,
+    wallet: { ash: 0, glass: 0, echo: 0 },
+  };
+}
+
+function addLootRunSummary(current: LootRunSummary, delta: LootRunSummary): LootRunSummary {
+  return {
+    kept: current.kept + delta.kept,
+    salvaged: current.salvaged + delta.salvaged,
+    wallet: {
+      ash: current.wallet.ash + delta.wallet.ash,
+      glass: current.wallet.glass + delta.wallet.glass,
+      echo: current.wallet.echo + delta.wallet.echo,
+    },
+  };
+}
+
+function subtractWallet(next: AccountWallet, previous: AccountWallet): AccountWallet {
+  return {
+    ash: next.ash - previous.ash,
+    glass: next.glass - previous.glass,
+    echo: next.echo - previous.echo,
+  };
+}
+
+function hasLootRunSummary(summary: LootRunSummary): boolean {
+  return summary.kept > 0 || summary.salvaged > 0 || summary.wallet.ash > 0 || summary.wallet.glass > 0 || summary.wallet.echo > 0;
+}
+
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((entry) => right.includes(entry));
+}
+
+function lootPolicyMatches(left: LootPolicy, right: LootPolicy): boolean {
+  return (
+    left.autoSalvage === right.autoSalvage &&
+    left.minRarity === right.minRarity &&
+    left.minItemLevel === right.minItemLevel &&
+    left.minScore === right.minScore &&
+    sameStringSet(left.targetSlots, right.targetSlots) &&
+    sameStringSet(left.targetTags, right.targetTags)
+  );
+}
+
 function formatKeyTitle(key: ArenaKey): string {
   const arena = getArenaCircuitDef(key.arenaBaseId);
   return `T${key.tier} ${dataName("arena", arena.id, arena.displayName)}`;
@@ -999,6 +1054,7 @@ export function CombatArena() {
   const [activeAnomalyId, setActiveAnomalyId] = useState<string | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [lootNotices, setLootNotices] = useState<LootNotice[]>([]);
+  const [lootRunSummary, setLootRunSummary] = useState<LootRunSummary>(() => emptyLootRunSummary());
   const [offlineReport, setOfflineReport] = useState<OfflineReport | null>(null);
   const seenDropIdsRef = useRef(new Set<string>());
   const lastKillRef = useRef({ seed: "", kills: 0 });
@@ -1092,6 +1148,8 @@ export function CombatArena() {
       }),
     [driveId, frameId, inventory, loadout, lootPolicy],
   );
+  const activeLootPolicyPresetId = useMemo(() => lootPolicyPresets.find((preset) => lootPolicyMatches(lootPolicy, preset.policy))?.id ?? null, [lootPolicy]);
+  const hasActiveLootRunSummary = hasLootRunSummary(lootRunSummary);
   const selectedPart = allKnownParts.find((part) => part.id === selectedPartId) ?? inventory[0] ?? equipment.core;
   const selectedCurrentPart = selectedPart ? equipment[selectedPart.slot] : null;
   const selectedRuneId = runeSlots[selectedRuneSocket];
@@ -1278,6 +1336,7 @@ export function CombatArena() {
     ) => {
       setRuntimeError(null);
       setCurrentArenaKey(nextArenaKey);
+      setLootRunSummary(emptyLootRunSummary());
       publishRuntime(
         createTopArenaRuntime({
           arenaId: nextArenaId,
@@ -1366,6 +1425,10 @@ export function CombatArena() {
 
   const updateLootPolicy = (patch: Partial<LootPolicy>) => {
     dispatchAccount({ type: "updateLootPolicy", policy: { ...lootPolicy, ...patch } });
+  };
+
+  const applyLootPreset = (presetId: (typeof lootPolicyPresets)[number]["id"]) => {
+    dispatchAccount({ type: "updateLootPolicy", policy: applyLootPolicyPreset(presetId) });
   };
 
   const toggleLootPolicySlot = (slot: TopPartSlotId) => {
@@ -1816,8 +1879,9 @@ export function CombatArena() {
     }
 
     let nextState = accountReducer(account, { type: "addKills", amount: settlement.kills });
-    nextState = accountReducer(nextState, { type: "ingestDrops", parts: settlement.parts, capacity: inventoryCapacity });
-    nextState = accountReducer(nextState, { type: "addWallet", wallet: settlement.wallet });
+    const beforeIngestWallet = nextState.wallet;
+    const afterIngestState = accountReducer(nextState, { type: "ingestDrops", parts: settlement.parts, capacity: inventoryCapacity });
+    nextState = accountReducer(afterIngestState, { type: "addWallet", wallet: settlement.wallet });
     const nextInventoryIds = new Set(nextState.inventory.map((part) => part.id));
     const keptOfflineParts = settlement.parts.filter((part) => nextInventoryIds.has(part.id));
     const salvagedOfflineParts = settlement.parts.filter((part) => !nextInventoryIds.has(part.id));
@@ -1829,6 +1893,13 @@ export function CombatArena() {
     if (firstKeptPart) {
       setSelectedPartId(firstKeptPart.id);
     }
+    setLootRunSummary((current) =>
+      addLootRunSummary(current, {
+        kept: keptOfflineParts.length,
+        salvaged: salvagedOfflineParts.length + overflowedOfflineExisting.length,
+        wallet: subtractWallet(afterIngestState.wallet, beforeIngestWallet),
+      }),
+    );
     setOfflineReport({ ...settlement, elapsedSeconds });
     setLootNotices((current) =>
       [
@@ -1909,12 +1980,20 @@ export function CombatArena() {
       const salvagedDrops = newParts.filter((part) => !nextInventoryIds.has(part.id));
       const overflowedExisting = inventory.filter((part) => !nextInventoryIds.has(part.id));
       const keptDrop = keptDrops[0] ?? null;
+      const walletDelta = subtractWallet(nextState.wallet, account.wallet);
       const notices: LootNotice[] = [
         ...keptDrops.map((part) => ({ id: `loot_${part.id}`, tone: "drop" as const, rarity: part.rarity, text: `取得 ${displayRarity(part.rarity)} ${displayPartName(part)}` })),
         ...salvagedDrops.map((part) => ({ id: `salvage_${part.id}`, tone: "salvage" as const, rarity: part.rarity, text: `自動拆解 ${displayRarity(part.rarity)} ${displayPartName(part)}` })),
         ...overflowedExisting.map((part) => ({ id: `overflow_${part.id}_${runtime.seed}`, tone: "salvage" as const, rarity: part.rarity, text: `容量回收 ${displayRarity(part.rarity)} ${displayPartName(part)}` })),
       ];
       dispatchAccount(action);
+      setLootRunSummary((current) =>
+        addLootRunSummary(current, {
+          kept: keptDrops.length,
+          salvaged: salvagedDrops.length + overflowedExisting.length,
+          wallet: walletDelta,
+        }),
+      );
       if (keptDrop) {
         setSelectedPartId(keptDrop.id);
       }
@@ -2273,6 +2352,24 @@ export function CombatArena() {
               {lootPolicy.autoSalvage ? "自動" : "手動"}
             </button>
           </div>
+          <div className="loot-policy-control loot-policy-control-wide">
+            <small>快速預設</small>
+            <div className="loot-policy-preset-row" role="group" aria-label="戰利品規則預設">
+              {lootPolicyPresets.map((preset) => (
+                <button
+                  aria-pressed={activeLootPolicyPresetId === preset.id}
+                  className={activeLootPolicyPresetId === preset.id ? "loot-policy-preset loot-policy-preset-active" : "loot-policy-preset"}
+                  key={preset.id}
+                  onClick={() => applyLootPreset(preset.id)}
+                  title={preset.description}
+                  type="button"
+                >
+                  <strong>{preset.label}</strong>
+                  <span>{preset.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="loot-policy-preview">
             <span>
               <small>{lootPolicy.autoSalvage ? "保留" : "預估保留"}</small>
@@ -2287,6 +2384,27 @@ export function CombatArena() {
               <strong>{formatCost(lootPolicyPreview.wallet)}</strong>
             </span>
           </div>
+          {hasActiveLootRunSummary ? (
+            <div className="loot-run-summary">
+              <span>
+                <small>本場保留</small>
+                <strong>{lootRunSummary.kept}</strong>
+              </span>
+              <span>
+                <small>本場拆解</small>
+                <strong>{lootRunSummary.salvaged}</strong>
+              </span>
+              <span>
+                <small>本場材料</small>
+                <strong>{formatCost(lootRunSummary.wallet)}</strong>
+              </span>
+            </div>
+          ) : !lootPolicy.autoSalvage ? (
+            <div className="loot-policy-hint">
+              <AlertTriangle size={14} aria-hidden />
+              <span>自動拆解目前關閉；掉落會先保留，背包滿時才容量回收。</span>
+            </div>
+          ) : null}
           <div className="loot-policy-control">
             <small>最低稀有度</small>
             <div className="loot-policy-chip-row" role="group" aria-label="最低稀有度">

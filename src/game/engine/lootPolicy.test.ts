@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createStarterEquipment } from "../data/topParts";
 import { resolveTopRuntimeStats } from "./topAssembly";
-import { defaultLootPolicy, decideLootPolicy, evaluateLootPolicy, loadoutWithPart, selectPartVerdict } from "./lootPolicy";
+import { applyLootPolicyPreset, defaultLootPolicy, decideLootPolicy, evaluateLootPolicy, loadoutWithPart, lootPolicyPresets, selectPartVerdict } from "./lootPolicy";
 import { generateTopPart } from "./topPartGeneration";
 
 function part(id: string, rarity: "common" | "tuned" | "engraved" | "relic" = "common", baseId = "part_tip_needle") {
@@ -80,5 +80,18 @@ describe("loot policy", () => {
 
     expect(result.decisions.get("physical")?.reason).toBe("tag");
     expect(result.decisions.get("lightning")?.action).toBe("keep");
+  });
+
+  it("applies named presets as independent policy copies", () => {
+    const mapper = applyLootPolicyPreset("mapper");
+    const secondMapper = applyLootPolicyPreset("mapper");
+
+    expect(lootPolicyPresets.map((preset) => preset.id)).toEqual(["manual", "balanced", "mapper", "strict"]);
+    expect(mapper.autoSalvage).toBe(true);
+    expect(mapper.minRarity).toBe("tuned");
+    expect(mapper.minScore).toBe(0);
+    expect(secondMapper.targetSlots).toEqual(mapper.targetSlots);
+    expect(secondMapper.targetSlots).not.toBe(mapper.targetSlots);
+    expect(applyLootPolicyPreset("manual")).toEqual(defaultLootPolicy);
   });
 });

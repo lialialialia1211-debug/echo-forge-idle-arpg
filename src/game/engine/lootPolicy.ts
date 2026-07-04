@@ -36,6 +36,15 @@ export type LootPolicy = {
   minScore: number;
 };
 
+export type LootPolicyPresetId = "manual" | "balanced" | "mapper" | "strict";
+
+export type LootPolicyPresetDef = {
+  id: LootPolicyPresetId;
+  label: string;
+  description: string;
+  policy: LootPolicy;
+};
+
 export type PartVerdictAction = "equipped" | "equip" | "forge" | "salvage";
 export type PartVerdictTone = "good" | "warn" | "rare" | "neutral";
 
@@ -100,6 +109,62 @@ export const defaultLootPolicy: LootPolicy = {
   minItemLevel: 1,
   minScore: -20,
 };
+
+export const lootPolicyPresets: LootPolicyPresetDef[] = [
+  {
+    id: "manual",
+    label: "手動確認",
+    description: "所有掉落先進背包，只標示拆解候選。",
+    policy: defaultLootPolicy,
+  },
+  {
+    id: "balanced",
+    label: "保守清理",
+    description: "只拆明顯低分普通件，保留可鍛造候選。",
+    policy: {
+      autoSalvage: true,
+      minRarity: "common",
+      targetSlots: [...partSlotOrder],
+      targetTags: [],
+      minItemLevel: 1,
+      minScore: -20,
+    },
+  },
+  {
+    id: "mapper",
+    label: "刷圖精簡",
+    description: "普通低分件自動回收，背包主要留下魔法以上與升級件。",
+    policy: {
+      autoSalvage: true,
+      minRarity: "tuned",
+      targetSlots: [...partSlotOrder],
+      targetTags: [],
+      minItemLevel: 1,
+      minScore: 0,
+    },
+  },
+  {
+    id: "strict",
+    label: "高稀有",
+    description: "只保留升級件、稀有以上與高分鍛造底材。",
+    policy: {
+      autoSalvage: true,
+      minRarity: "engraved",
+      targetSlots: [...partSlotOrder],
+      targetTags: [],
+      minItemLevel: 1,
+      minScore: 30,
+    },
+  },
+];
+
+export function applyLootPolicyPreset(presetId: LootPolicyPresetId): LootPolicy {
+  return {
+    ...(lootPolicyPresets.find((preset) => preset.id === presetId)?.policy ?? defaultLootPolicy),
+    targetSlots: [...(lootPolicyPresets.find((preset) => preset.id === presetId)?.policy.targetSlots ?? defaultLootPolicy.targetSlots)],
+    targetTags: [...(lootPolicyPresets.find((preset) => preset.id === presetId)?.policy.targetTags ?? defaultLootPolicy.targetTags)],
+  };
+}
 
 function walletAdd(left: AccountWallet, right: AccountWallet): AccountWallet {
   return {
