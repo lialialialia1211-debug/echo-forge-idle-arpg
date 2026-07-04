@@ -630,6 +630,11 @@
   padding: 12px;
 }
 
+.home-hub-intro {
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  grid-template-rows: auto;
+}
+
 .home-primary,
 .home-panel {
   min-width: 0;
@@ -644,6 +649,11 @@
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 14px;
   padding: 18px;
+}
+
+.home-primary-intro {
+  grid-row: auto;
+  min-height: 360px;
 }
 
 .home-primary-good {
@@ -795,6 +805,20 @@
 .home-goal-row:hover {
   border-color: rgba(101, 198, 176, 0.42);
   background: rgba(101, 198, 176, 0.1);
+}
+
+.home-goal-row-disabled,
+.home-goal-row:disabled {
+  border-color: rgba(230, 215, 181, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  color: rgba(230, 215, 181, 0.48);
+  cursor: default;
+}
+
+.home-goal-row-disabled:hover,
+.home-goal-row:disabled:hover {
+  border-color: rgba(230, 215, 181, 0.08);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .home-goal-row span,

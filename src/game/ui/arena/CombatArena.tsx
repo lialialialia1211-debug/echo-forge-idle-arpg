@@ -2188,6 +2188,8 @@ export function CombatArena() {
     [unlockedCircuitNodeIds],
   );
   const canForgeSelectedPart = Boolean(selectedPart && canApplyForgeAction("upgrade", selectedPart) && canSpend(wallet, forgeActionCostForAccount("upgrade", selectedPart)));
+  const hasStartedAccount = totalKills > 0 || runtime.kills > 0 || Object.values(routeClears).some((clears) => clears > 0) || lootNotices.length > 0;
+  const firstRunIntro = totalKills === 0 && runtime.kills === 0 && runtime.drops.length === 0 && lootNotices.length === 0 && !offlineReport && !running;
   const tutorialTriggers = useMemo<Record<TutorialTrigger, boolean>>(
     () => ({
       welcome: true,
@@ -2196,12 +2198,12 @@ export function CombatArena() {
       firstTalent: totalKills >= 5 && availableTalentPoints > 0,
       firstForge: screen === "workbench" && canForgeSelectedPart && (activePanel === "forge" || (totalKills > 0 && selectedPartVerdict?.action === "forge")),
       firstRune: (screen === "workbench" && totalKills > 0) || activePanel === "skills" || runeSlots.some(Boolean),
-      doctrine: activePanel === "talents" && doctrineId === null,
-      mapUnlock: screen === "map" || chapterProgress.done > 1,
-      rivalGate: hasUnlockedRivalGate || Boolean(selectedNetworkNodeForTutorial?.unlocksRivalId || selectedNetworkNodeForTutorial?.requiredRivalId),
-      firstKey: arenaKeys.length > 0,
-      firstAnomaly: hasUnlockedAnomaly || Boolean(selectedNetworkNodeForTutorial?.anomalyId),
-      bossGate: bossProjection.successChance >= 0.5 || clearedBossGateIds.includes(chapterOne.bossGateId),
+      doctrine: hasStartedAccount && activePanel === "talents" && doctrineId === null,
+      mapUnlock: hasStartedAccount && (screen === "map" || chapterProgress.done > 1),
+      rivalGate: hasStartedAccount && (hasUnlockedRivalGate || Boolean(selectedNetworkNodeForTutorial?.unlocksRivalId || selectedNetworkNodeForTutorial?.requiredRivalId)),
+      firstKey: hasStartedAccount && arenaKeys.length > 0,
+      firstAnomaly: hasStartedAccount && (hasUnlockedAnomaly || Boolean(selectedNetworkNodeForTutorial?.anomalyId)),
+      bossGate: hasStartedAccount && (bossProjection.successChance >= 0.5 || clearedBossGateIds.includes(chapterOne.bossGateId)),
     }),
     [
       activePanel,
@@ -2214,6 +2216,7 @@ export function CombatArena() {
       doctrineId,
       hasUnlockedAnomaly,
       hasUnlockedRivalGate,
+      hasStartedAccount,
       lootNotices,
       canForgeSelectedPart,
       runeSlots,
@@ -3679,9 +3682,43 @@ export function CombatArena() {
       : `${formatNumber(selectedRouteStrategy.offline.killsPerHour, 0)} 擊殺/時 / ${formatNumber(selectedRouteStrategy.offline.dropsPerHour, 1)} 件/時`;
     const primaryScore = buildArchetypeProjection.scores.find((score) => score.id === buildArchetypeProjection.primary)?.score ?? 0;
     const currentMainObjective =
-      chapterProgress.complete
+      firstRunIntro
+        ? "第一場：焦燼坩堝"
+        : chapterProgress.complete
         ? "第一章已完成，開始挑選長線刷裝關卡。"
         : `主線 ${chapterProgress.done}/${chapterProgress.total}，先把下一關打開。`;
+    const homeStatusItems = firstRunIntro
+      ? [
+          { label: "目前關卡", value: dataName("arena", arena.id, arena.displayName) },
+          { label: "狀態", value: "待命" },
+          { label: "背包", value: `${inventory.length}/${inventoryCapacity}` },
+          { label: "目標", value: "第一場戰鬥" },
+        ]
+      : [
+          { label: "刷裝關卡", value: idleTargetName },
+          { label: "離線收益", value: offlineText },
+          { label: "戰利品", value: `${inventory.length}/${inventoryCapacity}` },
+          { label: "主線", value: `${chapterProgress.done}/${chapterProgress.total}` },
+        ];
+    const homeGoals = firstRunIntro
+      ? [
+          { id: "start", icon: <Play size={16} aria-hidden />, title: "開始刷裝", detail: dataName("arena", arena.id, arena.displayName), onClick: startIdleFromHome },
+          { id: "loot", icon: <PackageOpen size={16} aria-hidden />, title: "取得掉落", detail: "第一場後開啟", disabled: true },
+          { id: "forge", icon: <Hammer size={16} aria-hidden />, title: "強化裝備", detail: "取得材料後", disabled: true },
+          { id: "map", icon: <MapIcon size={16} aria-hidden />, title: "挑戰下一關", detail: "完成第一場後", disabled: true },
+        ]
+      : [
+          { id: "start", icon: <Play size={16} aria-hidden />, title: running ? "查看戰鬥" : "開始刷裝", detail: dataName("arena", arena.id, arena.displayName), onClick: startIdleFromHome },
+          { id: "inventory", icon: <PackageOpen size={16} aria-hidden />, title: "整理背包", detail: selectedPartSignal, onClick: () => openPanel("inventory") },
+          {
+            id: "forge",
+            icon: <Hammer size={16} aria-hidden />,
+            title: "強化裝備",
+            detail: canForgeSelectedPart ? "目前有可用強化" : "查看材料與推薦裝備",
+            onClick: () => openPanel("forge"),
+          },
+          { id: "map", icon: <MapIcon size={16} aria-hidden />, title: "挑戰下一關", detail: progressTargetName, onClick: openMap },
+        ];
     let primaryAction: {
       tone: DecisionCueTone;
       icon: ReactNode;
@@ -3691,7 +3728,16 @@ export function CombatArena() {
       onClick: () => void;
     };
 
-    if (offlineReport) {
+    if (firstRunIntro) {
+      primaryAction = {
+        tone: "good",
+        icon: <Play size={22} aria-hidden />,
+        title: "開始刷第一場",
+        detail: `${dataName("arena", arena.id, arena.displayName)} / 自動戰鬥`,
+        button: "開始",
+        onClick: startIdleFromHome,
+      };
+    } else if (offlineReport) {
       primaryAction = {
         tone: "rare",
         icon: <PackageOpen size={22} aria-hidden />,
@@ -3758,12 +3804,12 @@ export function CombatArena() {
 
     return (
       <section className="screen-panel home-screen-panel">
-        <div className="home-hub">
-          <section className={`home-primary home-primary-${primaryAction.tone}`}>
+        <div className={firstRunIntro ? "home-hub home-hub-intro" : "home-hub"}>
+          <section className={`home-primary home-primary-${primaryAction.tone}${firstRunIntro ? " home-primary-intro" : ""}`}>
             <div className="home-primary-head">
-              <small>主畫面</small>
-              <h1>戰鬥據點</h1>
-              <span>回來收戰利品、強化裝備，然後挑戰下一關。</span>
+              <small>{firstRunIntro ? "第一場" : "主畫面"}</small>
+              <h1>{firstRunIntro ? "開始刷裝" : "戰鬥據點"}</h1>
+              <span>{firstRunIntro ? dataName("arena", arena.id, arena.displayName) : "回來收戰利品、強化裝備，然後挑戰下一關。"}</span>
             </div>
             <div className="home-primary-action">
               <span className="home-primary-icon">{primaryAction.icon}</span>
@@ -3776,22 +3822,12 @@ export function CombatArena() {
               </button>
             </div>
             <div className="home-status-grid">
-              <span>
-                <small>刷裝關卡</small>
-                <strong>{idleTargetName}</strong>
-              </span>
-              <span>
-                <small>離線收益</small>
-                <strong>{offlineText}</strong>
-              </span>
-              <span>
-                <small>戰利品</small>
-                <strong>{inventory.length}/{inventoryCapacity}</strong>
-              </span>
-              <span>
-                <small>主線</small>
-                <strong>{chapterProgress.done}/{chapterProgress.total}</strong>
-              </span>
+              {homeStatusItems.map((item) => (
+                <span key={item.label}>
+                  <small>{item.label}</small>
+                  <strong>{item.value}</strong>
+                </span>
+              ))}
             </div>
           </section>
 
@@ -3803,38 +3839,25 @@ export function CombatArena() {
             </div>
             <p>{currentMainObjective}</p>
             <div className="home-goal-list">
-              <button className="home-goal-row" onClick={startIdleFromHome} type="button">
-                <Play size={16} aria-hidden />
-                <span>
-                  <strong>{running ? "查看戰鬥" : "開始刷裝"}</strong>
-                  <small>{dataName("arena", arena.id, arena.displayName)}</small>
-                </span>
-              </button>
-              <button className="home-goal-row" onClick={() => openPanel("inventory")} type="button">
-                <PackageOpen size={16} aria-hidden />
-                <span>
-                  <strong>整理背包</strong>
-                  <small>{selectedPartSignal}</small>
-                </span>
-              </button>
-              <button className="home-goal-row" onClick={() => openPanel("forge")} type="button">
-                <Hammer size={16} aria-hidden />
-                <span>
-                  <strong>強化裝備</strong>
-                  <small>{canForgeSelectedPart ? "目前有可用強化" : "查看材料與推薦裝備"}</small>
-                </span>
-              </button>
-              <button className="home-goal-row" onClick={openMap} type="button">
-                <MapIcon size={16} aria-hidden />
-                <span>
-                  <strong>挑戰下一關</strong>
-                  <small>{progressTargetName}</small>
-                </span>
-              </button>
+              {homeGoals.map((goal) => (
+                <button
+                  className={goal.disabled ? "home-goal-row home-goal-row-disabled" : "home-goal-row"}
+                  disabled={goal.disabled}
+                  key={goal.id}
+                  onClick={goal.onClick}
+                  type="button"
+                >
+                  {goal.icon}
+                  <span>
+                    <strong>{goal.title}</strong>
+                    <small>{goal.detail}</small>
+                  </span>
+                </button>
+              ))}
             </div>
           </section>
 
-          <section className="home-panel home-build">
+          {!firstRunIntro ? <section className="home-panel home-build">
             <div className="section-title">
               <Activity size={17} aria-hidden />
               <h2>目前戰力</h2>
@@ -3858,9 +3881,9 @@ export function CombatArena() {
                 <strong>{formatNumber(currentStats.tracking, 0)}</strong>
               </span>
             </div>
-          </section>
+          </section> : null}
 
-          <section className="home-panel home-route">
+          {!firstRunIntro ? <section className="home-panel home-route">
             <div className="section-title">
               <MapIcon size={17} aria-hidden />
               <h2>下一關</h2>
@@ -3881,7 +3904,7 @@ export function CombatArena() {
                 <strong>{formatPercent(selectedRouteStrategy.clearSpeedScore, 0)}</strong>
               </span>
             </div>
-          </section>
+          </section> : null}
         </div>
       </section>
     );
@@ -4072,7 +4095,21 @@ export function CombatArena() {
         : `${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)} 清場`;
     let action: NextActionPrompt;
 
-    if (runtimeError) {
+    if (firstRunIntro) {
+      action = {
+        tone: "good",
+        icon: <Play size={17} aria-hidden />,
+        label: "開始刷第一場",
+        detail: dataName("arena", arena.id, arena.displayName),
+        button: t("ui.control.start"),
+        cues: [
+          { label: "現在", value: "開始戰鬥", tone: "good" },
+          { label: "目標", value: "第一批掉落" },
+          { label: "之後", value: "整理裝備" },
+        ],
+        onClick: startIdleFromHome,
+      };
+    } else if (runtimeError) {
       action = {
         tone: "warn",
         icon: <RotateCcw size={17} aria-hidden />,
