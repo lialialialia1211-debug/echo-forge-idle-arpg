@@ -1,4 +1,5 @@
 import type { ArenaKey, TopPartInstance, TopPartSlotId } from "./topTypes";
+import { defaultLootPolicy, type LootPolicy } from "./lootPolicy";
 
 export type AccountWallet = {
   ash: number;
@@ -25,6 +26,7 @@ export type AccountRuntimeState = {
   routeClears: Record<string, number>;
   totalKills: number;
   seenTutorialIds: string[];
+  lootPolicy: LootPolicy;
 };
 
 export type SaveTopLike = {
@@ -44,6 +46,7 @@ export type SaveTopLike = {
   routeClears: Record<string, number>;
   totalKills: number;
   seenTutorialIds: string[];
+  lootPolicy: LootPolicy;
   lastSettledAt: string;
 };
 
@@ -73,6 +76,7 @@ export function saveTopToAccountState(top: SaveTopLike, equipment: Record<TopPar
     routeClears: top.routeClears,
     totalKills: top.totalKills ?? 0,
     seenTutorialIds: top.seenTutorialIds ?? [],
+    lootPolicy: top.lootPolicy ?? defaultLootPolicy,
   };
 }
 
@@ -94,6 +98,7 @@ export function accountStateToSaveTop(state: AccountRuntimeState, lastSettledAt:
     routeClears: state.routeClears,
     totalKills: state.totalKills,
     seenTutorialIds: state.seenTutorialIds,
+    lootPolicy: state.lootPolicy,
     lastSettledAt,
   };
 }

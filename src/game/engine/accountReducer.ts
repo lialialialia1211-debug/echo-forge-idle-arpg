@@ -10,9 +10,10 @@ import { getTalentNodeDef, talentNodes } from "../data/talentNodes";
 import { getTopFrameDef } from "../data/topFrames";
 import { isRuneCompatible, tuningRunes } from "../data/tuningRunes";
 import { validateRuneLoadout } from "./driveRuneValidation";
+import { evaluateLootPolicy, type LootPolicy } from "./lootPolicy";
 import { salvageTopPart, type TopCraftResult, type TopForgeWallet } from "./topCrafting";
 import { generateTopPart } from "./topPartGeneration";
-import type { ArenaKey, TopPartInstance } from "./topTypes";
+import type { ArenaKey, TopLoadoutConfig, TopPartInstance } from "./topTypes";
 import { compactRuneSlots, type AccountRuntimeState, type AccountWallet } from "./accountState";
 
 export const inventoryCapacity = 48;
@@ -39,6 +40,7 @@ export type AccountAction =
   | { type: "forgeArenaKey"; key: ArenaKey; cost?: AccountWallet }
   | { type: "runArenaKey"; keyId: string }
   | { type: "ingestDrops"; parts: TopPartInstance[]; capacity?: number }
+  | { type: "updateLootPolicy"; policy: LootPolicy }
   | { type: "addWallet"; wallet: AccountWallet }
   | { type: "addKills"; amount: number }
   | { type: "addRouteClear"; arenaId: string; keys: ArenaKey[] }
@@ -154,6 +156,16 @@ function mapClearReward(arenaId: string, clears: number): AccountWallet {
     ash: balanceConfig.progression.mapClearReward.ashPerTier * arena.tier * clears,
     glass: balanceConfig.progression.mapClearReward.glassPerTier * arena.tier * clears,
     echo: 0,
+  };
+}
+
+function loadoutForAccountState(state: AccountRuntimeState): TopLoadoutConfig {
+  return {
+    equipment: state.equipment,
+    runeIds: compactRuneSlots(state.runeSlots),
+    talentIds: state.talentIds,
+    circuitAtlasNodeIds: state.circuitAtlasNodeIds,
+    doctrineId: state.doctrineId,
   };
 }
 
@@ -434,13 +446,26 @@ export function accountReducer(state: AccountRuntimeState, action: AccountAction
     }
 
     case "ingestDrops": {
-      const merged = mergeInventoryParts(action.parts, state.inventory, action.capacity ?? inventoryCapacity);
+      const evaluated = evaluateLootPolicy({
+        frameId: state.frameId,
+        driveId: state.driveId,
+        loadout: loadoutForAccountState(state),
+        policy: state.lootPolicy,
+        parts: action.parts,
+      });
+      const merged = mergeInventoryParts(evaluated.keptParts, state.inventory, action.capacity ?? inventoryCapacity);
       return {
         ...state,
         inventory: merged.items,
-        wallet: merged.overflow.length > 0 ? addWallet(state.wallet, salvageParts(merged.overflow)) : state.wallet,
+        wallet: addWallet(addWallet(state.wallet, evaluated.wallet), merged.overflow.length > 0 ? salvageParts(merged.overflow) : { ash: 0, glass: 0, echo: 0 }),
       };
     }
+
+    case "updateLootPolicy":
+      return {
+        ...state,
+        lootPolicy: action.policy,
+      };
 
     case "addWallet":
       return {

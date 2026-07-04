@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createStarterEquipment, createStarterInventory } from "../data/topParts";
+import { defaultLootPolicy, lootPolicyDriveTags, lootPolicyRarities } from "../engine/lootPolicy";
 
 const nonNegativeIntegerSchema = z.preprocess(
   (value) => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : value),
@@ -9,6 +10,52 @@ const nonNegativeIntegerSchema = z.preprocess(
 const tutorialIdsSchema = z.preprocess(
   (value) => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []),
   z.array(z.string()).default([]),
+);
+
+const lootPolicySlotIds = ["core", "attackRing", "weightDisk", "tip", "launcher", "seal", "circuitChip"] as const;
+const lootPolicyRarityIds = new Set<string>(lootPolicyRarities);
+const lootPolicySlotIdSet = new Set<string>(lootPolicySlotIds);
+const lootPolicyTagIds = new Set<string>(lootPolicyDriveTags);
+
+function knownStringOrDefault<T extends string>(value: unknown, knownValues: ReadonlySet<string>, fallback: T): T {
+  return typeof value === "string" && knownValues.has(value) ? (value as T) : fallback;
+}
+
+function knownStringArrayOrDefault(value: unknown, knownValues: ReadonlySet<string>, fallback: readonly string[]): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && knownValues.has(entry)) : [...fallback];
+}
+
+const lootPolicySchema = z.preprocess(
+  (value) => (value && typeof value === "object" ? value : undefined),
+  z
+    .object({
+      autoSalvage: z.boolean().default(defaultLootPolicy.autoSalvage),
+      minRarity: z.preprocess(
+        (value) => knownStringOrDefault(value, lootPolicyRarityIds, defaultLootPolicy.minRarity),
+        z.enum(lootPolicyRarities).default(defaultLootPolicy.minRarity),
+      ),
+      targetSlots: z
+        .preprocess(
+          (value) => knownStringArrayOrDefault(value, lootPolicySlotIdSet, defaultLootPolicy.targetSlots),
+          z.array(z.enum(lootPolicySlotIds)),
+        )
+        .default(defaultLootPolicy.targetSlots),
+      targetTags: z
+        .preprocess(
+          (value) => knownStringArrayOrDefault(value, lootPolicyTagIds, defaultLootPolicy.targetTags),
+          z.array(z.enum(lootPolicyDriveTags)),
+        )
+        .default(defaultLootPolicy.targetTags),
+      minItemLevel: z.preprocess(
+        (value) => (typeof value === "number" && Number.isFinite(value) ? Math.max(1, Math.floor(value)) : value),
+        z.number().int().min(1).default(defaultLootPolicy.minItemLevel),
+      ),
+      minScore: z.preprocess(
+        (value) => (typeof value === "number" && Number.isFinite(value) ? Math.max(-500, Math.min(500, Math.round(value))) : value),
+        z.number().min(-500).max(500).default(defaultLootPolicy.minScore),
+      ),
+    })
+    .default(defaultLootPolicy),
 );
 
 export const characterSaveSchema = z.object({
@@ -145,11 +192,12 @@ export const topAccountStateSchema = z.object({
   routeClears: z.record(z.string(), z.number()),
   totalKills: nonNegativeIntegerSchema,
   seenTutorialIds: tutorialIdsSchema,
+  lootPolicy: lootPolicySchema,
   lastSettledAt: z.string(),
 });
 
 export const accountSaveSchema = z.object({
-  schemaVersion: z.literal(6),
+  schemaVersion: z.literal(7),
   accountId: z.string().nullable(),
   settings: z.object({
     reduceMotion: z.boolean(),
@@ -234,7 +282,7 @@ export function createNewAccountSave(classId = "veilrunner"): AccountSave {
   const selectedDriveId = starterDriveForFrame(selectedFrameId);
 
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     accountId: null,
     settings: {
       reduceMotion: false,
@@ -284,6 +332,7 @@ export function createNewAccountSave(classId = "veilrunner"): AccountSave {
       routeClears: {},
       totalKills: 0,
       seenTutorialIds: [],
+      lootPolicy: defaultLootPolicy,
       lastSettledAt: now,
     },
     achievements: {},

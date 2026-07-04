@@ -2621,6 +2621,120 @@
   background: rgba(101, 198, 176, 0.12);
 }
 
+.loot-policy-panel {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 9px;
+  border: 1px solid rgba(101, 198, 176, 0.16);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 8px;
+}
+
+.loot-policy-head,
+.loot-policy-preview,
+.loot-policy-control-wide {
+  grid-column: 1 / -1;
+}
+
+.loot-policy-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.loot-policy-head span,
+.loot-policy-preview span,
+.loot-policy-control {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.loot-policy-head small,
+.loot-policy-preview small,
+.loot-policy-control > small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.66rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loot-policy-head strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--teal);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loot-policy-toggle {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 0.74rem;
+}
+
+.loot-policy-preview {
+  display: grid;
+  grid-template-columns: minmax(54px, 0.55fr) minmax(54px, 0.55fr) minmax(0, 1.35fr);
+  gap: 6px;
+}
+
+.loot-policy-preview span {
+  min-height: 42px;
+  align-content: center;
+  border: 1px solid rgba(230, 215, 181, 0.1);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 6px 7px;
+}
+
+.loot-policy-preview strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--soft);
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loot-policy-chip-row {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.loot-policy-chip {
+  min-width: 0;
+  min-height: 28px;
+  border: 1px solid rgba(230, 215, 181, 0.14);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  font-size: 0.7rem;
+}
+
+.loot-policy-chip:hover,
+.loot-policy-chip-active {
+  border-color: rgba(101, 198, 176, 0.52);
+  background: rgba(101, 198, 176, 0.12);
+  color: var(--teal);
+}
+
 .inventory-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
@@ -4693,6 +4807,18 @@
 
   .inventory-filter {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .loot-policy-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .loot-policy-preview {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .loot-policy-chip {
+    flex: 1 1 58px;
   }
 
   .inventory-grid {

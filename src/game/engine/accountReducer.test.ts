@@ -3,6 +3,7 @@ import { generateArenaKey } from "./arenaKeys";
 import { accountReducer, availableAtlasPoints, availableTalentPoints, inventoryCapacity, isTalentReachable } from "./accountReducer";
 import type { AccountRuntimeState } from "./accountState";
 import { createStarterEquipment, createStarterInventory } from "../data/topParts";
+import { defaultLootPolicy } from "./lootPolicy";
 import { generateTopPart } from "./topPartGeneration";
 
 function createState(overrides: Partial<AccountRuntimeState> = {}): AccountRuntimeState {
@@ -24,6 +25,7 @@ function createState(overrides: Partial<AccountRuntimeState> = {}): AccountRunti
     routeClears: {},
     totalKills: 0,
     seenTutorialIds: [],
+    lootPolicy: defaultLootPolicy,
     ...overrides,
   };
 }
@@ -219,6 +221,25 @@ describe("accountReducer", () => {
     expect(next.inventory).toHaveLength(inventoryCapacity);
     expect(next.inventory.slice(0, 2).map((item) => item.id)).toEqual(["incoming_a", "incoming_b"]);
     expect(next.wallet.ash).toBe(4);
+  });
+
+  it("applies auto salvage policy before incoming drops enter inventory", () => {
+    const junk = part("junk_tip");
+    const locked = { ...part("locked_tip"), locked: true };
+    const state = createState({
+      inventory: [],
+      wallet: { ash: 0, glass: 0, echo: 0 },
+      lootPolicy: {
+        ...defaultLootPolicy,
+        autoSalvage: true,
+        minRarity: "tuned",
+      },
+    });
+
+    const next = accountReducer(state, { type: "ingestDrops", parts: [junk, locked], capacity: inventoryCapacity });
+
+    expect(next.inventory.map((item) => item.id)).toEqual(["locked_tip"]);
+    expect(next.wallet.ash).toBe(2);
   });
 
   it("applies craft results, route clears, keys, and kills in one consistent chain", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createStarterEquipment, createStarterInventory } from "../data/topParts";
 import type { AccountRuntimeState } from "./accountState";
+import { defaultLootPolicy } from "./lootPolicy";
 import { applyIdleAutomation } from "./idleAutomation";
 import { generateTopPart } from "./topPartGeneration";
 
@@ -22,6 +23,7 @@ function createState(): AccountRuntimeState {
     routeClears: {},
     totalKills: 0,
     seenTutorialIds: [],
+    lootPolicy: defaultLootPolicy,
   };
 }
 

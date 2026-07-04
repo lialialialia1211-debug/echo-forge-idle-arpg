@@ -13,6 +13,7 @@ import { topFrames } from "../data/topFrames";
 import { tutorialStepIds } from "../data/tutorialSteps";
 import { isArenaKeyLegal } from "../engine/arenaKeys";
 import { validateRuneLoadout } from "../engine/driveRuneValidation";
+import { defaultLootPolicy, lootPolicyDriveTags, lootPolicyRarities, type LootPolicy } from "../engine/lootPolicy";
 import { isTopPartLegal } from "../engine/topCrafting";
 import type { ArenaKey, TopPartInstance, TopPartSlotId } from "../engine/topTypes";
 
@@ -54,6 +55,11 @@ type LegacyV5Save = Omit<AccountSave, "schemaVersion" | "top"> & {
   top: Omit<AccountSave["top"], "seenTutorialIds"> & Partial<Pick<AccountSave["top"], "seenTutorialIds">>;
 };
 
+type LegacyV6Save = Omit<AccountSave, "schemaVersion" | "top"> & {
+  schemaVersion: 6;
+  top: Omit<AccountSave["top"], "lootPolicy"> & Partial<Pick<AccountSave["top"], "lootPolicy">>;
+};
+
 type SavedTopPart = AccountSave["top"]["inventory"][number];
 type SavedArenaKey = AccountSave["top"]["arenaKeys"][number];
 
@@ -83,6 +89,7 @@ function starterTopStateForLegacy(save: LegacyV1Save): AccountSave["top"] {
     routeClears: {},
     totalKills: 0,
     seenTutorialIds: [],
+    lootPolicy: defaultLootPolicy,
     lastSettledAt: save.lastSavedAt,
   };
 }
@@ -107,6 +114,10 @@ function isLegacyV5Save(input: unknown): input is LegacyV5Save {
   return Boolean(input && typeof input === "object" && "schemaVersion" in input && (input as { schemaVersion?: unknown }).schemaVersion === 5);
 }
 
+function isLegacyV6Save(input: unknown): input is LegacyV6Save {
+  return Boolean(input && typeof input === "object" && "schemaVersion" in input && (input as { schemaVersion?: unknown }).schemaVersion === 6);
+}
+
 const defaultFrameId = "frame_swift_razor";
 const defaultArenaId = "arena_cinder_crucible";
 const frameIds = new Set(topFrames.map((entry) => entry.id));
@@ -120,6 +131,8 @@ const arenaKeyAffixIds = new Set(arenaKeyAffixes.map((entry) => entry.id));
 const bossGateIds = new Set(bossGates.map((entry) => entry.id));
 const rivalIds = new Set(namedRivals.map((entry) => entry.id));
 const tutorialIds = new Set(tutorialStepIds);
+const lootPolicyRarityIds = new Set<string>(lootPolicyRarities);
+const lootPolicyTagIds = new Set<string>(lootPolicyDriveTags);
 
 function clampCurrency(value: number): number {
   return Math.max(0, Math.floor(value));
@@ -210,6 +223,20 @@ function sanitizeTutorialIds(seenTutorialIds: string[]): string[] {
   return [...new Set(seenTutorialIds.filter((tutorialId) => tutorialIds.has(tutorialId)))];
 }
 
+function sanitizeLootPolicy(policy: LootPolicy): LootPolicy {
+  const targetSlots = [...new Set(policy.targetSlots.filter((slot) => partSlotOrder.includes(slot)))];
+  const targetTags = [...new Set(policy.targetTags.filter((tag) => lootPolicyTagIds.has(tag)))];
+
+  return {
+    autoSalvage: Boolean(policy.autoSalvage),
+    minRarity: lootPolicyRarityIds.has(policy.minRarity) ? policy.minRarity : defaultLootPolicy.minRarity,
+    targetSlots: targetSlots.length > 0 ? targetSlots : defaultLootPolicy.targetSlots,
+    targetTags,
+    minItemLevel: Math.max(1, Math.floor(policy.minItemLevel ?? defaultLootPolicy.minItemLevel)),
+    minScore: Math.max(-500, Math.min(500, Math.round(policy.minScore ?? defaultLootPolicy.minScore))),
+  };
+}
+
 export function sanitizeAccountSave(save: AccountSave): AccountSave {
   const selectedFrameId = frameIds.has(save.top.selectedFrameId) ? save.top.selectedFrameId : defaultFrameId;
   const selectedDriveId = driveIds.has(save.top.selectedDriveId) ? save.top.selectedDriveId : driveForFrame(selectedFrameId);
@@ -241,6 +268,7 @@ export function sanitizeAccountSave(save: AccountSave): AccountSave {
       routeClears: sanitizeRouteClears(save.top.routeClears),
       totalKills: Math.max(0, Math.floor(save.top.totalKills ?? 0)),
       seenTutorialIds: sanitizeTutorialIds(save.top.seenTutorialIds),
+      lootPolicy: sanitizeLootPolicy(save.top.lootPolicy),
     },
   };
 }
@@ -249,7 +277,7 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV1Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 6,
+      schemaVersion: 7,
       top: starterTopStateForLegacy(input),
     }));
   }
@@ -257,13 +285,14 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV2Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 6,
+      schemaVersion: 7,
       top: {
         ...input.top,
         totalKills: input.top.totalKills ?? 0,
         doctrineId: input.top.doctrineId ?? null,
         clearedRivalIds: input.top.clearedRivalIds ?? [],
         seenTutorialIds: input.top.seenTutorialIds ?? [],
+        lootPolicy: defaultLootPolicy,
       },
     }));
   }
@@ -271,12 +300,13 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV3Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 6,
+      schemaVersion: 7,
       top: {
         ...input.top,
         doctrineId: input.top.doctrineId ?? null,
         clearedRivalIds: input.top.clearedRivalIds ?? [],
         seenTutorialIds: input.top.seenTutorialIds ?? [],
+        lootPolicy: defaultLootPolicy,
       },
     }));
   }
@@ -284,11 +314,12 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV4Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 6,
+      schemaVersion: 7,
       top: {
         ...input.top,
         clearedRivalIds: input.top.clearedRivalIds ?? [],
         seenTutorialIds: input.top.seenTutorialIds ?? [],
+        lootPolicy: defaultLootPolicy,
       },
     }));
   }
@@ -296,10 +327,22 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV5Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 6,
+      schemaVersion: 7,
       top: {
         ...input.top,
         seenTutorialIds: input.top.seenTutorialIds ?? [],
+        lootPolicy: defaultLootPolicy,
+      },
+    }));
+  }
+
+  if (isLegacyV6Save(input)) {
+    return sanitizeAccountSave(accountSaveSchema.parse({
+      ...input,
+      schemaVersion: 7,
+      top: {
+        ...input.top,
+        lootPolicy: input.top.lootPolicy ?? defaultLootPolicy,
       },
     }));
   }

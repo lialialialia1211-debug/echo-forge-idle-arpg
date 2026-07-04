@@ -50,7 +50,6 @@ import {
   availableTalentPoints as resolveAvailableTalentPoints,
   canSpend,
   keyForgeCost,
-  mergeInventoryParts,
   talentPointTotal,
   inventoryCapacity,
 } from "../../engine/accountReducer";
@@ -62,6 +61,18 @@ import { validateRuneLoadout } from "../../engine/driveRuneValidation";
 import { clamp, formatNumber, formatPercent, round } from "../../engine/math";
 import { resolveOfflineElapsedSeconds, resolveOfflineSettlement, type OfflineSettlementResult } from "../../engine/offlineSettlement";
 import { resolveTopRuntimeStats } from "../../engine/topAssembly";
+import {
+  decideLootPolicy,
+  evaluateLootPolicy,
+  loadoutWithPart,
+  lootPolicyDriveTags,
+  lootPolicyRarities,
+  selectPartVerdict,
+  type LootPolicy,
+  type LootPolicyDecision,
+  type LootPolicyReason,
+  type PartVerdictProjection,
+} from "../../engine/lootPolicy";
 import {
   addRandomEngraving,
   canApplyForgeAction,
@@ -95,6 +106,7 @@ import type {
   CircuitAtlasNodeDef,
   CircuitNetworkNodeDef,
   DoctrineDef,
+  DriveTag,
   TalentNodeDef,
   TopArenaRuntime,
   TopArenaDefeatCause,
@@ -276,6 +288,9 @@ const rarityRank: Record<TopPartRarity, number> = {
   engraved: 2,
   relic: 3,
 };
+
+const lootPolicyScorePresets = [-50, -20, 0, 30] as const;
+const lootPolicyItemLevelPresets = [1, 3, 5, 8] as const;
 
 const enemyDangerWindows = {
   charger: 0.82,
@@ -468,69 +483,80 @@ function buildArchetypeGapLabel(gap: BuildArchetypeGap): string {
   }
 }
 
-function buildPartVerdict(part: TopPartInstance, currentStats: TopRuntimeStats, previewStats: TopRuntimeStats, equipped: boolean): PartVerdict {
-  const impactDelta = statFromRuntime(previewStats, "impact") - statFromRuntime(currentStats, "impact");
-  const ehpDelta =
-    statFromRuntime(previewStats, "spinIntegrity") +
-    statFromRuntime(previewStats, "guard") -
-    (statFromRuntime(currentStats, "spinIntegrity") + statFromRuntime(currentStats, "guard"));
-  const controlDelta = statFromRuntime(previewStats, "tracking") - statFromRuntime(currentStats, "tracking") + (statFromRuntime(previewStats, "rpm") - statFromRuntime(currentStats, "rpm")) * 34;
-  const rewardDelta = statFromRuntime(previewStats, "partQuantity") - statFromRuntime(currentStats, "partQuantity") + statFromRuntime(previewStats, "partRarity") - statFromRuntime(currentStats, "partRarity");
-  const score = impactDelta * 0.8 + ehpDelta * 0.08 + controlDelta * 0.08 + rewardDelta * 260;
-
-  if (equipped) {
+function formatPartVerdict(verdict: PartVerdictProjection): PartVerdict {
+  if (verdict.action === "equipped") {
     return {
       label: t("ui.verdict.equipped"),
       detail: t("ui.verdict.equippedDetail"),
-      tone: "good",
-      action: "equipped",
-      score,
+      tone: verdict.tone,
+      action: verdict.action,
+      score: verdict.score,
     };
   }
 
-  if (score >= 55 || impactDelta > 45 || ehpDelta > 180 || rewardDelta > 0.08) {
+  if (verdict.action === "equip") {
     return {
       label: t("ui.verdict.upgrade"),
-      detail: `分數 ${score >= 0 ? "+" : ""}${round(score, 0)} / ${term("stat", "impact")} ${impactDelta >= 0 ? "+" : ""}${formatNumber(impactDelta, 0)} / EHP ${ehpDelta >= 0 ? "+" : ""}${formatNumber(ehpDelta, 0)}`,
-      tone: "good",
-      action: "equip",
-      score,
+      detail: `分數 ${verdict.score >= 0 ? "+" : ""}${round(verdict.score, 0)} / ${term("stat", "impact")} ${verdict.impactDelta >= 0 ? "+" : ""}${formatNumber(verdict.impactDelta, 0)} / EHP ${verdict.ehpDelta >= 0 ? "+" : ""}${formatNumber(verdict.ehpDelta, 0)}`,
+      tone: verdict.tone,
+      action: verdict.action,
+      score: verdict.score,
     };
   }
 
-  if (rarityRank[part.rarity] >= rarityRank.engraved || score >= -20) {
+  if (verdict.action === "forge") {
     return {
       label: t("ui.verdict.forge"),
-      detail: t("ui.verdict.forgeDetail", { score: `${score >= 0 ? "+" : ""}${round(score, 0)}` }),
-      tone: part.rarity === "relic" ? "rare" : "warn",
-      action: "forge",
-      score,
+      detail: t("ui.verdict.forgeDetail", { score: `${verdict.score >= 0 ? "+" : ""}${round(verdict.score, 0)}` }),
+      tone: verdict.tone,
+      action: verdict.action,
+      score: verdict.score,
     };
   }
 
   return {
     label: t("ui.verdict.salvage"),
-    detail: t("ui.verdict.salvageDetail", { score: round(score, 0) }),
-    tone: "neutral",
-    action: "salvage",
-    score,
+    detail: t("ui.verdict.salvageDetail", { score: round(verdict.score, 0) }),
+    tone: verdict.tone,
+    action: verdict.action,
+    score: verdict.score,
   };
 }
 
-function buildPartRetention(part: TopPartInstance, verdict: PartVerdict): PartRetention {
-  if (verdict.action === "equipped") {
-    return { label: "已裝備", detail: verdict.detail, tone: "keep" };
+function policyReasonText(reason: LootPolicyReason, verdict: PartVerdict): Pick<PartRetention, "label" | "detail" | "tone"> {
+  switch (reason) {
+    case "equipped":
+      return { label: "已裝備", detail: verdict.detail, tone: "keep" };
+    case "locked":
+      return { label: "已鎖定", detail: "手動保留，不會自動拆解。", tone: "keep" };
+    case "protectedRarity":
+      return { label: "高稀有保留", detail: "銘刻與遺物不會被自動拆解。", tone: "forge" };
+    case "upgrade":
+      return { label: "推薦裝備", detail: verdict.detail, tone: "upgrade" };
+    case "forgeCandidate":
+      return { label: "推薦強化", detail: verdict.detail, tone: "forge" };
+    case "rarity":
+      return { label: "稀有度過低", detail: "低於目前戰利品規則設定。", tone: "salvage" };
+    case "slot":
+      return { label: "非目標槽位", detail: "這個槽位不在目前保留清單。", tone: "salvage" };
+    case "tag":
+      return { label: "非目標標籤", detail: "沒有符合目前追蹤的 build 標籤。", tone: "salvage" };
+    case "itemLevel":
+      return { label: "物品等級過低", detail: "低於目前戰利品規則設定。", tone: "salvage" };
+    case "score":
+      return { label: "分數過低", detail: verdict.detail, tone: "salvage" };
+    case "policyMatch":
+      return { label: "符合規則", detail: verdict.detail, tone: "keep" };
+    case "policyDisabled":
+    default:
+      return verdict.action === "salvage"
+        ? { label: "拆解候選", detail: "自動拆解尚未啟用，先保留供你確認。", tone: "salvage" }
+        : { label: "保留", detail: verdict.detail, tone: "keep" };
   }
-  if (part.locked) {
-    return { label: "已鎖定", detail: "手動保留，不會自動拆解。", tone: "keep" };
-  }
-  if (verdict.action === "equip") {
-    return { label: "推薦裝備", detail: verdict.detail, tone: "upgrade" };
-  }
-  if (verdict.action === "forge") {
-    return { label: part.rarity === "relic" || part.rarity === "engraved" ? "高稀有保留" : "推薦強化", detail: verdict.detail, tone: "forge" };
-  }
-  return { label: "可拆解", detail: verdict.detail, tone: "salvage" };
+}
+
+function formatPartRetention(decision: LootPolicyDecision, verdict: PartVerdict): PartRetention {
+  return policyReasonText(decision.reason, verdict);
 }
 
 function formatStatLines(stats: TopStatBlock | undefined): string[] {
@@ -944,7 +970,7 @@ export function CombatArena() {
   );
   const saveShellRef = useRef(initialSave);
   const [account, dispatchAccount] = useReducer(accountReducer, initialAccountState);
-  const { frameId, driveId, arenaId, equipment, inventory, runeSlots, talentIds, circuitAtlasNodeIds, doctrineId, wallet, arenaKeys, clearedBossGateIds, clearedRivalIds, routeClears, totalKills, seenTutorialIds } = account;
+  const { frameId, driveId, arenaId, equipment, inventory, runeSlots, talentIds, circuitAtlasNodeIds, doctrineId, wallet, arenaKeys, clearedBossGateIds, clearedRivalIds, routeClears, totalKills, seenTutorialIds, lootPolicy } = account;
   const [speed, setSpeed] = useState(1);
   const [running, setRunning] = useState(false);
   const [showDebugHud, setShowDebugHud] = useState(false);
@@ -1054,6 +1080,17 @@ export function CombatArena() {
   const inventoryCells = useMemo(
     () => Array.from({ length: inventoryCapacity }, (_, index) => filteredInventory[index] ?? null),
     [filteredInventory],
+  );
+  const lootPolicyPreview = useMemo(
+    () =>
+      evaluateLootPolicy({
+        frameId,
+        driveId,
+        loadout,
+        policy: { ...lootPolicy, autoSalvage: true },
+        parts: inventory,
+      }),
+    [driveId, frameId, inventory, loadout, lootPolicy],
   );
   const selectedPart = allKnownParts.find((part) => part.id === selectedPartId) ?? inventory[0] ?? equipment.core;
   const selectedCurrentPart = selectedPart ? equipment[selectedPart.slot] : null;
@@ -1257,6 +1294,11 @@ export function CombatArena() {
     [arenaId, currentArenaKey, driveId, frameId, makeLoadout, publishRuntime],
   );
 
+  const resetCurrentRun = useCallback(() => {
+    setRunning(false);
+    resetArena();
+  }, [resetArena]);
+
   const selectFrame = (nextFrameId: string) => {
     const action = { type: "selectFrame", frameId: nextFrameId } as const;
     const nextState = accountReducer(account, action);
@@ -1320,6 +1362,25 @@ export function CombatArena() {
     if (node.arenaId !== arenaId) {
       selectArena(node.arenaId);
     }
+  };
+
+  const updateLootPolicy = (patch: Partial<LootPolicy>) => {
+    dispatchAccount({ type: "updateLootPolicy", policy: { ...lootPolicy, ...patch } });
+  };
+
+  const toggleLootPolicySlot = (slot: TopPartSlotId) => {
+    const active = lootPolicy.targetSlots.includes(slot);
+    const targetSlots = active ? lootPolicy.targetSlots.filter((entry) => entry !== slot) : [...lootPolicy.targetSlots, slot];
+    if (targetSlots.length === 0) {
+      return;
+    }
+    updateLootPolicy({ targetSlots });
+  };
+
+  const toggleLootPolicyTag = (tag: DriveTag) => {
+    const active = lootPolicy.targetTags.includes(tag);
+    const targetTags = active ? lootPolicy.targetTags.filter((entry) => entry !== tag) : [...lootPolicy.targetTags, tag];
+    updateLootPolicy({ targetTags });
   };
 
   const continueOfflineRoute = () => {
@@ -1757,7 +1818,11 @@ export function CombatArena() {
     let nextState = accountReducer(account, { type: "addKills", amount: settlement.kills });
     nextState = accountReducer(nextState, { type: "ingestDrops", parts: settlement.parts, capacity: inventoryCapacity });
     nextState = accountReducer(nextState, { type: "addWallet", wallet: settlement.wallet });
-    const firstKeptPart = nextState.inventory.find((part) => settlement.parts.some((drop) => drop.id === part.id));
+    const nextInventoryIds = new Set(nextState.inventory.map((part) => part.id));
+    const keptOfflineParts = settlement.parts.filter((part) => nextInventoryIds.has(part.id));
+    const salvagedOfflineParts = settlement.parts.filter((part) => !nextInventoryIds.has(part.id));
+    const overflowedOfflineExisting = account.inventory.filter((part) => !nextInventoryIds.has(part.id));
+    const firstKeptPart = keptOfflineParts[0] ?? null;
     dispatchAccount({ type: "addKills", amount: settlement.kills });
     dispatchAccount({ type: "ingestDrops", parts: settlement.parts, capacity: inventoryCapacity });
     dispatchAccount({ type: "addWallet", wallet: settlement.wallet });
@@ -1772,11 +1837,23 @@ export function CombatArena() {
           tone: "reward" as const,
           text: `離線戰鬥：${formatNumber(settlement.kills, 0)} 次擊破 / ${settlement.parts.length} 件掉落`,
         },
-        ...settlement.parts.slice(0, 3).map((part) => ({
+        ...keptOfflineParts.slice(0, 3).map((part) => ({
           id: `offline_part_${part.id}`,
           tone: "drop" as const,
           rarity: part.rarity,
-          text: `回收 ${displayRarity(part.rarity)} ${displayPartName(part)}`,
+          text: `保留 ${displayRarity(part.rarity)} ${displayPartName(part)}`,
+        })),
+        ...salvagedOfflineParts.slice(0, 3).map((part) => ({
+          id: `offline_salvage_${part.id}`,
+          tone: "salvage" as const,
+          rarity: part.rarity,
+          text: `自動拆解 ${displayRarity(part.rarity)} ${displayPartName(part)}`,
+        })),
+        ...overflowedOfflineExisting.slice(0, 2).map((part) => ({
+          id: `offline_overflow_${part.id}`,
+          tone: "salvage" as const,
+          rarity: part.rarity,
+          text: `容量回收 ${displayRarity(part.rarity)} ${displayPartName(part)}`,
         })),
         ...current,
       ].slice(0, 8),
@@ -1799,7 +1876,7 @@ export function CombatArena() {
     const now = new Date().toISOString();
     const nextSave = {
       ...saveShellRef.current,
-      schemaVersion: 6 as const,
+      schemaVersion: 7 as const,
       currencies: {
         ...saveShellRef.current.currencies,
         ash: account.wallet.ash,
@@ -1826,11 +1903,16 @@ export function CombatArena() {
 
     if (newParts.length > 0) {
       const action = { type: "ingestDrops", parts: newParts, capacity: inventoryCapacity } as const;
-      const merged = mergeInventoryParts(newParts, inventory, inventoryCapacity);
-      const keptDrop = newParts.find((part) => merged.items.some((item) => item.id === part.id));
+      const nextState = accountReducer(account, action);
+      const nextInventoryIds = new Set(nextState.inventory.map((part) => part.id));
+      const keptDrops = newParts.filter((part) => nextInventoryIds.has(part.id));
+      const salvagedDrops = newParts.filter((part) => !nextInventoryIds.has(part.id));
+      const overflowedExisting = inventory.filter((part) => !nextInventoryIds.has(part.id));
+      const keptDrop = keptDrops[0] ?? null;
       const notices: LootNotice[] = [
-        ...newParts.map((part) => ({ id: `loot_${part.id}`, tone: "drop" as const, rarity: part.rarity, text: `取得 ${displayRarity(part.rarity)} ${displayPartName(part)}` })),
-        ...merged.overflow.map((part) => ({ id: `salvage_${part.id}`, tone: "salvage" as const, text: `自動拆解 ${displayPartName(part)}` })),
+        ...keptDrops.map((part) => ({ id: `loot_${part.id}`, tone: "drop" as const, rarity: part.rarity, text: `取得 ${displayRarity(part.rarity)} ${displayPartName(part)}` })),
+        ...salvagedDrops.map((part) => ({ id: `salvage_${part.id}`, tone: "salvage" as const, rarity: part.rarity, text: `自動拆解 ${displayRarity(part.rarity)} ${displayPartName(part)}` })),
+        ...overflowedExisting.map((part) => ({ id: `overflow_${part.id}_${runtime.seed}`, tone: "salvage" as const, rarity: part.rarity, text: `容量回收 ${displayRarity(part.rarity)} ${displayPartName(part)}` })),
       ];
       dispatchAccount(action);
       if (keptDrop) {
@@ -1846,19 +1928,21 @@ export function CombatArena() {
   const selectedPartInInventory = selectedPart ? inventory.some((part) => part.id === selectedPart.id) : false;
   const selectedPartEquipped = selectedPart ? selectedCurrentPart?.id === selectedPart.id : false;
   const selectedPartVerdict = useMemo(
-    () => (selectedPart ? buildPartVerdict(selectedPart, currentStats, previewStats, selectedPartEquipped) : null),
+    () => (selectedPart ? formatPartVerdict(selectPartVerdict(selectedPart, currentStats, previewStats, selectedPartEquipped)) : null),
     [currentStats, previewStats, selectedPart, selectedPartEquipped],
   );
   const partRetentionById = useMemo(() => {
     const entries = allKnownParts.map((part) => {
       const equipped = equipment[part.slot]?.id === part.id;
-      const partPreviewStats = equipped ? currentStats : resolveTopRuntimeStats(frameId, driveId, makeLoadout({ ...equipment, [part.slot]: part }));
-      const verdict = buildPartVerdict(part, currentStats, partPreviewStats, equipped);
-      return [part.id, buildPartRetention(part, verdict)] as const;
+      const partPreviewStats = equipped ? currentStats : resolveTopRuntimeStats(frameId, driveId, loadoutWithPart(loadout, part));
+      const verdictProjection = selectPartVerdict(part, currentStats, partPreviewStats, equipped);
+      const verdict = formatPartVerdict(verdictProjection);
+      const decision = decideLootPolicy(part, verdictProjection, lootPolicy, equipped);
+      return [part.id, formatPartRetention(decision, verdict)] as const;
     });
     return new Map(entries);
-  }, [allKnownParts, currentStats, driveId, equipment, frameId, makeLoadout]);
-  const selectedPartRetention = selectedPart ? partRetentionById.get(selectedPart.id) ?? (selectedPartVerdict ? buildPartRetention(selectedPart, selectedPartVerdict) : null) : null;
+  }, [allKnownParts, currentStats, driveId, equipment, frameId, loadout, lootPolicy]);
+  const selectedPartRetention = selectedPart ? partRetentionById.get(selectedPart.id) ?? null : null;
   const runReview = useMemo(() => {
     const bestDrop = runtime.drops.reduce<(typeof runtime.drops)[number] | null>(
       (best, drop) => (!best || rarityRank[drop.rarity] > rarityRank[best.rarity] ? drop : best),
@@ -2172,6 +2256,133 @@ export function CombatArena() {
               {displaySlot(slot)}
             </button>
           ))}
+        </div>
+        <div className="loot-policy-panel" aria-label="戰利品規則">
+          <div className="loot-policy-head">
+            <span>
+              <small>戰利品規則</small>
+              <strong>{lootPolicy.autoSalvage ? "自動拆解啟用" : "手動確認"}</strong>
+            </span>
+            <button
+              aria-pressed={lootPolicy.autoSalvage}
+              className={lootPolicy.autoSalvage ? "arena-button arena-button-live loot-policy-toggle" : "arena-button arena-button-secondary loot-policy-toggle"}
+              onClick={() => updateLootPolicy({ autoSalvage: !lootPolicy.autoSalvage })}
+              type="button"
+            >
+              <Recycle size={15} aria-hidden />
+              {lootPolicy.autoSalvage ? "自動" : "手動"}
+            </button>
+          </div>
+          <div className="loot-policy-preview">
+            <span>
+              <small>{lootPolicy.autoSalvage ? "保留" : "預估保留"}</small>
+              <strong>{lootPolicyPreview.keptParts.length}</strong>
+            </span>
+            <span>
+              <small>{lootPolicy.autoSalvage ? "拆解" : "預估拆解"}</small>
+              <strong>{lootPolicyPreview.salvagedParts.length}</strong>
+            </span>
+            <span>
+              <small>材料</small>
+              <strong>{formatCost(lootPolicyPreview.wallet)}</strong>
+            </span>
+          </div>
+          <div className="loot-policy-control">
+            <small>最低稀有度</small>
+            <div className="loot-policy-chip-row" role="group" aria-label="最低稀有度">
+              {lootPolicyRarities.map((rarity) => (
+                <button
+                  aria-pressed={lootPolicy.minRarity === rarity}
+                  className={lootPolicy.minRarity === rarity ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
+                  key={rarity}
+                  onClick={() => updateLootPolicy({ minRarity: rarity })}
+                  type="button"
+                >
+                  {displayRarity(rarity)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="loot-policy-control">
+            <small>物品等級</small>
+            <div className="loot-policy-chip-row" role="group" aria-label="物品等級">
+              {lootPolicyItemLevelPresets.map((itemLevel) => (
+                <button
+                  aria-pressed={lootPolicy.minItemLevel === itemLevel}
+                  className={lootPolicy.minItemLevel === itemLevel ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
+                  key={itemLevel}
+                  onClick={() => updateLootPolicy({ minItemLevel: itemLevel })}
+                  type="button"
+                >
+                  {itemLevel}+
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="loot-policy-control">
+            <small>戰力分數</small>
+            <div className="loot-policy-chip-row" role="group" aria-label="戰力分數">
+              {lootPolicyScorePresets.map((score) => (
+                <button
+                  aria-pressed={lootPolicy.minScore === score}
+                  className={lootPolicy.minScore === score ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
+                  key={score}
+                  onClick={() => updateLootPolicy({ minScore: score })}
+                  type="button"
+                >
+                  {score >= 0 ? `+${score}` : score}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="loot-policy-control loot-policy-control-wide">
+            <small>目標槽位</small>
+            <div className="loot-policy-chip-row" role="group" aria-label="目標槽位">
+              <button
+                aria-pressed={lootPolicy.targetSlots.length === partSlotOrder.length}
+                className={lootPolicy.targetSlots.length === partSlotOrder.length ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
+                onClick={() => updateLootPolicy({ targetSlots: [...partSlotOrder] })}
+                type="button"
+              >
+                全槽
+              </button>
+              {partSlotOrder.map((slot) => (
+                <button
+                  aria-pressed={lootPolicy.targetSlots.includes(slot)}
+                  className={lootPolicy.targetSlots.includes(slot) ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
+                  key={slot}
+                  onClick={() => toggleLootPolicySlot(slot)}
+                  type="button"
+                >
+                  {displaySlot(slot)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="loot-policy-control loot-policy-control-wide">
+            <small>追蹤標籤</small>
+            <div className="loot-policy-chip-row" role="group" aria-label="追蹤標籤">
+              <button
+                aria-pressed={lootPolicy.targetTags.length === 0}
+                className={lootPolicy.targetTags.length === 0 ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
+                onClick={() => updateLootPolicy({ targetTags: [] })}
+                type="button"
+              >
+                全部
+              </button>
+              {lootPolicyDriveTags.map((tag) => (
+                <button
+                  aria-pressed={lootPolicy.targetTags.includes(tag)}
+                  className={lootPolicy.targetTags.includes(tag) ? "loot-policy-chip loot-policy-chip-active" : "loot-policy-chip"}
+                  key={tag}
+                  onClick={() => toggleLootPolicyTag(tag)}
+                  type="button"
+                >
+                  {formatTags([tag])}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
         <div className="inventory-grid" aria-label={t("ui.aria.inventoryGrid")}>
           {inventoryCells.map((part, index) => {
@@ -3510,7 +3721,7 @@ export function CombatArena() {
           { label: t("ui.next.signal"), value: t("ui.next.runtimeHalted"), tone: "warn" },
           { label: t("ui.next.then"), value: t("ui.next.restartRun") },
         ],
-        onClick: () => resetArena(),
+        onClick: resetCurrentRun,
       };
     } else if (runtimeDefeated) {
       action = {
@@ -3762,7 +3973,7 @@ export function CombatArena() {
                 <button
                   className="arena-menu-item"
                   onClick={() => {
-                    resetArena();
+                    resetCurrentRun();
                     setOptionsOpen(false);
                   }}
                   type="button"
@@ -3947,7 +4158,7 @@ export function CombatArena() {
               <div className="arena-runtime-error" role="alert">
                 <strong>{t("ui.runtimeError.title")}</strong>
                 <span>{runtimeError}</span>
-                <button className="arena-button" onClick={() => resetArena()} type="button">
+                <button className="arena-button" onClick={resetCurrentRun} type="button">
                   <RotateCcw size={15} aria-hidden />
                   {t("ui.control.reset")}
                 </button>
@@ -3963,7 +4174,7 @@ export function CombatArena() {
                     <MapIcon size={15} aria-hidden />
                     {t("ui.control.routeMap")}
                   </button>
-                  <button className="arena-button" onClick={() => resetArena()} type="button">
+                  <button className="arena-button" onClick={resetCurrentRun} type="button">
                     <RotateCcw size={15} aria-hidden />
                     {t("ui.control.reset")}
                   </button>
