@@ -243,6 +243,8 @@ const messages: Record<string, string> = {
   "ui.endgame.active": "啟用",
   "ui.endgame.suggested": "推薦",
   "ui.endgame.configurable": "可配置",
+  "ui.endgame.effects": "已生效",
+  "ui.endgame.noEffects": "尚未啟用效果",
   "ui.compare.unlocks": "裝上後解鎖 {name}",
   "ui.compare.loses": "裝上後失去 {name}",
   "ui.compare.noThreshold": "沒有跨越門檻。",

@@ -60,9 +60,11 @@ import { generateArenaKey, summarizeArenaKeyRiskReward } from "../../engine/aren
 import { projectBossGateAttempt } from "../../engine/bossGate";
 import { validateRuneLoadout } from "../../engine/driveRuneValidation";
 import {
+  applyEndgameForgeCost,
   canAllocateEndgameMasterNode,
   canRefundEndgameMasterNode,
   resolveEndgameMasterBonuses,
+  type EndgameMasterRuntimeBonuses,
 } from "../../engine/endgameMasterAllocation";
 import { projectAllEndgameMasters, type EndgameMasterProjection } from "../../engine/endgameMasterProjection";
 import { clamp, formatNumber, formatPercent, round } from "../../engine/math";
@@ -746,6 +748,26 @@ function formatEndgameMissing(projection: EndgameMasterProjection): string {
   return projection.missingSignals.length > 0 ? projection.missingSignals.map(formatEndgameSignal).join(" / ") : "訊號已對齊";
 }
 
+function formatEndgameEffectLines(bonuses: EndgameMasterRuntimeBonuses): string[] {
+  const lines: string[] = [];
+  if (bonuses.keyForgeAshDiscount > 0) {
+    lines.push(`鑰匙製作 -${bonuses.keyForgeAshDiscount} ${t("ui.resource.ash")}`);
+  }
+  if (bonuses.mapClearRewardMultiplier > 1) {
+    lines.push(`路線通關 +${formatPercent(bonuses.mapClearRewardMultiplier - 1, 0)}`);
+  }
+  if (bonuses.salvageRewardMultiplier > 1) {
+    lines.push(`拆解材料 +${formatPercent(bonuses.salvageRewardMultiplier - 1, 0)}`);
+  }
+  if (bonuses.forgeAshDiscount > 0 || bonuses.forgeGlassDiscount > 0) {
+    lines.push(`鍛造成本 -${bonuses.forgeAshDiscount} ${t("ui.resource.ash")}`);
+  }
+  if (bonuses.affixForgeAshDiscount > 0 || bonuses.affixForgeGlassDiscount > 0) {
+    lines.push(`詞綴鍛造 -${bonuses.affixForgeAshDiscount} ${t("ui.resource.ash")}`);
+  }
+  return lines;
+}
+
 function distanceBetween(left: Pick<TopRuntimeEntity, "x" | "y">, right: Pick<TopRuntimeEntity, "x" | "y">): number {
   const dx = left.x - right.x;
   const dy = left.y - right.y;
@@ -1188,7 +1210,12 @@ export function CombatArena() {
     [arenaKeys, clearedBossGateIds, clearedRivalIds, endgameMasterNodeIds, routeClears, totalKills, wallet],
   );
   const endgameMasterBonuses = useMemo(() => resolveEndgameMasterBonuses(endgameMasterNodeIds), [endgameMasterNodeIds]);
+  const endgameEffectLines = useMemo(() => formatEndgameEffectLines(endgameMasterBonuses), [endgameMasterBonuses]);
   const currentKeyForgeCost = useMemo(() => keyForgeCostForState({ endgameMasterNodeIds }), [endgameMasterNodeIds]);
+  const forgeActionCostForAccount = useCallback(
+    (action: TopCraftAction, part: TopPartInstance | null | undefined) => applyEndgameForgeCost(forgeActionCost(action, part), endgameMasterNodeIds, action),
+    [endgameMasterNodeIds],
+  );
   const allKnownParts = useMemo(() => [...inventory, ...Object.values(equipment).filter(isPart)], [equipment, inventory]);
   const filteredInventory = useMemo(
     () => (inventoryFilter === "all" ? inventory : inventory.filter((part) => part.slot === inventoryFilter)),
@@ -1564,8 +1591,8 @@ export function CombatArena() {
     }
   };
 
-  const applyCraftResult = (sourcePart: TopPartInstance, result: TopCraftResult) => {
-    const action = { type: "applyCraft", sourcePartId: sourcePart.id, result } as const;
+  const applyCraftResult = (sourcePart: TopPartInstance, result: TopCraftResult, craftAction: TopCraftAction) => {
+    const action = { type: "applyCraft", sourcePartId: sourcePart.id, result, craftAction } as const;
     const nextState = accountReducer(account, action);
     if (nextState === account) {
       return;
@@ -1601,7 +1628,7 @@ export function CombatArena() {
               ? addRandomEngraving(selectedPart, seed)
               : removeRandomEngraving(selectedPart, seed);
 
-    applyCraftResult(selectedPart, result);
+    applyCraftResult(selectedPart, result, action);
   };
 
   const forgeArenaKey = () => {
@@ -1952,6 +1979,7 @@ export function CombatArena() {
       seed: `offline_${initialSave.top.lastSettledAt}_${initialSave.lastSavedAt}`,
       partQuantity: currentStats.partQuantity,
       partRarity: currentStats.partRarity,
+      endgameMasterNodeIds,
     });
     const hasRewards = settlement.kills > 0 || settlement.parts.length > 0 || settlement.wallet.ash > 0 || settlement.wallet.glass > 0 || settlement.wallet.echo > 0;
     if (!hasRewards) {
@@ -2016,6 +2044,7 @@ export function CombatArena() {
     currentStats.partQuantity,
     currentStats.partRarity,
     driveId,
+    endgameMasterNodeIds,
     frameId,
     initialSave.lastSavedAt,
     initialSave.top.lastSettledAt,
@@ -2156,7 +2185,7 @@ export function CombatArena() {
     () => circuitNetworkNodes.some((node) => Boolean(node.anomalyId && unlockedCircuitNodeIds.has(node.id))),
     [unlockedCircuitNodeIds],
   );
-  const canForgeSelectedPart = Boolean(selectedPart && canApplyForgeAction("upgrade", selectedPart) && canSpend(wallet, forgeActionCost("upgrade", selectedPart)));
+  const canForgeSelectedPart = Boolean(selectedPart && canApplyForgeAction("upgrade", selectedPart) && canSpend(wallet, forgeActionCostForAccount("upgrade", selectedPart)));
   const tutorialTriggers = useMemo<Record<TutorialTrigger, boolean>>(
     () => ({
       welcome: true,
@@ -2829,7 +2858,7 @@ export function CombatArena() {
             ["remove", t("ui.forge.remove"), t("ui.forge.removeDetail")],
           ].map(([action, label, detail]) => {
             const key = action as TopCraftAction;
-            const cost = forgeActionCost(key, selectedPart);
+            const cost = forgeActionCostForAccount(key, selectedPart);
             const disabled = !canApplyForgeAction(key, selectedPart) || !canSpend(wallet, cost);
             return (
               <button className="forge-action" disabled={disabled} key={action} onClick={() => craftSelectedPart(key)} type="button">
@@ -3477,6 +3506,12 @@ export function CombatArena() {
               <strong>{t("ui.section.endgameMasters")}</strong>
             </div>
             <span>{t("ui.endgame.activeNodes")}: {endgameMasterBonuses.activeNodeCount}</span>
+          </div>
+          <div className="endgame-effect-strip">
+            <small>{t("ui.endgame.effects")}</small>
+            <div>
+              {endgameEffectLines.length > 0 ? endgameEffectLines.map((line) => <span key={line}>{line}</span>) : <span>{t("ui.endgame.noEffects")}</span>}
+            </div>
           </div>
           <div className="endgame-master-grid">
             {endgameMasters.map((master) => {

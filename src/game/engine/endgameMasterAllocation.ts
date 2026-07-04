@@ -13,10 +13,22 @@ export type EndgameMasterRuntimeBonuses = {
   keySustainNodes: number;
   routeRewardNodes: number;
   materialLoopNodes: number;
+  forgeControlNodes: number;
+  affixControlNodes: number;
+  rivalDuelNodes: number;
+  bossGateNodes: number;
+  uniqueChaseNodes: number;
   keyForgeAshDiscount: number;
   keyForgeGlassDiscount: number;
+  forgeAshDiscount: number;
+  forgeGlassDiscount: number;
+  affixForgeAshDiscount: number;
+  affixForgeGlassDiscount: number;
+  salvageRewardMultiplier: number;
   mapClearRewardMultiplier: number;
 };
+
+export type EndgameForgeAction = "upgrade" | "rerollAffixes" | "rerollValues" | "add" | "remove";
 
 const knownMasterIds = new Set(endgameMasters.map((master) => master.id));
 const masterById = new Map(endgameMasters.map((master) => [master.id, master]));
@@ -170,6 +182,11 @@ export function resolveEndgameMasterBonuses(
   let keySustainNodes = 0;
   let routeRewardNodes = 0;
   let materialLoopNodes = 0;
+  let forgeControlNodes = 0;
+  let affixControlNodes = 0;
+  let rivalDuelNodes = 0;
+  let bossGateNodes = 0;
+  let uniqueChaseNodes = 0;
 
   for (const nodeIds of Object.values(normalized)) {
     for (const nodeId of nodeIds) {
@@ -188,6 +205,21 @@ export function resolveEndgameMasterBonuses(
       if (node.rewardTarget === "materialLoop") {
         materialLoopNodes += 1;
       }
+      if (node.rewardTarget === "forgeControl") {
+        forgeControlNodes += 1;
+      }
+      if (node.rewardTarget === "affixControl") {
+        affixControlNodes += 1;
+      }
+      if (node.rewardTarget === "rivalDuel") {
+        rivalDuelNodes += 1;
+      }
+      if (node.rewardTarget === "bossGate") {
+        bossGateNodes += 1;
+      }
+      if (node.rewardTarget === "uniqueChase") {
+        uniqueChaseNodes += 1;
+      }
     }
   }
 
@@ -196,8 +228,18 @@ export function resolveEndgameMasterBonuses(
     keySustainNodes,
     routeRewardNodes,
     materialLoopNodes,
+    forgeControlNodes,
+    affixControlNodes,
+    rivalDuelNodes,
+    bossGateNodes,
+    uniqueChaseNodes,
     keyForgeAshDiscount: keySustainNodes,
     keyForgeGlassDiscount: Math.floor(keySustainNodes / 3),
+    forgeAshDiscount: forgeControlNodes + Math.floor(materialLoopNodes / 2),
+    forgeGlassDiscount: Math.floor(forgeControlNodes / 2),
+    affixForgeAshDiscount: affixControlNodes,
+    affixForgeGlassDiscount: Math.floor(affixControlNodes / 2),
+    salvageRewardMultiplier: 1 + materialLoopNodes * 0.12,
     mapClearRewardMultiplier: 1 + routeRewardNodes * 0.08 + materialLoopNodes * 0.03,
   };
 }
@@ -227,5 +269,38 @@ export function applyEndgameMapClearReward(
     ash: Math.ceil(baseReward.ash * bonuses.mapClearRewardMultiplier),
     glass: Math.ceil(baseReward.glass * bonuses.mapClearRewardMultiplier),
     echo: Math.ceil(baseReward.echo * bonuses.mapClearRewardMultiplier),
+  };
+}
+
+export function applyEndgameSalvageReward(
+  baseReward: WalletLike,
+  allocations: EndgameMasterNodeIds | undefined,
+): WalletLike {
+  const bonuses = resolveEndgameMasterBonuses(allocations);
+  if (bonuses.salvageRewardMultiplier === 1) {
+    return baseReward;
+  }
+
+  return {
+    ash: Math.ceil(baseReward.ash * bonuses.salvageRewardMultiplier),
+    glass: Math.ceil(baseReward.glass * bonuses.salvageRewardMultiplier),
+    echo: Math.ceil(baseReward.echo * bonuses.salvageRewardMultiplier),
+  };
+}
+
+export function applyEndgameForgeCost(
+  baseCost: WalletLike,
+  allocations: EndgameMasterNodeIds | undefined,
+  action?: EndgameForgeAction,
+): WalletLike {
+  const bonuses = resolveEndgameMasterBonuses(allocations);
+  const isAffixAction = action === "rerollAffixes" || action === "rerollValues" || action === "add" || action === "remove";
+  const ashDiscount = bonuses.forgeAshDiscount + (isAffixAction ? bonuses.affixForgeAshDiscount : 0);
+  const glassDiscount = bonuses.forgeGlassDiscount + (isAffixAction ? bonuses.affixForgeGlassDiscount : 0);
+
+  return {
+    ash: Math.max(baseCost.ash > 0 ? 1 : 0, baseCost.ash - ashDiscount),
+    glass: Math.max(baseCost.glass > 0 ? 1 : 0, baseCost.glass - glassDiscount),
+    echo: baseCost.echo,
   };
 }

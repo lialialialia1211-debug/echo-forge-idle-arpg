@@ -278,6 +278,50 @@ describe("accountReducer", () => {
     expect(cleared.wallet).toEqual({ ash: 27, glass: 12, echo: 0 });
   });
 
+  it("applies forgesmith forge control discounts through reducer spend checks", () => {
+    const source = part("forgesmith_source");
+    const crafted = { ...source, id: "forgesmith_crafted", displayName: "Forgesmith Crafted" };
+    const state = createState({
+      inventory: [source],
+      wallet: { ash: 6, glass: 1, echo: 0 },
+      endgameMasterNodeIds: {
+        master_forgesmith: ["master_forgesmith_measured_heat"],
+      },
+    });
+    const craftedState = accountReducer(state, {
+      type: "applyCraft",
+      sourcePartId: source.id,
+      craftAction: "upgrade",
+      result: { part: crafted, spent: { ash: 6, glass: 1, echo: 0 } },
+    });
+
+    expect(craftedState.wallet).toEqual({ ash: 1, glass: 0, echo: 0 });
+    expect(craftedState.inventory[0].id).toBe("forgesmith_crafted");
+  });
+
+  it("applies forgesmith material loop bonuses to manual and policy salvage", () => {
+    const loose = part("forgesmith_loose");
+    const junk = part("forgesmith_junk");
+    const state = createState({
+      inventory: [loose],
+      wallet: { ash: 0, glass: 0, echo: 0 },
+      lootPolicy: {
+        ...defaultLootPolicy,
+        autoSalvage: true,
+        minRarity: "tuned",
+      },
+      endgameMasterNodeIds: {
+        master_forgesmith: ["master_forgesmith_scrap_tithe"],
+      },
+    });
+
+    const manual = accountReducer(state, { type: "salvagePart", partId: loose.id });
+    const policy = accountReducer({ ...state, inventory: [] }, { type: "ingestDrops", parts: [junk], capacity: inventoryCapacity });
+
+    expect(manual.wallet).toEqual({ ash: 3, glass: 0, echo: 0 });
+    expect(policy.wallet).toEqual({ ash: 3, glass: 0, echo: 0 });
+  });
+
   it("selects only doctrines that match the active frame", () => {
     const state = createState();
     const selected = accountReducer(state, { type: "selectDoctrine", doctrineId: "doctrine_swift_razor_edge" });

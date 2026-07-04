@@ -3497,6 +3497,39 @@
   gap: 8px;
 }
 
+.endgame-effect-strip {
+  display: grid;
+  gap: 5px;
+  border: 1px solid rgba(101, 198, 176, 0.18);
+  border-radius: 6px;
+  background: rgba(101, 198, 176, 0.055);
+  padding: 7px 8px;
+}
+
+.endgame-effect-strip small {
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.2;
+}
+
+.endgame-effect-strip div {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.endgame-effect-strip span {
+  min-width: 0;
+  border: 1px solid rgba(230, 215, 181, 0.12);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--soft);
+  padding: 3px 6px;
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
 .endgame-master-card {
   min-width: 0;
   display: grid;

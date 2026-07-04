@@ -8,6 +8,7 @@ import { projectTopCombat } from "./topCombat";
 import { rollDropOutcome } from "./topDropRolls";
 import { addWallet, salvageParts } from "./accountReducer";
 import type { AccountWallet } from "./accountState";
+import type { EndgameMasterNodeIds } from "./endgameMasterAllocation";
 import type { TopLoadoutConfig, TopPartInstance } from "./topTypes";
 import { clamp } from "./math";
 
@@ -22,6 +23,7 @@ export type OfflineSettlementInput = {
   seed: string;
   partQuantity: number;
   partRarity: number;
+  endgameMasterNodeIds?: EndgameMasterNodeIds;
 };
 
 export type OfflineSettlementResult = {
@@ -143,7 +145,7 @@ export function resolveOfflineSettlement(input: OfflineSettlementInput): Offline
     if (parts.length < balanceConfig.offline.dropCap) {
       parts.push(part);
     } else {
-      overflowWallet = addWallet(overflowWallet, salvageParts([part]));
+      overflowWallet = addWallet(overflowWallet, salvageParts([part], input.endgameMasterNodeIds));
     }
   }
 

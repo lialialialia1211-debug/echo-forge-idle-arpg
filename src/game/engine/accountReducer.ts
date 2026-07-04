@@ -12,14 +12,17 @@ import { isRuneCompatible, tuningRunes } from "../data/tuningRunes";
 import { validateRuneLoadout } from "./driveRuneValidation";
 import {
   allocateEndgameMasterNode,
+  applyEndgameForgeCost,
   applyEndgameKeyForgeCost,
   applyEndgameMapClearReward,
+  applyEndgameSalvageReward,
   canAllocateEndgameMasterNode,
   canRefundEndgameMasterNode,
   refundEndgameMasterNode,
+  type EndgameMasterNodeIds,
 } from "./endgameMasterAllocation";
 import { evaluateLootPolicy, type LootPolicy } from "./lootPolicy";
-import { salvageTopPart, type TopCraftResult, type TopForgeWallet } from "./topCrafting";
+import { salvageTopPart, type TopCraftAction, type TopCraftResult, type TopForgeWallet } from "./topCrafting";
 import { generateTopPart } from "./topPartGeneration";
 import type { ArenaKey, TopLoadoutConfig, TopPartInstance } from "./topTypes";
 import { compactRuneSlots, type AccountRuntimeState, type AccountWallet } from "./accountState";
@@ -37,7 +40,7 @@ export type AccountAction =
   | { type: "equipPart"; part: TopPartInstance }
   | { type: "toggleLock"; partId: string }
   | { type: "salvagePart"; partId: string }
-  | { type: "applyCraft"; sourcePartId: string; result: TopCraftResult }
+  | { type: "applyCraft"; sourcePartId: string; result: TopCraftResult; craftAction?: TopCraftAction }
   | { type: "assignRune"; runeId: string; socketIndex: number }
   | { type: "clearRuneSocket"; socketIndex: number }
   | { type: "allocateTalent"; talentId: string }
@@ -97,8 +100,9 @@ export function mergeInventoryParts(incoming: TopPartInstance[], current: TopPar
   return { items, overflow };
 }
 
-export function salvageParts(parts: TopPartInstance[]): AccountWallet {
-  return parts.reduce<AccountWallet>((wallet, part) => addWallet(wallet, salvageTopPart(part)), { ash: 0, glass: 0, echo: 0 });
+export function salvageParts(parts: TopPartInstance[], endgameMasterNodeIds?: EndgameMasterNodeIds): AccountWallet {
+  const baseReward = parts.reduce<AccountWallet>((wallet, part) => addWallet(wallet, salvageTopPart(part)), { ash: 0, glass: 0, echo: 0 });
+  return applyEndgameSalvageReward(baseReward, endgameMasterNodeIds);
 }
 
 function addWalletTimes(wallet: AccountWallet, reward: AccountWallet, times: number): AccountWallet {
@@ -117,7 +121,7 @@ function addRewardParts(state: AccountRuntimeState, parts: TopPartInstance[]): A
   return {
     ...state,
     inventory: merged.items,
-    wallet: merged.overflow.length > 0 ? addWallet(state.wallet, salvageParts(merged.overflow)) : state.wallet,
+    wallet: merged.overflow.length > 0 ? addWallet(state.wallet, salvageParts(merged.overflow, state.endgameMasterNodeIds)) : state.wallet,
   };
 }
 
@@ -381,18 +385,19 @@ export function accountReducer(state: AccountRuntimeState, action: AccountAction
       return {
         ...state,
         inventory: state.inventory.filter((item) => item.id !== action.partId),
-        wallet: addWallet(state.wallet, salvageTopPart(part)),
+        wallet: addWallet(state.wallet, applyEndgameSalvageReward(salvageTopPart(part), state.endgameMasterNodeIds)),
       };
     }
 
     case "applyCraft": {
-      if (!canSpend(state.wallet, action.result.spent)) {
+      const spent = applyEndgameForgeCost(action.result.spent, state.endgameMasterNodeIds, action.craftAction);
+      if (!canSpend(state.wallet, spent)) {
         return state;
       }
       return replacePartEverywhere(
         {
           ...state,
-          wallet: spendWallet(state.wallet, action.result.spent),
+          wallet: spendWallet(state.wallet, spent),
         },
         action.sourcePartId,
         action.result.part,
@@ -488,10 +493,12 @@ export function accountReducer(state: AccountRuntimeState, action: AccountAction
         parts: action.parts,
       });
       const merged = mergeInventoryParts(evaluated.keptParts, state.inventory, action.capacity ?? inventoryCapacity);
+      const evaluatedWallet = applyEndgameSalvageReward(evaluated.wallet, state.endgameMasterNodeIds);
+      const overflowWallet = merged.overflow.length > 0 ? salvageParts(merged.overflow, state.endgameMasterNodeIds) : { ash: 0, glass: 0, echo: 0 };
       return {
         ...state,
         inventory: merged.items,
-        wallet: addWallet(addWallet(state.wallet, evaluated.wallet), merged.overflow.length > 0 ? salvageParts(merged.overflow) : { ash: 0, glass: 0, echo: 0 }),
+        wallet: addWallet(addWallet(state.wallet, evaluatedWallet), overflowWallet),
       };
     }
 
