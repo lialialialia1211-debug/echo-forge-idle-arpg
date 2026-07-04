@@ -1118,6 +1118,7 @@ export function CombatArena() {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [doctrineExpanded, setDoctrineExpanded] = useState(false);
   const [lootRulesExpanded, setLootRulesExpanded] = useState(false);
+  const [lootAutomationExpanded, setLootAutomationExpanded] = useState(false);
   const [endgameMastersExpanded, setEndgameMastersExpanded] = useState(false);
   const [clearsExpanded, setClearsExpanded] = useState(false);
   const [currentArenaKey, setCurrentArenaKey] = useState<ArenaKey | null>(null);
@@ -2432,9 +2433,67 @@ export function CombatArena() {
     </>
   );
 
-  const renderInventoryPanel = () => (
+  const renderInventoryPanel = () => {
+    const reviewedDropCount = Math.max(lootNotices.filter((notice) => notice.tone === "drop").length, hasActiveLootRunSummary ? lootRunSummary.kept + lootRunSummary.salvaged : 0);
+    const showSimpleLootReview = inventory.length > 0 && (totalKills < 500 || reviewedDropCount > 0);
+    const reviewTitle = reviewedDropCount > 0 ? `${reviewedDropCount} 件戰利品待整理` : "背包下一步";
+    const reviewSignal = selectedPartVerdict?.label ?? selectedPartRetention?.label ?? "先挑一件有提升的裝備";
+    const reviewDetail = selectedPartVerdict?.detail ?? selectedPartRetention?.detail ?? "裝上推薦零件後，再回去刷下一場。";
+    const quickPrimaryAction =
+      selectedPartVerdict?.action === "equip" && selectedPart && selectedPartInInventory
+        ? {
+            icon: <CircleDot size={15} aria-hidden />,
+            label: "裝上推薦",
+            onClick: () => equipPart(selectedPart),
+          }
+        : selectedPartVerdict?.action === "forge" || canForgeSelectedPart
+          ? {
+              icon: <Hammer size={15} aria-hidden />,
+              label: "去強化",
+              onClick: () => openPanel("forge"),
+            }
+          : {
+              icon: <Play size={15} aria-hidden />,
+              label: "繼續刷",
+              onClick: startIdleFromHome,
+            };
+
+    return (
     <>
-      <section className="workbench-section">
+      {showSimpleLootReview ? (
+        <section className="workbench-section loot-quick-review" data-tutorial-anchor="loot-notice">
+          <div className="loot-quick-main">
+            <span className="loot-quick-icon">
+              <PackageOpen size={20} aria-hidden />
+            </span>
+            <div>
+              <small>戰後整理</small>
+              <h2>{reviewTitle}</h2>
+              <strong>{selectedPart ? displayPartName(selectedPart) : "尚未選取裝備"}</strong>
+              <p>{reviewSignal} / {reviewDetail}</p>
+            </div>
+          </div>
+          <div className="loot-quick-actions">
+            <button className="arena-button arena-button-live" onClick={quickPrimaryAction.onClick} type="button">
+              {quickPrimaryAction.icon}
+              {quickPrimaryAction.label}
+            </button>
+            {quickPrimaryAction.label !== "去強化" ? (
+              <button className="arena-button arena-button-secondary" disabled={!featureUnlocks.forge} onClick={() => openPanel("forge")} type="button">
+                <Hammer size={15} aria-hidden />
+                強化
+              </button>
+            ) : null}
+            {quickPrimaryAction.label !== "繼續刷" ? (
+              <button className="arena-button arena-button-secondary" onClick={startIdleFromHome} type="button">
+                <Play size={15} aria-hidden />
+                繼續刷
+              </button>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+      <section className={showSimpleLootReview ? "workbench-section inventory-section inventory-section-simple" : "workbench-section inventory-section"}>
         <div className="section-title">
           <PackageOpen size={17} aria-hidden />
           <h2>{t("ui.section.inventory")}</h2>
@@ -2450,7 +2509,20 @@ export function CombatArena() {
             </button>
           ))}
         </div>
-        <div className="loot-policy-panel" aria-label="戰利品規則">
+        {showSimpleLootReview && !lootAutomationExpanded ? (
+          <div className="loot-policy-compact">
+            <div>
+              <small>進階整理</small>
+              <strong>自動保留、拆解規則</strong>
+              <span>想長時間掛機時再調整；現在先看推薦裝備。</span>
+            </div>
+            <button className="arena-button arena-button-secondary" onClick={() => setLootAutomationExpanded(true)} type="button">
+              <SlidersHorizontal size={15} aria-hidden />
+              展開
+            </button>
+          </div>
+        ) : null}
+        <div className={showSimpleLootReview && !lootAutomationExpanded ? "loot-policy-panel loot-policy-panel-hidden" : "loot-policy-panel"} aria-label="戰利品規則">
           <div className="loot-policy-head">
             <span>
               <small>背包整理</small>
@@ -2671,6 +2743,7 @@ export function CombatArena() {
 
     </>
   );
+  };
 
   const renderSkillInspector = () => (
     <>
