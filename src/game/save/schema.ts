@@ -12,6 +12,19 @@ const tutorialIdsSchema = z.preprocess(
   z.array(z.string()).default([]),
 );
 
+const endgameMasterNodeIdsSchema = z.preprocess(
+  (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {}),
+  z
+    .record(
+      z.string(),
+      z.preprocess(
+        (value) => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []),
+        z.array(z.string()),
+      ),
+    )
+    .default({}),
+);
+
 const lootPolicySlotIds = ["core", "attackRing", "weightDisk", "tip", "launcher", "seal", "circuitChip"] as const;
 const lootPolicyRarityIds = new Set<string>(lootPolicyRarities);
 const lootPolicySlotIdSet = new Set<string>(lootPolicySlotIds);
@@ -193,11 +206,12 @@ export const topAccountStateSchema = z.object({
   totalKills: nonNegativeIntegerSchema,
   seenTutorialIds: tutorialIdsSchema,
   lootPolicy: lootPolicySchema,
+  endgameMasterNodeIds: endgameMasterNodeIdsSchema,
   lastSettledAt: z.string(),
 });
 
 export const accountSaveSchema = z.object({
-  schemaVersion: z.literal(7),
+  schemaVersion: z.literal(8),
   accountId: z.string().nullable(),
   settings: z.object({
     reduceMotion: z.boolean(),
@@ -282,7 +296,7 @@ export function createNewAccountSave(classId = "veilrunner"): AccountSave {
   const selectedDriveId = starterDriveForFrame(selectedFrameId);
 
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     accountId: null,
     settings: {
       reduceMotion: false,
@@ -333,6 +347,7 @@ export function createNewAccountSave(classId = "veilrunner"): AccountSave {
       totalKills: 0,
       seenTutorialIds: [],
       lootPolicy: defaultLootPolicy,
+      endgameMasterNodeIds: {},
       lastSettledAt: now,
     },
     achievements: {},

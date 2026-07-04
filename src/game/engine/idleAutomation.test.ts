@@ -24,6 +24,7 @@ function createState(): AccountRuntimeState {
     totalKills: 0,
     seenTutorialIds: [],
     lootPolicy: defaultLootPolicy,
+    endgameMasterNodeIds: {},
   };
 }
 

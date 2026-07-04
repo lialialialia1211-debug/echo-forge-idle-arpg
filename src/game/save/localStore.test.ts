@@ -13,7 +13,7 @@ describe("local save adapter", () => {
 
     const save = loadLocalSave();
 
-    expect(save.schemaVersion).toBe(7);
+    expect(save.schemaVersion).toBe(8);
     expect(window.localStorage.getItem(CORRUPT_SAVE_BACKUP_KEY)).toBe("{bad json");
   });
 });

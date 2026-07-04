@@ -10,6 +10,14 @@ import { getTalentNodeDef, talentNodes } from "../data/talentNodes";
 import { getTopFrameDef } from "../data/topFrames";
 import { isRuneCompatible, tuningRunes } from "../data/tuningRunes";
 import { validateRuneLoadout } from "./driveRuneValidation";
+import {
+  allocateEndgameMasterNode,
+  applyEndgameKeyForgeCost,
+  applyEndgameMapClearReward,
+  canAllocateEndgameMasterNode,
+  canRefundEndgameMasterNode,
+  refundEndgameMasterNode,
+} from "./endgameMasterAllocation";
 import { evaluateLootPolicy, type LootPolicy } from "./lootPolicy";
 import { salvageTopPart, type TopCraftResult, type TopForgeWallet } from "./topCrafting";
 import { generateTopPart } from "./topPartGeneration";
@@ -36,6 +44,8 @@ export type AccountAction =
   | { type: "refundTalent"; talentId: string }
   | { type: "allocateAtlasNode"; nodeId: string }
   | { type: "refundAtlasNode"; nodeId: string }
+  | { type: "allocateEndgameMasterNode"; masterId: string; nodeId: string }
+  | { type: "refundEndgameMasterNode"; masterId: string; nodeId: string }
   | { type: "selectDoctrine"; doctrineId: string | null }
   | { type: "forgeArenaKey"; key: ArenaKey; cost?: AccountWallet }
   | { type: "runArenaKey"; keyId: string }
@@ -157,6 +167,14 @@ function mapClearReward(arenaId: string, clears: number): AccountWallet {
     glass: balanceConfig.progression.mapClearReward.glassPerTier * arena.tier * clears,
     echo: 0,
   };
+}
+
+export function keyForgeCostForState(state: Pick<AccountRuntimeState, "endgameMasterNodeIds">): AccountWallet {
+  return applyEndgameKeyForgeCost(keyForgeCost, state.endgameMasterNodeIds);
+}
+
+function mapClearRewardForState(state: Pick<AccountRuntimeState, "endgameMasterNodeIds">, arenaId: string, clears: number): AccountWallet {
+  return applyEndgameMapClearReward(mapClearReward(arenaId, clears), state.endgameMasterNodeIds);
 }
 
 function loadoutForAccountState(state: AccountRuntimeState): TopLoadoutConfig {
@@ -418,11 +436,27 @@ export function accountReducer(state: AccountRuntimeState, action: AccountAction
         ? { ...state, circuitAtlasNodeIds: state.circuitAtlasNodeIds.filter((id) => id !== action.nodeId) }
         : state;
 
+    case "allocateEndgameMasterNode":
+      return canAllocateEndgameMasterNode(state.endgameMasterNodeIds, action.masterId, action.nodeId)
+        ? {
+            ...state,
+            endgameMasterNodeIds: allocateEndgameMasterNode(state.endgameMasterNodeIds, action.masterId, action.nodeId),
+          }
+        : state;
+
+    case "refundEndgameMasterNode":
+      return canRefundEndgameMasterNode(state.endgameMasterNodeIds, action.masterId, action.nodeId)
+        ? {
+            ...state,
+            endgameMasterNodeIds: refundEndgameMasterNode(state.endgameMasterNodeIds, action.masterId, action.nodeId),
+          }
+        : state;
+
     case "selectDoctrine":
       return canSelectDoctrine(state, action.doctrineId) ? { ...state, doctrineId: action.doctrineId } : state;
 
     case "forgeArenaKey": {
-      const cost = action.cost ?? keyForgeCost;
+      const cost = action.cost ?? keyForgeCostForState(state);
       if (!canSpend(state.wallet, cost)) {
         return state;
       }
@@ -483,7 +517,7 @@ export function accountReducer(state: AccountRuntimeState, action: AccountAction
       const clears = Math.max(1, action.keys.length);
       return {
         ...state,
-        wallet: addWalletTimes(state.wallet, mapClearReward(action.arenaId, clears), 1),
+        wallet: addWalletTimes(state.wallet, mapClearRewardForState(state, action.arenaId, clears), 1),
         routeClears: { ...state.routeClears, [action.arenaId]: (state.routeClears[action.arenaId] ?? 0) + clears },
         arenaKeys: [...action.keys, ...state.arenaKeys].slice(0, arenaKeyCapacity),
       };

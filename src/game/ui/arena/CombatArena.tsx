@@ -30,7 +30,7 @@ import { circuitAtlasNodes, getCircuitAtlasNodeDef } from "../../data/circuitAtl
 import { circuitNetworkNodes } from "../../data/circuitNetwork";
 import { doctrineForFrame, getDoctrineDef } from "../../data/doctrines";
 import { driveCores, getDriveCoreDef } from "../../data/driveCores";
-import { endgameMasters, getEndgameMasterNodeDef, type EndgameMasterRewardTarget, type EndgameMasterSignal } from "../../data/endgameMasters";
+import { endgameMasters, type EndgameMasterRewardTarget, type EndgameMasterSignal } from "../../data/endgameMasters";
 import { getNamedRivalDef, namedRivals } from "../../data/namedRivals";
 import { talentNodes, getTalentNodeDef } from "../../data/talentNodes";
 import { getTopFrameDef, topFrames } from "../../data/topFrames";
@@ -50,7 +50,7 @@ import {
   availableAtlasPoints as resolveAvailableAtlasPoints,
   availableTalentPoints as resolveAvailableTalentPoints,
   canSpend,
-  keyForgeCost,
+  keyForgeCostForState,
   talentPointTotal,
   inventoryCapacity,
 } from "../../engine/accountReducer";
@@ -59,6 +59,11 @@ import { createTopArenaRuntime, defaultArenaTuning, stepTopArenaRuntime } from "
 import { generateArenaKey, summarizeArenaKeyRiskReward } from "../../engine/arenaKeys";
 import { projectBossGateAttempt } from "../../engine/bossGate";
 import { validateRuneLoadout } from "../../engine/driveRuneValidation";
+import {
+  canAllocateEndgameMasterNode,
+  canRefundEndgameMasterNode,
+  resolveEndgameMasterBonuses,
+} from "../../engine/endgameMasterAllocation";
 import { projectAllEndgameMasters, type EndgameMasterProjection } from "../../engine/endgameMasterProjection";
 import { clamp, formatNumber, formatPercent, round } from "../../engine/math";
 import { resolveOfflineElapsedSeconds, resolveOfflineSettlement, type OfflineSettlementResult } from "../../engine/offlineSettlement";
@@ -1047,7 +1052,26 @@ export function CombatArena() {
   );
   const saveShellRef = useRef(initialSave);
   const [account, dispatchAccount] = useReducer(accountReducer, initialAccountState);
-  const { frameId, driveId, arenaId, equipment, inventory, runeSlots, talentIds, circuitAtlasNodeIds, doctrineId, wallet, arenaKeys, clearedBossGateIds, clearedRivalIds, routeClears, totalKills, seenTutorialIds, lootPolicy } = account;
+  const {
+    frameId,
+    driveId,
+    arenaId,
+    equipment,
+    inventory,
+    runeSlots,
+    talentIds,
+    circuitAtlasNodeIds,
+    doctrineId,
+    wallet,
+    arenaKeys,
+    clearedBossGateIds,
+    clearedRivalIds,
+    routeClears,
+    totalKills,
+    seenTutorialIds,
+    lootPolicy,
+    endgameMasterNodeIds,
+  } = account;
   const [speed, setSpeed] = useState(1);
   const [running, setRunning] = useState(false);
   const [showDebugHud, setShowDebugHud] = useState(false);
@@ -1156,12 +1180,15 @@ export function CombatArena() {
         arenaKeys,
         clearedBossGateIds,
         clearedRivalIds,
+        endgameMasterNodeIds,
         routeClears,
         totalKills,
         wallet,
       }),
-    [arenaKeys, clearedBossGateIds, clearedRivalIds, routeClears, totalKills, wallet],
+    [arenaKeys, clearedBossGateIds, clearedRivalIds, endgameMasterNodeIds, routeClears, totalKills, wallet],
   );
+  const endgameMasterBonuses = useMemo(() => resolveEndgameMasterBonuses(endgameMasterNodeIds), [endgameMasterNodeIds]);
+  const currentKeyForgeCost = useMemo(() => keyForgeCostForState({ endgameMasterNodeIds }), [endgameMasterNodeIds]);
   const allKnownParts = useMemo(() => [...inventory, ...Object.values(equipment).filter(isPart)], [equipment, inventory]);
   const filteredInventory = useMemo(
     () => (inventoryFilter === "all" ? inventory : inventory.filter((part) => part.slot === inventoryFilter)),
@@ -1586,7 +1613,7 @@ export function CombatArena() {
       seed: `manual_key_${arenaId}_${Date.now()}`,
       bossGateId: arena.tier >= 3 ? "boss_gate_brass_judicator" : undefined,
     });
-    const action = { type: "forgeArenaKey", key, cost: keyForgeCost } as const;
+    const action = { type: "forgeArenaKey", key, cost: currentKeyForgeCost } as const;
     const nextState = accountReducer(account, action);
     if (nextState === account) {
       return;
@@ -1723,6 +1750,25 @@ export function CombatArena() {
     }
     dispatchAccount(action);
     resetArena(nextState.frameId, nextState.driveId, nextState.arenaId, loadoutFromAccountState(nextState));
+  };
+
+  const canUseEndgameMasterNode = (masterId: string, nodeId: string): boolean => {
+    const activeNodeIds = endgameMasterNodeIds[masterId] ?? [];
+    return activeNodeIds.includes(nodeId)
+      ? canRefundEndgameMasterNode(endgameMasterNodeIds, masterId, nodeId)
+      : canAllocateEndgameMasterNode(endgameMasterNodeIds, masterId, nodeId);
+  };
+
+  const toggleEndgameMasterNode = (masterId: string, nodeId: string) => {
+    const activeNodeIds = endgameMasterNodeIds[masterId] ?? [];
+    const action = activeNodeIds.includes(nodeId)
+      ? ({ type: "refundEndgameMasterNode", masterId, nodeId } as const)
+      : ({ type: "allocateEndgameMasterNode", masterId, nodeId } as const);
+    const nextState = accountReducer(account, action);
+    if (nextState === account) {
+      return;
+    }
+    dispatchAccount(action);
   };
 
   const selectDoctrine = (nextDoctrineId: string | null) => {
@@ -1981,7 +2027,7 @@ export function CombatArena() {
     const now = new Date().toISOString();
     const nextSave = {
       ...saveShellRef.current,
-      schemaVersion: 7 as const,
+      schemaVersion: 8 as const,
       currencies: {
         ...saveShellRef.current.currencies,
         ash: account.wallet.ash,
@@ -3161,7 +3207,7 @@ export function CombatArena() {
             <span className="section-counter">{arenaKeys.length}/24</span>
           </div>
           <div className="key-action-row">
-            <button className="arena-button" disabled={!canSpend(wallet, keyForgeCost)} onClick={forgeArenaKey} type="button">
+            <button className="arena-button" disabled={!canSpend(wallet, currentKeyForgeCost)} onClick={forgeArenaKey} type="button">
               <Gem size={15} aria-hidden />
               {t("ui.control.forgeKey")}
             </button>
@@ -3170,6 +3216,7 @@ export function CombatArena() {
               {t("ui.control.runKey")}
             </button>
           </div>
+          <small className="key-cost-note">{formatCost(currentKeyForgeCost)}</small>
           <div className="key-list">
             {arenaKeys.length > 0 ? (
               arenaKeys.map((key) => {
@@ -3429,7 +3476,7 @@ export function CombatArena() {
               <small>{t("ui.endgame.preview")}</small>
               <strong>{t("ui.section.endgameMasters")}</strong>
             </div>
-            <span>{t("ui.endgame.recommendedNodes")}</span>
+            <span>{t("ui.endgame.activeNodes")}: {endgameMasterBonuses.activeNodeCount}</span>
           </div>
           <div className="endgame-master-grid">
             {endgameMasters.map((master) => {
@@ -3437,6 +3484,7 @@ export function CombatArena() {
               if (!projection) {
                 return null;
               }
+              const activeNodeIds = projection.activeNodeIds;
               return (
                 <article className="endgame-master-card" key={master.id}>
                   <div className="endgame-master-card-head">
@@ -3459,15 +3507,42 @@ export function CombatArena() {
                       <small>{t("ui.endgame.missing")}</small>
                       <strong>{formatEndgameMissing(projection)}</strong>
                     </span>
+                    <span>
+                      <small>{t("ui.endgame.activeNodes")}</small>
+                      <strong>{activeNodeIds.length}/{master.maxActiveNodes}</strong>
+                    </span>
                   </div>
                   <div className="endgame-node-list">
-                    {projection.suggestedNodeIds.map((nodeId) => {
-                      const node = getEndgameMasterNodeDef(nodeId);
+                    {master.nodes.map((node) => {
+                      const active = activeNodeIds.includes(node.id);
+                      const recommended = projection.suggestedNodeIds.includes(node.id);
+                      const canUse = canUseEndgameMasterNode(master.id, node.id);
+                      const nodeName = dataName("endgameMasterNode", node.id, node.displayName);
+                      const nodeDescription = dataDescription("endgameMasterNode", node.id, node.description);
+                      const nodeClassName = [
+                        "endgame-node-chip",
+                        active ? "endgame-node-chip-active" : "",
+                        recommended ? "endgame-node-chip-suggested" : "",
+                        !canUse ? "endgame-node-chip-locked" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ");
                       return (
-                        <span key={node.id}>
-                          <small>T{node.tier}</small>
-                          {dataName("endgameMasterNode", node.id, node.displayName)}
-                        </span>
+                        <button
+                          aria-label={`${nodeName}: ${nodeDescription}`}
+                          className={nodeClassName}
+                          disabled={!canUse}
+                          key={node.id}
+                          onClick={() => toggleEndgameMasterNode(master.id, node.id)}
+                          title={nodeDescription}
+                          type="button"
+                        >
+                          <small>
+                            {active ? t("ui.endgame.active") : recommended ? t("ui.endgame.suggested") : t("ui.endgame.configurable")} / T{node.tier}
+                          </small>
+                          <strong>{nodeName}</strong>
+                          <em>{formatEndgameRewardTarget(node.rewardTarget)}</em>
+                        </button>
                       );
                     })}
                   </div>

@@ -1,5 +1,6 @@
 import type { ArenaKey, TopPartInstance, TopPartSlotId } from "./topTypes";
 import { defaultLootPolicy, type LootPolicy } from "./lootPolicy";
+import type { EndgameMasterNodeIds } from "./endgameMasterAllocation";
 
 export type AccountWallet = {
   ash: number;
@@ -27,6 +28,7 @@ export type AccountRuntimeState = {
   totalKills: number;
   seenTutorialIds: string[];
   lootPolicy: LootPolicy;
+  endgameMasterNodeIds: EndgameMasterNodeIds;
 };
 
 export type SaveTopLike = {
@@ -47,6 +49,7 @@ export type SaveTopLike = {
   totalKills: number;
   seenTutorialIds: string[];
   lootPolicy: LootPolicy;
+  endgameMasterNodeIds: EndgameMasterNodeIds;
   lastSettledAt: string;
 };
 
@@ -77,6 +80,7 @@ export function saveTopToAccountState(top: SaveTopLike, equipment: Record<TopPar
     totalKills: top.totalKills ?? 0,
     seenTutorialIds: top.seenTutorialIds ?? [],
     lootPolicy: top.lootPolicy ?? defaultLootPolicy,
+    endgameMasterNodeIds: top.endgameMasterNodeIds ?? {},
   };
 }
 
@@ -99,6 +103,7 @@ export function accountStateToSaveTop(state: AccountRuntimeState, lastSettledAt:
     totalKills: state.totalKills,
     seenTutorialIds: state.seenTutorialIds,
     lootPolicy: state.lootPolicy,
+    endgameMasterNodeIds: state.endgameMasterNodeIds,
     lastSettledAt,
   };
 }

@@ -3579,8 +3579,11 @@
   gap: 6px;
 }
 
-.endgame-master-facts span,
-.endgame-node-list span {
+.endgame-node-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.endgame-master-facts span {
   min-width: 0;
   border-left: 2px solid rgba(217, 165, 84, 0.44);
   border-radius: 4px;
@@ -3588,20 +3591,85 @@
   padding: 5px 7px;
 }
 
-.endgame-master-facts small,
-.endgame-node-list small {
+.endgame-master-facts small {
   display: block;
   color: var(--muted);
   font-size: 0.66rem;
   line-height: 1.2;
 }
 
-.endgame-master-facts strong,
-.endgame-node-list span {
+.endgame-master-facts strong {
   overflow-wrap: anywhere;
   color: var(--soft);
   font-size: 0.73rem;
   line-height: 1.25;
+}
+
+.endgame-node-chip {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  border: 1px solid rgba(230, 215, 181, 0.12);
+  border-left: 2px solid rgba(217, 165, 84, 0.34);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--soft);
+  padding: 6px 7px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.endgame-node-chip:hover:not(:disabled),
+.endgame-node-chip:focus-visible {
+  border-color: rgba(101, 198, 176, 0.45);
+  background: rgba(101, 198, 176, 0.09);
+}
+
+.endgame-node-chip small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.62rem;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.endgame-node-chip strong {
+  overflow: hidden;
+  color: var(--soft);
+  font-size: 0.73rem;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.endgame-node-chip em {
+  overflow: hidden;
+  color: var(--brass);
+  font-size: 0.64rem;
+  font-style: normal;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.endgame-node-chip-active {
+  border-color: rgba(101, 198, 176, 0.42);
+  border-left-color: var(--teal);
+  background: rgba(101, 198, 176, 0.1);
+}
+
+.endgame-node-chip-suggested:not(.endgame-node-chip-active) {
+  border-color: rgba(217, 165, 84, 0.3);
+  background: rgba(217, 165, 84, 0.07);
+}
+
+.endgame-node-chip:disabled {
+  cursor: not-allowed;
+}
+
+.endgame-node-chip-locked:not(.endgame-node-chip-active) {
+  opacity: 0.52;
 }
 
 .talent-board {
@@ -4267,6 +4335,14 @@
 
 .key-action-row .arena-button {
   flex: 1 1 120px;
+}
+
+.key-cost-note {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.25;
 }
 
 .key-card {
@@ -5092,6 +5168,10 @@
   }
 
   .endgame-master-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .endgame-node-list {
     grid-template-columns: 1fr;
   }
 

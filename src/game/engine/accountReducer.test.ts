@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateArenaKey } from "./arenaKeys";
-import { accountReducer, availableAtlasPoints, availableTalentPoints, inventoryCapacity, isTalentReachable } from "./accountReducer";
+import { accountReducer, availableAtlasPoints, availableTalentPoints, inventoryCapacity, isTalentReachable, keyForgeCostForState } from "./accountReducer";
 import type { AccountRuntimeState } from "./accountState";
 import { createStarterEquipment, createStarterInventory } from "../data/topParts";
 import { defaultLootPolicy } from "./lootPolicy";
@@ -26,6 +26,7 @@ function createState(overrides: Partial<AccountRuntimeState> = {}): AccountRunti
     totalKills: 0,
     seenTutorialIds: [],
     lootPolicy: defaultLootPolicy,
+    endgameMasterNodeIds: {},
     ...overrides,
   };
 }
@@ -199,6 +200,82 @@ describe("accountReducer", () => {
   it("starts atlas at zero points and clamps old overspent saves", () => {
     expect(availableAtlasPoints(createState())).toBe(0);
     expect(availableAtlasPoints(createState({ circuitAtlasNodeIds: ["atlas_breach_calibrator"] }))).toBe(0);
+  });
+
+  it("allocates endgame master nodes with prerequisites, refund locks, and cap limits", () => {
+    const state = createState();
+    const blockedChild = accountReducer(state, {
+      type: "allocateEndgameMasterNode",
+      masterId: "master_mapwright",
+      nodeId: "master_mapwright_cache_route",
+    });
+    const routeRoot = accountReducer(blockedChild, {
+      type: "allocateEndgameMasterNode",
+      masterId: "master_mapwright",
+      nodeId: "master_mapwright_route_survey",
+    });
+    const keyRoot = accountReducer(routeRoot, {
+      type: "allocateEndgameMasterNode",
+      masterId: "master_mapwright",
+      nodeId: "master_mapwright_blank_keys",
+    });
+    const killRoot = accountReducer(keyRoot, {
+      type: "allocateEndgameMasterNode",
+      masterId: "master_mapwright",
+      nodeId: "master_mapwright_basin_ledger",
+    });
+    const child = accountReducer(killRoot, {
+      type: "allocateEndgameMasterNode",
+      masterId: "master_mapwright",
+      nodeId: "master_mapwright_cache_route",
+    });
+    const capped = accountReducer(child, {
+      type: "allocateEndgameMasterNode",
+      masterId: "master_mapwright",
+      nodeId: "master_mapwright_key_recycling",
+    });
+    const blockedRefund = accountReducer(child, {
+      type: "refundEndgameMasterNode",
+      masterId: "master_mapwright",
+      nodeId: "master_mapwright_route_survey",
+    });
+    const refundedChild = accountReducer(blockedRefund, {
+      type: "refundEndgameMasterNode",
+      masterId: "master_mapwright",
+      nodeId: "master_mapwright_cache_route",
+    });
+
+    expect(blockedChild.endgameMasterNodeIds).toEqual({});
+    expect(child.endgameMasterNodeIds.master_mapwright).toEqual([
+      "master_mapwright_route_survey",
+      "master_mapwright_blank_keys",
+      "master_mapwright_basin_ledger",
+      "master_mapwright_cache_route",
+    ]);
+    expect(capped.endgameMasterNodeIds).toEqual(child.endgameMasterNodeIds);
+    expect(blockedRefund.endgameMasterNodeIds).toEqual(child.endgameMasterNodeIds);
+    expect(refundedChild.endgameMasterNodeIds.master_mapwright).toEqual([
+      "master_mapwright_route_survey",
+      "master_mapwright_blank_keys",
+      "master_mapwright_basin_ledger",
+    ]);
+  });
+
+  it("applies endgame key sustain and route reward bonuses through reducer actions", () => {
+    const key = generateArenaKey({ arenaBaseId: "arena_cinder_crucible", tier: 1, seed: "endgame_bonus_key", rarity: "tuned" });
+    const state = createState({
+      wallet: { ash: 20, glass: 10, echo: 0 },
+      endgameMasterNodeIds: {
+        master_mapwright: ["master_mapwright_route_survey", "master_mapwright_blank_keys", "master_mapwright_cache_route"],
+      },
+    });
+    const cost = keyForgeCostForState(state);
+    const forged = accountReducer(state, { type: "forgeArenaKey", key });
+    const cleared = accountReducer(forged, { type: "addRouteClear", arenaId: "arena_cinder_crucible", keys: [] });
+
+    expect(cost).toEqual({ ash: 5, glass: 1, echo: 0 });
+    expect(forged.wallet).toEqual({ ash: 15, glass: 9, echo: 0 });
+    expect(cleared.wallet).toEqual({ ash: 27, glass: 12, echo: 0 });
   });
 
   it("selects only doctrines that match the active frame", () => {

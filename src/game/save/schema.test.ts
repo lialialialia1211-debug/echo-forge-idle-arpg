@@ -9,7 +9,7 @@ describe("save schema", () => {
     const save = createNewAccountSave("ironbound");
     const parsed = accountSaveSchema.parse(save);
 
-    expect(parsed.schemaVersion).toBe(7);
+    expect(parsed.schemaVersion).toBe(8);
     expect(parsed.accountId).toBeNull();
     expect(parsed.roster[0].classId).toBe("ironbound");
     expect(parsed.roster[0].build.supportIds.length).toBeGreaterThan(0);
@@ -21,6 +21,7 @@ describe("save schema", () => {
     expect(parsed.top.totalKills).toBe(0);
     expect(parsed.top.seenTutorialIds).toEqual([]);
     expect(parsed.top.lootPolicy).toEqual(defaultLootPolicy);
+    expect(parsed.top.endgameMasterNodeIds).toEqual({});
     expect(parsed.top.wallet.ash).toBeGreaterThanOrEqual(12);
     expect(parsed.top.wallet.glass).toBeGreaterThanOrEqual(2);
   });
@@ -61,7 +62,7 @@ describe("save schema", () => {
       lastSavedAt: now,
     });
 
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     expect(migrated.top.selectedFrameId).toBe("frame_swift_razor");
     expect(migrated.top.wallet.ash).toBe(3);
     expect(migrated.top.circuitAtlasNodeIds).toEqual([]);
@@ -69,6 +70,7 @@ describe("save schema", () => {
     expect(migrated.top.totalKills).toBe(0);
     expect(migrated.top.seenTutorialIds).toEqual([]);
     expect(migrated.top.lootPolicy).toEqual(defaultLootPolicy);
+    expect(migrated.top.endgameMasterNodeIds).toEqual({});
   });
 
   it("migrates structurally valid v2 saves without totalKills", () => {
@@ -85,15 +87,16 @@ describe("save schema", () => {
       },
     });
 
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     expect(migrated.top.totalKills).toBe(0);
     expect(migrated.top.talentIds).toEqual(["talent_iron_rotation"]);
     expect(migrated.top.doctrineId).toBeNull();
     expect(migrated.top.seenTutorialIds).toEqual([]);
     expect(migrated.top.lootPolicy).toEqual(defaultLootPolicy);
+    expect(migrated.top.endgameMasterNodeIds).toEqual({});
   });
 
-  it("migrates v3 saves to v7 with doctrine, rival, tutorial, and loot policy defaults", () => {
+  it("migrates v3 saves to v8 with doctrine, rival, tutorial, loot policy, and endgame defaults", () => {
     const save = createNewAccountSave("veilrunner");
     const migrated = migrateUnknownSave({
       ...save,
@@ -105,15 +108,16 @@ describe("save schema", () => {
       },
     });
 
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     expect(migrated.top.totalKills).toBe(44);
     expect(migrated.top.doctrineId).toBeNull();
     expect(migrated.top.clearedRivalIds).toEqual([]);
     expect(migrated.top.seenTutorialIds).toEqual([]);
     expect(migrated.top.lootPolicy).toEqual(defaultLootPolicy);
+    expect(migrated.top.endgameMasterNodeIds).toEqual({});
   });
 
-  it("migrates v4 saves to v7 with cleared rival, tutorial, and loot policy defaults", () => {
+  it("migrates v4 saves to v8 with cleared rival, tutorial, loot policy, and endgame defaults", () => {
     const save = createNewAccountSave("veilrunner");
     const topWithoutClearedRivals: Partial<typeof save.top> = { ...save.top };
     delete topWithoutClearedRivals.clearedRivalIds;
@@ -128,12 +132,13 @@ describe("save schema", () => {
       },
     });
 
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     expect(migrated.top.totalKills).toBe(137);
     expect(migrated.top.doctrineId).toBe("doctrine_swift_razor_edge");
     expect(migrated.top.clearedRivalIds).toEqual([]);
     expect(migrated.top.seenTutorialIds).toEqual([]);
     expect(migrated.top.lootPolicy).toEqual(defaultLootPolicy);
+    expect(migrated.top.endgameMasterNodeIds).toEqual({});
   });
 
   it("migrates v5 saves and sanitizes tutorial ids during round trips", () => {
@@ -150,15 +155,16 @@ describe("save schema", () => {
       },
     });
 
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     expect(migrated.top.totalKills).toBe(137);
     expect(migrated.top.doctrineId).toBe("doctrine_swift_razor_edge");
     expect(migrated.top.clearedRivalIds).toEqual(["rival_sable_reflector"]);
     expect(migrated.top.seenTutorialIds).toEqual(["tut_welcome", "tut_first_drop"]);
     expect(migrated.top.lootPolicy).toEqual(defaultLootPolicy);
+    expect(migrated.top.endgameMasterNodeIds).toEqual({});
   });
 
-  it("migrates v6 saves to v7 and sanitizes loot policy", () => {
+  it("migrates v6 saves to v8 and sanitizes loot policy", () => {
     const save = createNewAccountSave("veilrunner");
     const migrated = migrateUnknownSave({
       ...save,
@@ -176,7 +182,7 @@ describe("save schema", () => {
       },
     });
 
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     expect(migrated.top.lootPolicy).toEqual({
       ...defaultLootPolicy,
       autoSalvage: true,
@@ -184,6 +190,41 @@ describe("save schema", () => {
       targetTags: ["fire"],
       minItemLevel: 1,
       minScore: 500,
+    });
+    expect(migrated.top.endgameMasterNodeIds).toEqual({});
+  });
+
+  it("migrates v7 saves to v8 and sanitizes endgame master allocations", () => {
+    const save = createNewAccountSave("veilrunner");
+    const migrated = migrateUnknownSave({
+      ...save,
+      schemaVersion: 7,
+      top: {
+        ...save.top,
+        endgameMasterNodeIds: {
+          master_mapwright: [
+            "master_mapwright_cache_route",
+            "master_mapwright_route_survey",
+            "master_mapwright_blank_keys",
+            "master_mapwright_basin_ledger",
+            "master_mapwright_key_recycling",
+            "master_mapwright_signal_chart",
+            "master_forgesmith_scrap_tithe",
+            "missing_node",
+          ],
+          missing_master: ["master_mapwright_route_survey"],
+        },
+      },
+    });
+
+    expect(migrated.schemaVersion).toBe(8);
+    expect(migrated.top.endgameMasterNodeIds).toEqual({
+      master_mapwright: [
+        "master_mapwright_route_survey",
+        "master_mapwright_blank_keys",
+        "master_mapwright_basin_ledger",
+        "master_mapwright_cache_route",
+      ],
     });
   });
 
@@ -241,6 +282,9 @@ describe("save schema", () => {
           arena_cinder_crucible: -1,
         },
         totalKills: -9,
+        endgameMasterNodeIds: {
+          master_mapwright: ["missing_node", "master_mapwright_route_survey", "master_forgesmith_scrap_tithe"],
+        },
       },
     });
 
@@ -260,6 +304,7 @@ describe("save schema", () => {
     expect(migrated.top.totalKills).toBe(0);
     expect(migrated.top.seenTutorialIds).toEqual([]);
     expect(migrated.top.lootPolicy).toEqual(defaultLootPolicy);
+    expect(migrated.top.endgameMasterNodeIds).toEqual({ master_mapwright: ["master_mapwright_route_survey"] });
     expect(migrated.top.wallet.ash).toBe(0);
     expect(migrated.top.wallet.glass).toBe(1);
     expect(migrated.currencies.ash).toBe(0);

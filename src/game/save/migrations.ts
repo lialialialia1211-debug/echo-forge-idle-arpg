@@ -13,6 +13,7 @@ import { topFrames } from "../data/topFrames";
 import { tutorialStepIds } from "../data/tutorialSteps";
 import { isArenaKeyLegal } from "../engine/arenaKeys";
 import { validateRuneLoadout } from "../engine/driveRuneValidation";
+import { normalizeEndgameMasterNodeIds } from "../engine/endgameMasterAllocation";
 import { defaultLootPolicy, lootPolicyDriveTags, lootPolicyRarities, type LootPolicy } from "../engine/lootPolicy";
 import { isTopPartLegal } from "../engine/topCrafting";
 import type { ArenaKey, TopPartInstance, TopPartSlotId } from "../engine/topTypes";
@@ -35,29 +36,36 @@ type LegacyV1Save = {
 
 type LegacyV2Save = Omit<AccountSave, "schemaVersion" | "top"> & {
   schemaVersion: 2;
-  top: Omit<AccountSave["top"], "totalKills" | "doctrineId" | "clearedRivalIds" | "seenTutorialIds"> &
-    Partial<Pick<AccountSave["top"], "totalKills" | "doctrineId" | "clearedRivalIds" | "seenTutorialIds">>;
+  top: Omit<AccountSave["top"], "totalKills" | "doctrineId" | "clearedRivalIds" | "seenTutorialIds" | "endgameMasterNodeIds"> &
+    Partial<Pick<AccountSave["top"], "totalKills" | "doctrineId" | "clearedRivalIds" | "seenTutorialIds" | "endgameMasterNodeIds">>;
 };
 
 type LegacyV3Save = Omit<AccountSave, "schemaVersion" | "top"> & {
   schemaVersion: 3;
-  top: Omit<AccountSave["top"], "doctrineId" | "clearedRivalIds" | "seenTutorialIds"> &
-    Partial<Pick<AccountSave["top"], "doctrineId" | "clearedRivalIds" | "seenTutorialIds">>;
+  top: Omit<AccountSave["top"], "doctrineId" | "clearedRivalIds" | "seenTutorialIds" | "endgameMasterNodeIds"> &
+    Partial<Pick<AccountSave["top"], "doctrineId" | "clearedRivalIds" | "seenTutorialIds" | "endgameMasterNodeIds">>;
 };
 
 type LegacyV4Save = Omit<AccountSave, "schemaVersion" | "top"> & {
   schemaVersion: 4;
-  top: Omit<AccountSave["top"], "clearedRivalIds" | "seenTutorialIds"> & Partial<Pick<AccountSave["top"], "clearedRivalIds" | "seenTutorialIds">>;
+  top: Omit<AccountSave["top"], "clearedRivalIds" | "seenTutorialIds" | "endgameMasterNodeIds"> &
+    Partial<Pick<AccountSave["top"], "clearedRivalIds" | "seenTutorialIds" | "endgameMasterNodeIds">>;
 };
 
 type LegacyV5Save = Omit<AccountSave, "schemaVersion" | "top"> & {
   schemaVersion: 5;
-  top: Omit<AccountSave["top"], "seenTutorialIds"> & Partial<Pick<AccountSave["top"], "seenTutorialIds">>;
+  top: Omit<AccountSave["top"], "seenTutorialIds" | "endgameMasterNodeIds"> &
+    Partial<Pick<AccountSave["top"], "seenTutorialIds" | "endgameMasterNodeIds">>;
 };
 
 type LegacyV6Save = Omit<AccountSave, "schemaVersion" | "top"> & {
   schemaVersion: 6;
-  top: Omit<AccountSave["top"], "lootPolicy"> & Partial<Pick<AccountSave["top"], "lootPolicy">>;
+  top: Omit<AccountSave["top"], "lootPolicy" | "endgameMasterNodeIds"> & Partial<Pick<AccountSave["top"], "lootPolicy" | "endgameMasterNodeIds">>;
+};
+
+type LegacyV7Save = Omit<AccountSave, "schemaVersion" | "top"> & {
+  schemaVersion: 7;
+  top: Omit<AccountSave["top"], "endgameMasterNodeIds"> & Partial<Pick<AccountSave["top"], "endgameMasterNodeIds">>;
 };
 
 type SavedTopPart = AccountSave["top"]["inventory"][number];
@@ -90,6 +98,7 @@ function starterTopStateForLegacy(save: LegacyV1Save): AccountSave["top"] {
     totalKills: 0,
     seenTutorialIds: [],
     lootPolicy: defaultLootPolicy,
+    endgameMasterNodeIds: {},
     lastSettledAt: save.lastSavedAt,
   };
 }
@@ -116,6 +125,10 @@ function isLegacyV5Save(input: unknown): input is LegacyV5Save {
 
 function isLegacyV6Save(input: unknown): input is LegacyV6Save {
   return Boolean(input && typeof input === "object" && "schemaVersion" in input && (input as { schemaVersion?: unknown }).schemaVersion === 6);
+}
+
+function isLegacyV7Save(input: unknown): input is LegacyV7Save {
+  return Boolean(input && typeof input === "object" && "schemaVersion" in input && (input as { schemaVersion?: unknown }).schemaVersion === 7);
 }
 
 const defaultFrameId = "frame_swift_razor";
@@ -237,6 +250,10 @@ function sanitizeLootPolicy(policy: LootPolicy): LootPolicy {
   };
 }
 
+function sanitizeEndgameMasterNodeIds(endgameMasterNodeIds: AccountSave["top"]["endgameMasterNodeIds"]): AccountSave["top"]["endgameMasterNodeIds"] {
+  return normalizeEndgameMasterNodeIds(endgameMasterNodeIds);
+}
+
 export function sanitizeAccountSave(save: AccountSave): AccountSave {
   const selectedFrameId = frameIds.has(save.top.selectedFrameId) ? save.top.selectedFrameId : defaultFrameId;
   const selectedDriveId = driveIds.has(save.top.selectedDriveId) ? save.top.selectedDriveId : driveForFrame(selectedFrameId);
@@ -269,6 +286,7 @@ export function sanitizeAccountSave(save: AccountSave): AccountSave {
       totalKills: Math.max(0, Math.floor(save.top.totalKills ?? 0)),
       seenTutorialIds: sanitizeTutorialIds(save.top.seenTutorialIds),
       lootPolicy: sanitizeLootPolicy(save.top.lootPolicy),
+      endgameMasterNodeIds: sanitizeEndgameMasterNodeIds(save.top.endgameMasterNodeIds),
     },
   };
 }
@@ -277,7 +295,7 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV1Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 7,
+      schemaVersion: 8,
       top: starterTopStateForLegacy(input),
     }));
   }
@@ -285,7 +303,7 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV2Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 7,
+      schemaVersion: 8,
       top: {
         ...input.top,
         totalKills: input.top.totalKills ?? 0,
@@ -293,6 +311,7 @@ export function migrateUnknownSave(input: unknown): AccountSave {
         clearedRivalIds: input.top.clearedRivalIds ?? [],
         seenTutorialIds: input.top.seenTutorialIds ?? [],
         lootPolicy: defaultLootPolicy,
+        endgameMasterNodeIds: input.top.endgameMasterNodeIds ?? {},
       },
     }));
   }
@@ -300,13 +319,14 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV3Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 7,
+      schemaVersion: 8,
       top: {
         ...input.top,
         doctrineId: input.top.doctrineId ?? null,
         clearedRivalIds: input.top.clearedRivalIds ?? [],
         seenTutorialIds: input.top.seenTutorialIds ?? [],
         lootPolicy: defaultLootPolicy,
+        endgameMasterNodeIds: input.top.endgameMasterNodeIds ?? {},
       },
     }));
   }
@@ -314,12 +334,13 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV4Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 7,
+      schemaVersion: 8,
       top: {
         ...input.top,
         clearedRivalIds: input.top.clearedRivalIds ?? [],
         seenTutorialIds: input.top.seenTutorialIds ?? [],
         lootPolicy: defaultLootPolicy,
+        endgameMasterNodeIds: input.top.endgameMasterNodeIds ?? {},
       },
     }));
   }
@@ -327,11 +348,12 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV5Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 7,
+      schemaVersion: 8,
       top: {
         ...input.top,
         seenTutorialIds: input.top.seenTutorialIds ?? [],
         lootPolicy: defaultLootPolicy,
+        endgameMasterNodeIds: input.top.endgameMasterNodeIds ?? {},
       },
     }));
   }
@@ -339,10 +361,22 @@ export function migrateUnknownSave(input: unknown): AccountSave {
   if (isLegacyV6Save(input)) {
     return sanitizeAccountSave(accountSaveSchema.parse({
       ...input,
-      schemaVersion: 7,
+      schemaVersion: 8,
       top: {
         ...input.top,
         lootPolicy: input.top.lootPolicy ?? defaultLootPolicy,
+        endgameMasterNodeIds: input.top.endgameMasterNodeIds ?? {},
+      },
+    }));
+  }
+
+  if (isLegacyV7Save(input)) {
+    return sanitizeAccountSave(accountSaveSchema.parse({
+      ...input,
+      schemaVersion: 8,
+      top: {
+        ...input.top,
+        endgameMasterNodeIds: input.top.endgameMasterNodeIds ?? {},
       },
     }));
   }

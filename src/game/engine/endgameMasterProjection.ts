@@ -1,5 +1,6 @@
 import { endgameMasters, getEndgameMasterDef, type EndgameMasterDef, type EndgameMasterSignal } from "../data/endgameMasters";
 import type { AccountWallet } from "./accountState";
+import { activeEndgameMasterNodeIds, type EndgameMasterNodeIds } from "./endgameMasterAllocation";
 import { clamp } from "./math";
 import type { ArenaKey } from "./topTypes";
 
@@ -10,6 +11,7 @@ export type EndgameMasterProjectionInput = {
   routeClears?: Record<string, number>;
   totalKills?: number;
   wallet?: AccountWallet;
+  endgameMasterNodeIds?: EndgameMasterNodeIds;
 };
 
 export type EndgameMasterSignalProjection = {
@@ -24,6 +26,7 @@ export type EndgameMasterProjection = {
   masterId: string;
   readiness: number;
   activeSignal: EndgameMasterSignal;
+  activeNodeIds: string[];
   signalProgress: EndgameMasterSignalProjection[];
   suggestedNodeIds: string[];
   missingSignals: EndgameMasterSignal[];
@@ -120,6 +123,7 @@ export function projectEndgameMaster(masterId: string, input: EndgameMasterProje
     masterId,
     readiness,
     activeSignal,
+    activeNodeIds: activeEndgameMasterNodeIds(input.endgameMasterNodeIds, master.id),
     signalProgress,
     suggestedNodeIds,
     missingSignals,
