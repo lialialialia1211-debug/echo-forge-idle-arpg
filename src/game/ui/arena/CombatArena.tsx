@@ -218,6 +218,12 @@ type PartRetention = {
   tone: "keep" | "upgrade" | "forge" | "salvage";
 };
 
+type PartReview = {
+  part: TopPartInstance;
+  verdict: PartVerdict;
+  retention: PartRetention;
+};
+
 type DecisionCueTone = "neutral" | "good" | "warn" | "rare";
 
 type DecisionCue = {
@@ -2119,22 +2125,38 @@ export function CombatArena() {
 
   const selectedPartInInventory = selectedPart ? inventory.some((part) => part.id === selectedPart.id) : false;
   const selectedPartEquipped = selectedPart ? selectedCurrentPart?.id === selectedPart.id : false;
-  const selectedPartVerdict = useMemo(
-    () => (selectedPart ? formatPartVerdict(selectPartVerdict(selectedPart, currentStats, previewStats, selectedPartEquipped)) : null),
-    [currentStats, previewStats, selectedPart, selectedPartEquipped],
-  );
-  const partRetentionById = useMemo(() => {
+  const partReviewById = useMemo(() => {
     const entries = allKnownParts.map((part) => {
       const equipped = equipment[part.slot]?.id === part.id;
       const partPreviewStats = equipped ? currentStats : resolveTopRuntimeStats(frameId, driveId, loadoutWithPart(loadout, part));
       const verdictProjection = selectPartVerdict(part, currentStats, partPreviewStats, equipped);
       const verdict = formatPartVerdict(verdictProjection);
       const decision = decideLootPolicy(part, verdictProjection, lootPolicy, equipped);
-      return [part.id, formatPartRetention(decision, verdict)] as const;
+      return [part.id, { part, verdict, retention: formatPartRetention(decision, verdict) }] as const;
     });
     return new Map(entries);
   }, [allKnownParts, currentStats, driveId, equipment, frameId, loadout, lootPolicy]);
-  const selectedPartRetention = selectedPart ? partRetentionById.get(selectedPart.id) ?? null : null;
+  const partRetentionById = useMemo(() => new Map(Array.from(partReviewById, ([partId, review]) => [partId, review.retention] as const)), [partReviewById]);
+  const selectedPartReview = selectedPart ? partReviewById.get(selectedPart.id) ?? null : null;
+  const selectedPartVerdict = selectedPartReview?.verdict ?? null;
+  const selectedPartRetention = selectedPartReview?.retention ?? null;
+  const recommendedInventoryPartReview = useMemo<PartReview | null>(() => {
+    const reviews = inventory
+      .map((part) => partReviewById.get(part.id))
+      .filter((review): review is PartReview => Boolean(review))
+      .filter((review) => review.verdict.action === "equip" || review.verdict.action === "forge");
+    const scored = reviews
+      .map((review) => ({
+        review,
+        score:
+          review.verdict.score +
+          (review.verdict.action === "equip" ? 1000 : 0) +
+          (review.verdict.action === "forge" ? 500 : 0) +
+          (review.retention.tone === "upgrade" ? 120 : review.retention.tone === "forge" ? 80 : 0),
+      }))
+      .sort((left, right) => right.score - left.score);
+    return scored[0]?.review ?? null;
+  }, [inventory, partReviewById]);
   const runReview = useMemo(() => {
     const bestDrop = runtime.drops.reduce<(typeof runtime.drops)[number] | null>(
       (best, drop) => (!best || rarityRank[drop.rarity] > rarityRank[best.rarity] ? drop : best),
@@ -2591,6 +2613,28 @@ export function CombatArena() {
   const renderInventoryPanel = () => {
     const reviewedDropCount = Math.max(lootNotices.filter((notice) => notice.tone === "drop").length, hasActiveLootRunSummary ? lootRunSummary.kept + lootRunSummary.salvaged : 0);
     const showSimpleLootReview = inventory.length > 0 && (totalKills < 500 || reviewedDropCount > 0);
+    const recommendedPartAction = recommendedInventoryPartReview
+      ? recommendedInventoryPartReview.verdict.action === "equip"
+        ? {
+            icon: <CircleDot size={15} aria-hidden />,
+            label: "裝上最佳",
+            onClick: () => equipPart(recommendedInventoryPartReview.part),
+          }
+        : recommendedInventoryPartReview.verdict.action === "forge"
+          ? {
+              icon: <Hammer size={15} aria-hidden />,
+              label: "強化這件",
+              onClick: () => {
+                setSelectedPartId(recommendedInventoryPartReview.part.id);
+                openPanel("forge");
+              },
+            }
+          : {
+              icon: <Sparkles size={15} aria-hidden />,
+              label: "看細節",
+              onClick: () => inspectPart(recommendedInventoryPartReview.part.id),
+            }
+      : null;
     const reviewTitle = reviewedDropCount > 0 ? `${reviewedDropCount} 件戰利品待整理` : "背包下一步";
     const reviewSignal = selectedPartVerdict?.label ?? selectedPartRetention?.label ?? "先挑一件有提升的裝備";
     const reviewDetail = selectedPartVerdict?.detail ?? selectedPartRetention?.detail ?? "裝上推薦零件後，再回去刷下一場。";
@@ -2654,6 +2698,29 @@ export function CombatArena() {
           <h2>{t("ui.section.inventory")}</h2>
           <span className="section-counter">{inventory.length}/{inventoryCapacity}</span>
         </div>
+        {recommendedInventoryPartReview && recommendedPartAction ? (
+          <div className={`inventory-recommendation inventory-recommendation-${recommendedInventoryPartReview.verdict.tone}`}>
+            <div className="inventory-recommendation-copy">
+              <small>最佳升級</small>
+              <strong>{displayPartName(recommendedInventoryPartReview.part)}</strong>
+              <span>{recommendedInventoryPartReview.verdict.label} / {recommendedInventoryPartReview.verdict.detail}</span>
+            </div>
+            <div className="inventory-recommendation-meta">
+              <span>
+                <small>部位</small>
+                <strong>{displaySlot(recommendedInventoryPartReview.part.slot)}</strong>
+              </span>
+              <span>
+                <small>評分</small>
+                <strong>{recommendedInventoryPartReview.verdict.score >= 0 ? "+" : ""}{round(recommendedInventoryPartReview.verdict.score, 0)}</strong>
+              </span>
+            </div>
+            <button className="arena-button arena-button-live" onClick={recommendedPartAction.onClick} type="button">
+              {recommendedPartAction.icon}
+              {recommendedPartAction.label}
+            </button>
+          </div>
+        ) : null}
         <div className="inventory-filter" aria-label={t("ui.aria.inventoryFilter")}>
           <button className={inventoryFilter === "all" ? "filter-chip filter-chip-active" : "filter-chip"} onClick={() => setInventoryFilter("all")} type="button">
             {t("ui.inventory.all")}
@@ -4149,6 +4216,39 @@ export function CombatArena() {
     const progressTargetName = recommendedProgressNode ? dataName("network", recommendedProgressNode.id, recommendedProgressNode.displayName) : dataName("arena", arena.id, arena.displayName);
     const nextRouteName = selectedArenaKey ? formatKeyTitle(selectedArenaKey) : bossProjection.successChance >= 0.5 ? "Boss 可以挑戰" : progressTargetName;
     const selectedPartSignal = selectedPartRetention?.label ?? selectedPartVerdict?.label ?? (selectedPart ? displayPartName(selectedPart) : "尚未選取裝備");
+    const recommendedPartTone: DecisionCueTone = recommendedInventoryPartReview?.verdict.tone ?? "neutral";
+    const recommendedPartName = recommendedInventoryPartReview ? displayPartName(recommendedInventoryPartReview.part) : "目前裝備穩定";
+    const recommendedPartDetail =
+      recommendedInventoryPartReview
+        ? `${recommendedInventoryPartReview.verdict.label} / ${recommendedInventoryPartReview.verdict.detail}`
+        : "沒有明顯升級件，先繼續刷裝拿材料。";
+    const openRecommendedPart = () => {
+      if (!recommendedInventoryPartReview) {
+        openPanel("inventory");
+        return;
+      }
+      setSelectedPartId(recommendedInventoryPartReview.part.id);
+      openPanel(recommendedInventoryPartReview.verdict.action === "forge" ? "forge" : "inventory");
+    };
+    const handleRecommendedPartAction = () => {
+      if (!recommendedInventoryPartReview) {
+        startIdleFromHome();
+        return;
+      }
+      if (recommendedInventoryPartReview.verdict.action === "equip") {
+        equipPart(recommendedInventoryPartReview.part);
+        return;
+      }
+      openRecommendedPart();
+    };
+    const recommendedPartButton =
+      recommendedInventoryPartReview?.verdict.action === "equip"
+        ? "直接裝上"
+        : recommendedInventoryPartReview?.verdict.action === "forge"
+          ? "去強化"
+          : recommendedInventoryPartReview
+            ? "看細節"
+            : "繼續刷裝";
     const offlineText = offlineReport
       ? `${formatNumber(offlineReport.kills, 0)} 擊破 / ${offlineReport.parts.length} 件掉落`
       : `${formatNumber(selectedRouteStrategy.offline.killsPerHour, 0)} 擊殺/時 / ${formatNumber(selectedRouteStrategy.offline.dropsPerHour, 1)} 件/時`;
@@ -4191,6 +4291,65 @@ export function CombatArena() {
           },
           { id: "map", icon: <MapIcon size={16} aria-hidden />, title: "挑戰下一關", detail: progressTargetName, onClick: openMap },
         ];
+    const hasLootToReview = visibleDropCount > 0;
+    const hasEquipUpgrade = recommendedInventoryPartReview?.verdict.action === "equip";
+    const hasForgeTarget = canForgeSelectedPart || recommendedInventoryPartReview?.verdict.action === "forge";
+    const hasRouteTarget = Boolean(selectedArenaKey || bossProjection.successChance >= 0.5 || recommendedProgressNode);
+    const questNeedsFight = !hasStartedAccount;
+    const questNeedsLoot = hasStartedAccount && hasLootToReview;
+    const questNeedsEquip = hasStartedAccount && !questNeedsLoot && hasEquipUpgrade;
+    const questNeedsForge = hasStartedAccount && !questNeedsLoot && !questNeedsEquip && hasForgeTarget;
+    const questNeedsRoute = hasStartedAccount && !questNeedsLoot && !questNeedsEquip && !questNeedsForge && hasRouteTarget;
+    const homeQuestSteps: Array<{
+      id: string;
+      icon: ReactNode;
+      title: string;
+      detail: string;
+      status: "done" | "active" | "locked";
+      onClick: () => void;
+    }> = [
+      {
+        id: "fight",
+        icon: <Play size={15} aria-hidden />,
+        title: "打一場",
+        detail: running ? "自動戰鬥中" : dataName("arena", arena.id, arena.displayName),
+        status: questNeedsFight ? "active" : "done",
+        onClick: startIdleFromHome,
+      },
+      {
+        id: "loot",
+        icon: <PackageOpen size={15} aria-hidden />,
+        title: "整理掉落",
+        detail: hasLootToReview ? `${visibleDropCount} 件戰利品` : recommendedPartName,
+        status: questNeedsFight ? "locked" : questNeedsLoot ? "active" : "done",
+        onClick: () => openPanel("inventory"),
+      },
+      {
+        id: "equip",
+        icon: <CircleDot size={15} aria-hidden />,
+        title: "裝上升級",
+        detail: hasEquipUpgrade ? recommendedPartName : "目前不用換",
+        status: questNeedsFight || questNeedsLoot ? "locked" : questNeedsEquip ? "active" : "done",
+        onClick: openRecommendedPart,
+      },
+      {
+        id: "forge",
+        icon: <Hammer size={15} aria-hidden />,
+        title: "強化一次",
+        detail: hasForgeTarget ? recommendedPartName : "材料夠再來",
+        status: !featureUnlocks.forge || questNeedsFight || questNeedsLoot || questNeedsEquip ? "locked" : questNeedsForge ? "active" : "done",
+        onClick: () => openPanel("forge"),
+      },
+      {
+        id: "route",
+        icon: <MapIcon size={15} aria-hidden />,
+        title: "挑戰下一關",
+        detail: progressTargetName,
+        status: questNeedsFight || questNeedsLoot || questNeedsEquip || questNeedsForge ? "locked" : questNeedsRoute ? "active" : "locked",
+        onClick: openMap,
+      },
+    ];
+    const activeQuestStep = homeQuestSteps.find((step) => step.status === "active") ?? homeQuestSteps.find((step) => step.status === "locked") ?? homeQuestSteps[0];
     const homeLoopSteps: Array<{
       id: string;
       icon: ReactNode;
@@ -4346,6 +4505,31 @@ export function CombatArena() {
                 </span>
               ))}
             </div>
+            <div className="home-quest-track" aria-label="目前目標">
+              <div className="home-quest-head">
+                <small>目前目標</small>
+                <strong>{activeQuestStep.title}</strong>
+                <span>{activeQuestStep.detail}</span>
+              </div>
+              <div className="home-quest-steps">
+                {homeQuestSteps.map((step, index) => (
+                  <button
+                    className={`home-quest-step home-quest-step-${step.status}`}
+                    disabled={step.status === "locked"}
+                    key={step.id}
+                    onClick={step.onClick}
+                    type="button"
+                  >
+                    <small>{index + 1}</small>
+                    {step.icon}
+                    <span>
+                      <strong>{step.title}</strong>
+                      <em>{step.detail}</em>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="home-loop-strip" aria-label="放置循環">
               {homeLoopSteps.map((step, index) => (
                 <button
@@ -4365,6 +4549,28 @@ export function CombatArena() {
               ))}
             </div>
           </section>
+
+          {!firstRunIntro ? <section className={`home-panel home-recommendation home-recommendation-${recommendedPartTone}`}>
+            <div className="section-title">
+              <Sparkles size={17} aria-hidden />
+              <h2>推薦裝備</h2>
+              <span className="section-counter">{recommendedInventoryPartReview?.verdict.label ?? "穩定"}</span>
+            </div>
+            <div className="home-recommendation-main">
+              <strong>{recommendedPartName}</strong>
+              <span>{recommendedPartDetail}</span>
+            </div>
+            <div className="home-recommendation-actions">
+              <button className="arena-button arena-button-live" onClick={handleRecommendedPartAction} type="button">
+                {recommendedInventoryPartReview?.verdict.action === "forge" ? <Hammer size={15} aria-hidden /> : recommendedInventoryPartReview ? <CircleDot size={15} aria-hidden /> : <Play size={15} aria-hidden />}
+                {recommendedPartButton}
+              </button>
+              <button className="arena-button arena-button-secondary" onClick={openRecommendedPart} type="button">
+                <PackageOpen size={15} aria-hidden />
+                打開背包
+              </button>
+            </div>
+          </section> : null}
 
           <section className="home-panel home-goals">
             <div className="section-title">
