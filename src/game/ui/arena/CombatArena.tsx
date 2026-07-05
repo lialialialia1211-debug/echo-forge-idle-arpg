@@ -1121,6 +1121,7 @@ export function CombatArena() {
   const [lootAutomationExpanded, setLootAutomationExpanded] = useState(false);
   const [endgameMastersExpanded, setEndgameMastersExpanded] = useState(false);
   const [clearsExpanded, setClearsExpanded] = useState(false);
+  const [routeDetailsExpanded, setRouteDetailsExpanded] = useState(false);
   const [currentArenaKey, setCurrentArenaKey] = useState<ArenaKey | null>(null);
   const [activeAnomalyId, setActiveAnomalyId] = useState<string | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
@@ -2190,6 +2191,8 @@ export function CombatArena() {
   );
   const canForgeSelectedPart = Boolean(selectedPart && canApplyForgeAction("upgrade", selectedPart) && canSpend(wallet, forgeActionCostForAccount("upgrade", selectedPart)));
   const hasStartedAccount = totalKills > 0 || runtime.kills > 0 || Object.values(routeClears).some((clears) => clears > 0) || lootNotices.length > 0;
+  const showSimpleRoutePlan = !chapterProgress.complete && (!hasStartedAccount || chapterProgress.done < 3 || totalKills < 300);
+  const showRouteDetails = !showSimpleRoutePlan || routeDetailsExpanded;
   const firstRunIntro = totalKills === 0 && runtime.kills === 0 && runtime.drops.length === 0 && lootNotices.length === 0 && !offlineReport && !running;
   const tutorialTriggers = useMemo<Record<TutorialTrigger, boolean>>(
     () => ({
@@ -3103,6 +3106,73 @@ export function CombatArena() {
     </div>
   );
 
+  const renderRoutePlan = () => {
+    const targetNode = recommendedProgressNode ?? selectedNetworkNode;
+    const targetArena = getArenaCircuitDef(targetNode.arenaId);
+    const targetName = dataName("network", targetNode.id, targetNode.displayName);
+    const currentArenaName = dataName("arena", arena.id, arena.displayName);
+    const keyReward = selectedArenaKeySummary ? (selectedArenaKeySummary.rewardQuantity ?? 0) + (selectedArenaKeySummary.rewardRarity ?? 0) : 0;
+    const keyPressure = selectedArenaKeySummary ? (selectedArenaKeySummary.enemyIntegrityMultiplier ?? 1) - 1 : 0;
+    const keyDetail = selectedArenaKey
+      ? `獎勵 ${formatPercent(keyReward, 0)} / 壓力 ${formatPercent(keyPressure, 0)}`
+      : formatCost(currentKeyForgeCost);
+    const keyButtonLabel = selectedArenaKey ? t("ui.control.runKey") : t("ui.control.forgeKey");
+    const keyDisabled = selectedArenaKey ? false : !canSpend(wallet, currentKeyForgeCost);
+
+    return (
+      <section className="workbench-section route-plan-section" data-tutorial-anchor="route-plan">
+        <div className="route-plan-head">
+          <div>
+            <small>下一步</small>
+            <h2>照順序推進</h2>
+            <span>先刷裝、再開下一關；鑰匙是想要更高獎勵時才使用。</span>
+          </div>
+          <button className="arena-button arena-button-secondary route-plan-toggle" onClick={() => setRouteDetailsExpanded((value) => !value)} type="button">
+            <MapIcon size={15} aria-hidden />
+            {routeDetailsExpanded ? "收起進階地圖" : "進階地圖"}
+          </button>
+        </div>
+        <div className="route-plan-grid">
+          <button className="route-plan-card route-plan-card-good" onClick={startIdleFromHome} type="button">
+            <span className="route-plan-icon">
+              <Play size={18} aria-hidden />
+            </span>
+            <span className="route-plan-card-copy">
+              <strong>繼續刷裝</strong>
+              <small>{currentArenaName}</small>
+            </span>
+            <b>{running ? "戰鬥中" : "開始"}</b>
+          </button>
+          <button className="route-plan-card route-plan-card-rare" disabled={!recommendedProgressNode} onClick={inspectRecommendedProgressRoute} type="button">
+            <span className="route-plan-icon">
+              <Radar size={18} aria-hidden />
+            </span>
+            <span className="route-plan-card-copy">
+              <strong>挑戰下一關</strong>
+              <small>T{targetArena.tier} {targetName}</small>
+            </span>
+            <b>{recommendedProgressNode ? "選關" : "已完成"}</b>
+          </button>
+          <button className="route-plan-card route-plan-card-key" disabled={keyDisabled} onClick={selectedArenaKey ? runSelectedArenaKey : forgeArenaKey} type="button">
+            <span className="route-plan-icon">
+              <Gem size={18} aria-hidden />
+            </span>
+            <span className="route-plan-card-copy">
+              <strong>{keyButtonLabel}</strong>
+              <small>{selectedArenaKey ? formatKeyTitle(selectedArenaKey) : "有材料再做"}</small>
+            </span>
+            <b>{keyDetail}</b>
+          </button>
+        </div>
+        <div className="route-plan-note">
+          <span>主線 {chapterProgress.done}/{chapterProgress.total}</span>
+          <span>下一關 {targetName}</span>
+          <span>擊破 {formatNumber(totalKills + runtime.kills, 0)}</span>
+        </div>
+      </section>
+    );
+  };
+
   const renderNetworkMapLayer = () => (
     <>
       <svg className="network-map-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
@@ -3188,6 +3258,10 @@ export function CombatArena() {
         {renderRouteObjectiveRail()}
       </section>
 
+      {showSimpleRoutePlan ? renderRoutePlan() : null}
+
+      {showRouteDetails ? (
+        <>
       <div className="route-content-column route-main-column">
       <div className="route-quick-row">
       <section className="workbench-section route-circuit-section">
@@ -3502,6 +3576,8 @@ export function CombatArena() {
         )}
       </section>
       </div>
+        </>
+      ) : null}
     </>
   );
 
