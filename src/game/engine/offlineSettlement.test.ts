@@ -83,6 +83,30 @@ describe("resolveOfflineSettlement", () => {
     expect(result.wallet.ash + result.wallet.glass + result.wallet.echo).toBeGreaterThan(0);
   });
 
+  it("scopes offline drop ids by settlement seed", () => {
+    const first = resolveOfflineSettlement(
+      input({
+        elapsedSeconds: balanceConfig.offline.capSeconds,
+        partQuantity: 5,
+        partRarity: 1,
+        seed: "offline_seed_a",
+      }),
+    );
+    const second = resolveOfflineSettlement(
+      input({
+        elapsedSeconds: balanceConfig.offline.capSeconds,
+        partQuantity: 5,
+        partRarity: 1,
+        seed: "offline_seed_b",
+      }),
+    );
+    const secondPartIds = new Set(second.parts.map((part) => part.id));
+
+    expect(first.parts.length).toBeGreaterThan(0);
+    expect(second.parts.length).toBeGreaterThan(0);
+    expect(first.parts.some((part) => secondPartIds.has(part.id))).toBe(false);
+  });
+
   it("uses the circuit node arena as the offline target", () => {
     const result = resolveOfflineSettlement(
       input({

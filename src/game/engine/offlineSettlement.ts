@@ -138,7 +138,8 @@ export function resolveOfflineSettlement(input: OfflineSettlementInput): Offline
     }
 
     const safeDrop = target.rivalUniqueDropsBlocked && drop.rarity === "relic" ? { ...drop, rarity: "engraved" as const } : drop;
-    const part = createPartFromArenaDrop(safeDrop, target.arenaTier, Math.max(1, Math.floor(killIndex / 10) + 1));
+    const seededDrop = { ...safeDrop, id: `${input.seed}_${safeDrop.id}` };
+    const part = createPartFromArenaDrop(seededDrop, target.arenaTier, Math.max(1, Math.floor(killIndex / 10) + 1));
     if (target.rivalUniqueDropsBlocked && rivalUniqueBaseIds.has(part.baseId)) {
       continue;
     }

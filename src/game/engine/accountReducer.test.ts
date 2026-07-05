@@ -344,6 +344,16 @@ describe("accountReducer", () => {
     expect(next.wallet.ash).toBe(4);
   });
 
+  it("deduplicates invalid inventory part ids during drop ingest", () => {
+    const original = part("duplicate_tip");
+    const duplicate = { ...part("duplicate_tip"), itemLevel: 3 };
+    const state = createState({ inventory: [original, duplicate], wallet: { ash: 0, glass: 0, echo: 0 } });
+    const next = accountReducer(state, { type: "ingestDrops", parts: [], capacity: inventoryCapacity });
+
+    expect(next.inventory.filter((item) => item.id === "duplicate_tip")).toHaveLength(1);
+    expect(next.wallet.ash).toBeGreaterThan(0);
+  });
+
   it("applies auto salvage policy before incoming drops enter inventory", () => {
     const junk = part("junk_tip");
     const locked = { ...part("locked_tip"), locked: true };

@@ -61,13 +61,24 @@ export function toRuneSlots(runeIds: string[]): RuneSlotState {
   return [runeIds[0] ?? null, runeIds[1] ?? null, runeIds[2] ?? null];
 }
 
+function dedupePartsById(parts: TopPartInstance[]): TopPartInstance[] {
+  const seenPartIds = new Set<string>();
+  return parts.filter((part) => {
+    if (seenPartIds.has(part.id)) {
+      return false;
+    }
+    seenPartIds.add(part.id);
+    return true;
+  });
+}
+
 export function saveTopToAccountState(top: SaveTopLike, equipment: Record<TopPartSlotId, TopPartInstance>): AccountRuntimeState {
   return {
     frameId: top.selectedFrameId,
     driveId: top.selectedDriveId,
     arenaId: top.selectedArenaId,
     equipment,
-    inventory: top.inventory,
+    inventory: dedupePartsById(top.inventory),
     runeSlots: toRuneSlots(top.runeIds),
     talentIds: top.talentIds,
     circuitAtlasNodeIds: top.circuitAtlasNodeIds,
@@ -90,7 +101,7 @@ export function accountStateToSaveTop(state: AccountRuntimeState, lastSettledAt:
     selectedDriveId: state.driveId,
     selectedArenaId: state.arenaId,
     equipment: state.equipment,
-    inventory: state.inventory,
+    inventory: dedupePartsById(state.inventory),
     runeIds: compactRuneSlots(state.runeSlots),
     talentIds: state.talentIds,
     circuitAtlasNodeIds: state.circuitAtlasNodeIds,

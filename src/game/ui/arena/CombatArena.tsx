@@ -3090,8 +3090,93 @@ export function CombatArena() {
     </>
   );
 
+  const renderForgeDecisionPanel = () => {
+    const forgeActions: Array<{ action: TopCraftAction; label: string; detail: string }> = [
+      { action: "upgrade", label: t("ui.forge.upgrade"), detail: t("ui.forge.upgradeDetail") },
+      { action: "rerollAffixes", label: t("ui.forge.reroll"), detail: t("ui.forge.rerollDetail") },
+      { action: "rerollValues", label: t("ui.forge.values"), detail: t("ui.forge.valuesDetail") },
+      { action: "add", label: t("ui.forge.add"), detail: t("ui.forge.addDetail") },
+      { action: "remove", label: t("ui.forge.remove"), detail: t("ui.forge.removeDetail") },
+    ];
+    const affordableForgeAction = forgeActions.find(({ action }) => selectedPart && canApplyForgeAction(action, selectedPart) && canSpend(wallet, forgeActionCostForAccount(action, selectedPart))) ?? null;
+    const selectedPartName = selectedPart ? displayPartName(selectedPart) : "尚未選取裝備";
+    const primaryAction =
+      affordableForgeAction && selectedPart
+        ? {
+            tone: "rare" as const,
+            icon: <Hammer size={18} aria-hidden />,
+            title: selectedPartVerdict?.action === "forge" ? "強化推薦裝備" : "強化目前裝備",
+            detail: `${affordableForgeAction.label}：${affordableForgeAction.detail}`,
+            button: affordableForgeAction.label,
+            onClick: () => craftSelectedPart(affordableForgeAction.action),
+            cue: affordableForgeAction.label,
+          }
+        : selectedPartVerdict?.action === "equip" && selectedPart && selectedPartInInventory
+          ? {
+              tone: "good" as const,
+              icon: <CircleDot size={18} aria-hidden />,
+              title: "先裝上升級件",
+              detail: selectedPartVerdict.detail,
+              button: "裝上",
+              onClick: () => equipPart(selectedPart),
+              cue: "先換裝",
+            }
+          : {
+              tone: "neutral" as const,
+              icon: <Play size={18} aria-hidden />,
+              title: "先回去刷材料",
+              detail: selectedPart ? "目前材料或詞綴條件不足，刷一場再回來強化。" : "先從背包選一件想強化的裝備。",
+              button: selectedPart ? running ? "看戰鬥" : "開始" : "選裝備",
+              onClick: selectedPart ? startIdleFromHome : () => openPanel("inventory"),
+              cue: selectedPart ? "材料不足" : "未選裝備",
+            };
+
+    return (
+      <section className={`workbench-section loadout-decision loadout-decision-${primaryAction.tone} forge-decision`}>
+        <div className="loadout-decision-main">
+          <span className="loadout-decision-icon">{primaryAction.icon}</span>
+          <div>
+            <small>強化決策</small>
+            <h2>{primaryAction.title}</h2>
+            <strong>{selectedPartName}</strong>
+            <p>{primaryAction.detail}</p>
+          </div>
+        </div>
+        <div className="loadout-decision-actions">
+          <button className="arena-button arena-button-live" onClick={primaryAction.onClick} type="button">
+            {primaryAction.icon}
+            {primaryAction.button}
+          </button>
+          <button className="arena-button arena-button-secondary" onClick={() => openPanel("loadout")} type="button">
+            <CircleDot size={15} aria-hidden />
+            看裝備
+          </button>
+          <button className="arena-button arena-button-secondary" onClick={startIdleFromHome} type="button">
+            <Play size={15} aria-hidden />
+            刷材料
+          </button>
+        </div>
+        <div className="loadout-decision-cues">
+          <span>
+            <small>目標裝備</small>
+            <strong>{selectedPartName}</strong>
+          </span>
+          <span>
+            <small>可用材料</small>
+            <strong>{formatCost(wallet)}</strong>
+          </span>
+          <span>
+            <small>推薦操作</small>
+            <strong>{primaryAction.cue}</strong>
+          </span>
+        </div>
+      </section>
+    );
+  };
+
   const renderForgePanel = () => (
     <>
+      {renderForgeDecisionPanel()}
       <section className="workbench-section">
         <div className="section-title">
           <Gem size={17} aria-hidden />
@@ -3894,11 +3979,95 @@ export function CombatArena() {
     </div>
   );
 
+  const renderTalentDecisionPanel = () => {
+    const frameDoctrines = doctrineForFrame(frameId);
+    const selectedDoctrine = doctrineId ? getDoctrineDef(doctrineId) : null;
+    const recommendedTalent = talentNodes.find((node) => !talentIds.includes(node.id) && canAllocateTalent(node.id)) ?? null;
+    const recommendedDoctrine = frameDoctrines[0] ?? null;
+    const primaryAction =
+      availableTalentPoints > 0 && recommendedTalent
+        ? {
+            tone: "rare" as const,
+            icon: <Network size={18} aria-hidden />,
+            title: "點亮推薦天賦",
+            detail: dataDescription("talent", recommendedTalent.id, recommendedTalent.description),
+            button: "點天賦",
+            onClick: () => {
+              setSelectedTalentId(recommendedTalent.id);
+              toggleTalent(recommendedTalent.id);
+            },
+            cue: dataName("talent", recommendedTalent.id, recommendedTalent.displayName),
+          }
+        : featureUnlocks.doctrine && !selectedDoctrine && recommendedDoctrine
+          ? {
+              tone: "good" as const,
+              icon: <Sparkles size={18} aria-hidden />,
+              title: "選一個長線方向",
+              detail: dataDescription("doctrine", recommendedDoctrine.id, recommendedDoctrine.description),
+              button: "套用推薦",
+              onClick: () => selectDoctrine(recommendedDoctrine.id),
+              cue: dataName("doctrine", recommendedDoctrine.id, recommendedDoctrine.displayName),
+            }
+          : {
+              tone: "neutral" as const,
+              icon: <Play size={18} aria-hidden />,
+              title: running ? "天賦暫時穩定" : "先刷更多點數",
+              detail: "目前沒有可用點數；繼續刷裝會累積新的天賦點與長線進度。",
+              button: running ? "看戰鬥" : "開始",
+              onClick: startIdleFromHome,
+              cue: "先刷點數",
+            };
+
+    return (
+      <section className={`workbench-section loadout-decision loadout-decision-${primaryAction.tone} talent-decision`}>
+        <div className="loadout-decision-main">
+          <span className="loadout-decision-icon">{primaryAction.icon}</span>
+          <div>
+            <small>天賦決策</small>
+            <h2>{primaryAction.title}</h2>
+            <strong>{selectedDoctrine ? dataName("doctrine", selectedDoctrine.id, selectedDoctrine.displayName) : displayFrameName(frame.id, frame.displayName)}</strong>
+            <p>{primaryAction.detail}</p>
+          </div>
+        </div>
+        <div className="loadout-decision-actions">
+          <button className="arena-button arena-button-live" onClick={primaryAction.onClick} type="button">
+            {primaryAction.icon}
+            {primaryAction.button}
+          </button>
+          <button className="arena-button arena-button-secondary" disabled={!featureUnlocks.doctrine} onClick={() => setDoctrineExpanded((value) => !value)} type="button">
+            <Sparkles size={15} aria-hidden />
+            {doctrineExpanded ? "收起教義" : "看教義"}
+          </button>
+          <button className="arena-button arena-button-secondary" onClick={startIdleFromHome} type="button">
+            <Play size={15} aria-hidden />
+            刷點數
+          </button>
+        </div>
+        <div className="loadout-decision-cues">
+          <span>
+            <small>可用點數</small>
+            <strong>{availableTalentPoints}/{talentPoints}</strong>
+          </span>
+          <span>
+            <small>推薦方向</small>
+            <strong>{primaryAction.cue}</strong>
+          </span>
+          <span>
+            <small>長線教義</small>
+            <strong>{selectedDoctrine ? dataName("doctrine", selectedDoctrine.id, selectedDoctrine.displayName) : "未選"}</strong>
+          </span>
+        </div>
+      </section>
+    );
+  };
+
   const renderTalentsPanel = () => {
     const frameDoctrines = doctrineForFrame(frameId);
     const selectedDoctrine = doctrineId ? getDoctrineDef(doctrineId) : null;
 
     return (
+      <>
+      {renderTalentDecisionPanel()}
       <section className="workbench-section talent-workbench-section">
         <div className="section-title">
           <Network size={17} aria-hidden />
@@ -3950,6 +4119,7 @@ export function CombatArena() {
         </div>
         {renderEndgameMasterPanel()}
       </section>
+      </>
     );
   };
 
@@ -4021,6 +4191,51 @@ export function CombatArena() {
           },
           { id: "map", icon: <MapIcon size={16} aria-hidden />, title: "挑戰下一關", detail: progressTargetName, onClick: openMap },
         ];
+    const homeLoopSteps: Array<{
+      id: string;
+      icon: ReactNode;
+      title: string;
+      detail: string;
+      tone: DecisionCueTone;
+      disabled?: boolean;
+      onClick: () => void;
+    }> = [
+      {
+        id: "farm",
+        icon: running ? <Pause size={15} aria-hidden /> : <Play size={15} aria-hidden />,
+        title: running ? "刷裝中" : "刷一場",
+        detail: dataName("arena", arena.id, arena.displayName),
+        tone: "good",
+        onClick: startIdleFromHome,
+      },
+      {
+        id: "loot",
+        icon: <PackageOpen size={15} aria-hidden />,
+        title: "整理",
+        detail: visibleDropCount > 0 ? `${visibleDropCount} 件戰利品` : selectedPartSignal,
+        tone: visibleDropCount > 0 || selectedPartVerdict?.action === "equip" ? "rare" : "neutral",
+        disabled: firstRunIntro,
+        onClick: () => openPanel("inventory"),
+      },
+      {
+        id: "forge",
+        icon: <Hammer size={15} aria-hidden />,
+        title: "強化",
+        detail: canForgeSelectedPart ? "有可用強化" : featureUnlocks.forge ? "看材料與詞綴" : "取得材料後開啟",
+        tone: canForgeSelectedPart ? "rare" : "neutral",
+        disabled: !featureUnlocks.forge,
+        onClick: () => openPanel("forge"),
+      },
+      {
+        id: "route",
+        icon: <MapIcon size={15} aria-hidden />,
+        title: "推關",
+        detail: progressTargetName,
+        tone: selectedArenaKey || bossProjection.successChance >= 0.5 ? "rare" : "neutral",
+        disabled: firstRunIntro,
+        onClick: openMap,
+      },
+    ];
     let primaryAction: {
       tone: DecisionCueTone;
       icon: ReactNode;
@@ -4129,6 +4344,24 @@ export function CombatArena() {
                   <small>{item.label}</small>
                   <strong>{item.value}</strong>
                 </span>
+              ))}
+            </div>
+            <div className="home-loop-strip" aria-label="放置循環">
+              {homeLoopSteps.map((step, index) => (
+                <button
+                  className={`home-loop-step home-loop-step-${step.tone}`}
+                  disabled={step.disabled}
+                  key={step.id}
+                  onClick={step.onClick}
+                  type="button"
+                >
+                  <small>{index + 1}</small>
+                  {step.icon}
+                  <span>
+                    <strong>{step.title}</strong>
+                    <em>{step.detail}</em>
+                  </span>
+                </button>
               ))}
             </div>
           </section>

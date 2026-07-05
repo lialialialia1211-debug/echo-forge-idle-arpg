@@ -81,8 +81,18 @@ export function spendWallet(wallet: AccountWallet, cost: TopForgeWallet): Accoun
 }
 
 export function mergeInventoryParts(incoming: TopPartInstance[], current: TopPartInstance[], capacity: number): { items: TopPartInstance[]; overflow: TopPartInstance[] } {
-  const items = [...incoming, ...current];
+  const seenPartIds = new Set<string>();
+  const items: TopPartInstance[] = [];
   const overflow: TopPartInstance[] = [];
+
+  for (const part of [...incoming, ...current]) {
+    if (seenPartIds.has(part.id)) {
+      overflow.push(part);
+      continue;
+    }
+    seenPartIds.add(part.id);
+    items.push(part);
+  }
 
   while (items.length > capacity) {
     let overflowIndex = -1;
