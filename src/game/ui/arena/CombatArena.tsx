@@ -2509,6 +2509,85 @@ export function CombatArena() {
     </>
   );
 
+  const renderSkillDecisionPanel = () => {
+    const emptyRuneSocketIndex = runeSlots.findIndex((runeId) => !runeId);
+    const recommendedRune = visibleRunes.find((rune) => isRuneCompatible(rune, drive.tags) && !runeIds.includes(rune.id)) ?? null;
+    const firstMissingGate = driveGateStatus.missing[0] ?? null;
+    const missingGateText = firstMissingGate
+      ? `${term("stat", firstMissingGate.attr)} ${formatNumber(firstMissingGate.currentValue, 1)} / ${firstMissingGate.op} ${formatNumber(firstMissingGate.value, 1)}`
+      : "門檻已滿足";
+    const canEquipRecommendedRune = Boolean(recommendedRune && emptyRuneSocketIndex >= 0);
+    const primaryAction =
+      canEquipRecommendedRune && recommendedRune
+        ? {
+            tone: "rare",
+            icon: <Boxes size={18} aria-hidden />,
+            title: "裝上推薦符文",
+            detail: `${displayRuneName(recommendedRune)} 會補強 ${formatTags(recommendedRune.requiredTags.slice(0, 3))}。`,
+            button: "裝符文",
+            onClick: () => assignRuneToSocket(recommendedRune.id, emptyRuneSocketIndex),
+          }
+        : driveGateStatus.unlocked
+          ? {
+              tone: "good",
+              icon: <Zap size={18} aria-hidden />,
+              title: "技能可以啟動",
+              detail: "回到戰鬥測試清場速度，再看掉落要不要換裝。",
+              button: running ? "看戰鬥" : "開始",
+              onClick: startIdleFromHome,
+            }
+          : {
+              tone: "neutral",
+              icon: <Hammer size={18} aria-hidden />,
+              title: "先補技能門檻",
+              detail: `目前卡在 ${missingGateText}，先從裝備或符文補強。`,
+              button: featureUnlocks.forge ? "去強化" : "看裝備",
+              onClick: () => openPanel(featureUnlocks.forge ? "forge" : "loadout"),
+            };
+
+    return (
+      <section className={`workbench-section loadout-decision loadout-decision-${primaryAction.tone} skill-decision`}>
+        <div className="loadout-decision-main">
+          <span className="loadout-decision-icon">{primaryAction.icon}</span>
+          <div>
+            <small>技能決策</small>
+            <h2>{primaryAction.title}</h2>
+            <strong>{displayDriveName(drive.id, drive.displayName)}</strong>
+            <p>{primaryAction.detail}</p>
+          </div>
+        </div>
+        <div className="loadout-decision-actions">
+          <button className="arena-button arena-button-live" onClick={primaryAction.onClick} type="button">
+            {primaryAction.icon}
+            {primaryAction.button}
+          </button>
+          <button className="arena-button arena-button-secondary" onClick={() => setInspectorOpen(true)} type="button">
+            <Sparkles size={15} aria-hidden />
+            看插槽
+          </button>
+          <button className="arena-button arena-button-secondary" onClick={() => setRuneCatalogExpanded((value) => !value)} type="button">
+            <Boxes size={15} aria-hidden />
+            {runeCatalogExpanded ? "收起符文庫" : "符文庫"}
+          </button>
+        </div>
+        <div className="loadout-decision-cues">
+          <span>
+            <small>技能狀態</small>
+            <strong>{driveGateStatus.unlocked ? "可啟動" : "未啟動"}</strong>
+          </span>
+          <span>
+            <small>符文插槽</small>
+            <strong>{runeIds.length}/3</strong>
+          </span>
+          <span>
+            <small>目前缺口</small>
+            <strong>{missingGateText}</strong>
+          </span>
+        </div>
+      </section>
+    );
+  };
+
   const renderInventoryPanel = () => {
     const reviewedDropCount = Math.max(lootNotices.filter((notice) => notice.tone === "drop").length, hasActiveLootRunSummary ? lootRunSummary.kept + lootRunSummary.salvaged : 0);
     const showSimpleLootReview = inventory.length > 0 && (totalKills < 500 || reviewedDropCount > 0);
@@ -2926,6 +3005,7 @@ export function CombatArena() {
 
   const renderSkillsPanel = () => (
     <>
+      {renderSkillDecisionPanel()}
       <section className="workbench-section build-archetype-section">
         <div className="section-title">
           <Activity size={17} aria-hidden />
