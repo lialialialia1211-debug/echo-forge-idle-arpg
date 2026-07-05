@@ -2393,6 +2393,79 @@ export function CombatArena() {
     </section>
   );
 
+  const renderLoadoutDecisionPanel = () => {
+    const selectedPartName = selectedPart ? displayPartName(selectedPart) : "尚未選取零件";
+    const primaryAction =
+      selectedPartVerdict?.action === "equip" && selectedPart && selectedPartInInventory
+        ? {
+            tone: "good",
+            icon: <CircleDot size={18} aria-hidden />,
+            title: "裝上推薦",
+            detail: selectedPartVerdict.detail,
+            button: "裝上",
+            onClick: () => equipPart(selectedPart),
+          }
+        : featureUnlocks.forge && (selectedPartVerdict?.action === "forge" || canForgeSelectedPart)
+          ? {
+              tone: "rare",
+              icon: <Hammer size={18} aria-hidden />,
+              title: "強化這件",
+              detail: selectedPartVerdict?.detail ?? "目前有可用強化，先把主力零件拉高。",
+              button: "去強化",
+              onClick: () => openPanel("forge"),
+            }
+          : {
+              tone: "neutral",
+              icon: <Play size={18} aria-hidden />,
+              title: running ? "戰鬥進行中" : "回去刷裝",
+              detail: "裝備暫時夠用，繼續刷一輪再回來看掉落。",
+              button: running ? "看戰鬥" : "開始",
+              onClick: startIdleFromHome,
+            };
+
+    return (
+      <section className={`workbench-section loadout-decision loadout-decision-${primaryAction.tone}`}>
+        <div className="loadout-decision-main">
+          <span className="loadout-decision-icon">{primaryAction.icon}</span>
+          <div>
+            <small>裝備決策</small>
+            <h2>{primaryAction.title}</h2>
+            <strong>{selectedPartName}</strong>
+            <p>{primaryAction.detail}</p>
+          </div>
+        </div>
+        <div className="loadout-decision-actions">
+          <button className="arena-button arena-button-live" onClick={primaryAction.onClick} type="button">
+            {primaryAction.icon}
+            {primaryAction.button}
+          </button>
+          <button className="arena-button arena-button-secondary" disabled={!selectedPart} onClick={() => setInspectorOpen(true)} type="button">
+            <Sparkles size={15} aria-hidden />
+            看細節
+          </button>
+          <button className="arena-button arena-button-secondary" onClick={() => openPanel("inventory")} type="button">
+            <PackageOpen size={15} aria-hidden />
+            整理背包
+          </button>
+        </div>
+        <div className="loadout-decision-cues">
+          <span>
+            <small>目前定位</small>
+            <strong>{buildArchetypeLabel(buildArchetypeProjection.primary)}</strong>
+          </span>
+          <span>
+            <small>推薦判斷</small>
+            <strong>{selectedPartVerdict?.label ?? "穩定"}</strong>
+          </span>
+          <span>
+            <small>背包容量</small>
+            <strong>{inventory.length}/{inventoryCapacity}</strong>
+          </span>
+        </div>
+      </section>
+    );
+  };
+
   const renderLoadoutPanel = () => (
     <>
       <section className="workbench-section">
@@ -4061,6 +4134,7 @@ export function CombatArena() {
 
   const renderLoadoutWorkbench = () => (
     <>
+      {renderLoadoutDecisionPanel()}
       {renderBuildSummaryPanel()}
       {renderLoadoutPanel()}
     </>
