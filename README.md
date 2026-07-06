@@ -10,16 +10,19 @@ Browser-first auto battler prototype that combines POE-like build math with an o
 - Original battle top data for Top Frames, Drive Cores, Arena Circuits, enemy waves, drops, and combat events.
 - Live 2D Canvas arena with auto-spawning monsters, player/enemy top movement, collisions, skill triggers, impact sparks, ember trails, storm arcs, drops, and responsive HUD.
 - React control layer for Start/Pause, Reset, speed tabs, frame selection, drive core selection, circuit selection, telemetry, combat log, and drops.
-- Workbench UI for Loadout, Inventory, Skills, and Talents.
+- Workbench UI for Loadout, Inventory, Skills, Forge, Route, and Talents.
 - Seven real top equipment slots: Core, Attack Ring, Weight Disk, Tip, Launcher, Seal, and Circuit Chip.
 - Drop-to-inventory flow with part comparison, equip, lock, salvage, and wallet materials.
 - Skill rune compatibility and talent allocation that feed back into runtime stats.
 - Static data for three classes, six skills, twelve support modules, six areas, item bases, and starter affixes.
 - Seeded item instance generation with rarity, prefix/suffix rolling, affix tiers, and provenance.
 - Prototype inventory, equipment slots, and equip comparison deltas.
+- Route strategy projections with risk/reward/readiness/offline estimates and keyed arena runs.
+- Loot policy presets, auto-salvage evaluation, retention reasons, and inventory overflow recovery.
+- Endgame master data, allocation rules, projections, and bonuses for map sustain, forge control, and rival hunts.
 - Timed farming tick with retained inventory, capacity overflow, lock protection, salvage, and starter currencies.
-- Account-shaped local save schema with Zod validation.
-- Vitest coverage for core formulas, top damage, top arena runtime, RNG, item generation/scoring, farming, and save schema.
+- Account-shaped local save schema with Zod validation and migrations through schema version 8.
+- Vitest coverage for core formulas, top damage, top arena runtime, RNG, item generation/scoring, farming, save schema, loot policy, route strategy, and endgame masters.
 
 ## Commands
 
@@ -55,8 +58,8 @@ pnpm dev
 
 ## Next Milestone
 
-1. Persist top loadout, inventory, currencies, and arena progress through the account-shaped save schema.
-2. Add arena progression with unlocks, boss gates, reward bias, and route clear history.
-3. Add more Drive Core visuals: void pull, satellite orbit, heavy crash, chain fork, and burn groove hazards.
-4. Expand the part affix pool and rarity rules.
-5. Add crafting: upgrade rarity, reroll affixes, reroll values, lock lines, and material costs.
+1. Keep reducing home/workbench decision noise so one screen presents one obvious next action.
+2. Continue extracting large UI sections out of `CombatArena.tsx` while preserving engine/data boundaries.
+3. Improve loot policy readability with clearer keep/salvage previews and offline-hour estimates.
+4. Expand endgame master explanations before adding more nodes or rewards.
+5. Add more Drive Core visuals and chase drops only after the existing Route/Loot/Endgame loops are easy to read and QA.

@@ -5,7 +5,7 @@ import { createTopArenaRuntime } from "../../engine/arenaRuntime";
 import { resolveTopRuntimeStats } from "../../engine/topAssembly";
 import { createProjectionEnemyStats, projectTopCombat } from "../../engine/topCombat";
 import { zeroResistances } from "../../engine/topTypes";
-import { isFeatureUnlocked, selectBreakpointStatus, selectBuildArchetypeProjection, selectDpsBreakdown, selectRecommendedRunes, selectRouteStrategyProjection, selectRouteStrategyRecommendations, selectVisibleNetworkNodeIds, selectVisibleRunes, shouldCollapseCircuitAtlas } from "./runtimeSelectors";
+import { isFeatureUnlocked, selectBreakpointStatus, selectBuildArchetypeProjection, selectDpsBreakdown, selectHomeNextActionProjection, selectRecommendedRunes, selectRouteStrategyProjection, selectRouteStrategyRecommendations, selectVisibleNetworkNodeIds, selectVisibleRunes, shouldCollapseCircuitAtlas } from "./runtimeSelectors";
 
 describe("arena runtime selectors", () => {
   it("uses the same projected DPS components as the combat engine", () => {
@@ -207,5 +207,104 @@ describe("arena runtime selectors", () => {
     });
 
     expect(ordered.slice(0, 2).map((rune) => rune.id)).toEqual(["rune_red_heat", "rune_slow_burn"]);
+  });
+
+  it("keeps the home screen focused on one highest-priority next action", () => {
+    const base = {
+      firstRunIntro: false,
+      forgeUnlocked: true,
+      hasEquipUpgrade: false,
+      hasForgeTarget: false,
+      hasOfflineReport: false,
+      hasRouteTarget: true,
+      hasStartedAccount: true,
+      running: false,
+      visibleDropCount: 0,
+    };
+
+    expect(selectHomeNextActionProjection({ ...base, firstRunIntro: true, hasStartedAccount: false }).primaryActionId).toBe("startFirstRun");
+    expect(selectHomeNextActionProjection({ ...base, hasOfflineReport: true, running: true, visibleDropCount: 4 }).primaryActionId).toBe("collectOffline");
+    expect(selectHomeNextActionProjection({ ...base, running: true, visibleDropCount: 4 }).primaryActionId).toBe("viewCombat");
+    expect(selectHomeNextActionProjection({ ...base, visibleDropCount: 4, hasEquipUpgrade: true, hasForgeTarget: true }).primaryActionId).toBe("reviewLoot");
+    expect(selectHomeNextActionProjection({ ...base, hasEquipUpgrade: true, hasForgeTarget: true }).primaryActionId).toBe("equipUpgrade");
+    expect(selectHomeNextActionProjection({ ...base, hasForgeTarget: true }).primaryActionId).toBe("forgeUpgrade");
+    expect(selectHomeNextActionProjection(base).primaryActionId).toBe("pushRoute");
+    expect(selectHomeNextActionProjection({ ...base, hasRouteTarget: false }).primaryActionId).toBe("farm");
+  });
+
+  it("projects home progress without turning every loop step into an active CTA", () => {
+    const projection = selectHomeNextActionProjection({
+      firstRunIntro: false,
+      forgeUnlocked: true,
+      hasEquipUpgrade: true,
+      hasForgeTarget: true,
+      hasOfflineReport: false,
+      hasRouteTarget: true,
+      hasStartedAccount: true,
+      running: false,
+      visibleDropCount: 0,
+    });
+
+    expect(projection.activeStepId).toBe("equip");
+    expect(projection.steps.map((step) => [step.id, step.status])).toEqual([
+      ["fight", "done"],
+      ["loot", "done"],
+      ["equip", "active"],
+      ["forge", "locked"],
+      ["route", "locked"],
+    ]);
+  });
+
+  it("only exposes useful home support actions around the current primary action", () => {
+    const firstRunProjection = selectHomeNextActionProjection({
+      firstRunIntro: true,
+      forgeUnlocked: false,
+      hasEquipUpgrade: false,
+      hasForgeTarget: false,
+      hasOfflineReport: false,
+      hasRouteTarget: true,
+      hasStartedAccount: false,
+      running: false,
+      visibleDropCount: 0,
+    });
+
+    expect(firstRunProjection.primaryActionId).toBe("startFirstRun");
+    expect(firstRunProjection.supportActions).toEqual([]);
+
+    const routeProjection = selectHomeNextActionProjection({
+      firstRunIntro: false,
+      forgeUnlocked: true,
+      hasEquipUpgrade: false,
+      hasForgeTarget: false,
+      hasOfflineReport: false,
+      hasRouteTarget: true,
+      hasStartedAccount: true,
+      running: false,
+      visibleDropCount: 0,
+    });
+
+    expect(routeProjection.primaryActionId).toBe("pushRoute");
+    expect(routeProjection.supportActions).toEqual([
+      { id: "combat", disabled: false },
+      { id: "inventory", disabled: false },
+      { id: "forge", disabled: false },
+    ]);
+
+    const lockedForgeProjection = selectHomeNextActionProjection({
+      firstRunIntro: false,
+      forgeUnlocked: false,
+      hasEquipUpgrade: false,
+      hasForgeTarget: false,
+      hasOfflineReport: false,
+      hasRouteTarget: true,
+      hasStartedAccount: true,
+      running: false,
+      visibleDropCount: 0,
+    });
+
+    expect(lockedForgeProjection.supportActions).toEqual([
+      { id: "combat", disabled: false },
+      { id: "inventory", disabled: false },
+    ]);
   });
 });

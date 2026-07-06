@@ -285,6 +285,140 @@ export type RouteStrategyRecommendations = {
   progressNodeId: string | null;
 };
 
+export type HomeNextActionId =
+  | "startFirstRun"
+  | "collectOffline"
+  | "viewCombat"
+  | "reviewLoot"
+  | "equipUpgrade"
+  | "forgeUpgrade"
+  | "pushRoute"
+  | "farm";
+
+export type HomeProgressStepId = "fight" | "loot" | "equip" | "forge" | "route";
+
+export type HomeProgressStepStatus = "done" | "active" | "locked";
+
+export type HomeSupportActionId = "combat" | "inventory" | "forge" | "route";
+
+export type HomeNextActionInput = {
+  firstRunIntro: boolean;
+  forgeUnlocked: boolean;
+  hasEquipUpgrade: boolean;
+  hasForgeTarget: boolean;
+  hasOfflineReport: boolean;
+  hasRouteTarget: boolean;
+  hasStartedAccount: boolean;
+  running: boolean;
+  visibleDropCount: number;
+};
+
+export type HomeProgressStepProjection = {
+  id: HomeProgressStepId;
+  status: HomeProgressStepStatus;
+};
+
+export type HomeSupportActionProjection = {
+  disabled: boolean;
+  id: HomeSupportActionId;
+};
+
+export type HomeNextActionProjection = {
+  activeStepId: HomeProgressStepId;
+  primaryActionId: HomeNextActionId;
+  steps: HomeProgressStepProjection[];
+  supportActions: HomeSupportActionProjection[];
+};
+
+const homePrimaryTargetById: Record<HomeNextActionId, HomeSupportActionId> = {
+  collectOffline: "inventory",
+  equipUpgrade: "inventory",
+  farm: "combat",
+  forgeUpgrade: "forge",
+  pushRoute: "route",
+  reviewLoot: "inventory",
+  startFirstRun: "combat",
+  viewCombat: "combat",
+};
+
+export function selectHomeNextActionProjection({
+  firstRunIntro,
+  forgeUnlocked,
+  hasEquipUpgrade,
+  hasForgeTarget,
+  hasOfflineReport,
+  hasRouteTarget,
+  hasStartedAccount,
+  running,
+  visibleDropCount,
+}: HomeNextActionInput): HomeNextActionProjection {
+  const hasLootToReview = visibleDropCount > 0;
+  const needsFight = !hasStartedAccount;
+  const needsLoot = hasStartedAccount && hasLootToReview;
+  const needsEquip = hasStartedAccount && !needsLoot && hasEquipUpgrade;
+  const needsForge = hasStartedAccount && !needsLoot && !needsEquip && hasForgeTarget;
+  const needsRoute = hasStartedAccount && !needsLoot && !needsEquip && !needsForge && hasRouteTarget;
+
+  let primaryActionId: HomeNextActionId = "farm";
+  if (firstRunIntro) {
+    primaryActionId = "startFirstRun";
+  } else if (hasOfflineReport) {
+    primaryActionId = "collectOffline";
+  } else if (running) {
+    primaryActionId = "viewCombat";
+  } else if (needsLoot) {
+    primaryActionId = "reviewLoot";
+  } else if (needsEquip) {
+    primaryActionId = "equipUpgrade";
+  } else if (needsForge) {
+    primaryActionId = "forgeUpgrade";
+  } else if (needsRoute) {
+    primaryActionId = "pushRoute";
+  }
+
+  const steps: HomeProgressStepProjection[] = [
+    {
+      id: "fight",
+      status: needsFight ? "active" : "done",
+    },
+    {
+      id: "loot",
+      status: needsFight ? "locked" : needsLoot ? "active" : "done",
+    },
+    {
+      id: "equip",
+      status: needsFight || needsLoot ? "locked" : needsEquip ? "active" : "done",
+    },
+    {
+      id: "forge",
+      status: !forgeUnlocked || needsFight || needsLoot || needsEquip ? "locked" : needsForge ? "active" : "done",
+    },
+    {
+      id: "route",
+      status: needsFight || needsLoot || needsEquip || needsForge || !hasRouteTarget ? "locked" : needsRoute ? "active" : "done",
+    },
+  ];
+  const activeStepId = steps.find((step) => step.status === "active")?.id ?? steps.find((step) => step.status === "locked")?.id ?? "fight";
+  const primarySupportTarget = homePrimaryTargetById[primaryActionId];
+  const supportActions = [
+    { id: "combat", disabled: false },
+    { id: "inventory", disabled: firstRunIntro && !hasLootToReview },
+    { id: "forge", disabled: !forgeUnlocked },
+    { id: "route", disabled: firstRunIntro || !hasRouteTarget },
+  ] satisfies HomeSupportActionProjection[];
+  const visibleSupportActions = supportActions
+    .filter((action) => action.id !== primarySupportTarget)
+    .filter((action) => !action.disabled)
+    .slice(0, 3);
+
+  return {
+    activeStepId,
+    primaryActionId,
+    steps,
+    supportActions: visibleSupportActions,
+  };
+}
+
 export type RouteStrategyInput = {
   node: CircuitNetworkNodeDef;
   frameId: string;

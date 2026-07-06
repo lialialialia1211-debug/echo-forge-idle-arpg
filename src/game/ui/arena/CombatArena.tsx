@@ -134,6 +134,7 @@ import type {
   TuningRuneDef,
 } from "../../engine/topTypes";
 import { ArenaPhaserView, type ArenaRendererMetrics } from "./ArenaPhaserView";
+import { HomeProgressTrack, type HomeProgressStepMeta } from "./HomeProgressTrack";
 import { TalentTreeView } from "./TalentTreeView";
 import {
   selectAttackFrequency,
@@ -145,6 +146,7 @@ import {
   selectESustain,
   selectFluxLow,
   selectFluxRatio,
+  selectHomeNextActionProjection,
   selectLifeRatio,
   selectOmega,
   selectRecommendedRunes,
@@ -3419,7 +3421,7 @@ export function CombatArena() {
     const keyReward = selectedArenaKeySummary ? (selectedArenaKeySummary.rewardQuantity ?? 0) + (selectedArenaKeySummary.rewardRarity ?? 0) : 0;
     const keyPressure = selectedArenaKeySummary ? (selectedArenaKeySummary.enemyIntegrityMultiplier ?? 1) - 1 : 0;
     const keyDetail = selectedArenaKey
-      ? `獎勵 ${formatPercent(keyReward, 0)} / 壓力 ${formatPercent(keyPressure, 0)}`
+      ? t("ui.routePlan.keyDetail", { reward: formatPercent(keyReward, 0), pressure: formatPercent(keyPressure, 0) })
       : formatCost(currentKeyForgeCost);
     const keyButtonLabel = selectedArenaKey ? t("ui.control.runKey") : t("ui.control.forgeKey");
     const keyDisabled = selectedArenaKey ? false : !canSpend(wallet, currentKeyForgeCost);
@@ -3428,13 +3430,13 @@ export function CombatArena() {
       <section className="workbench-section route-plan-section" data-tutorial-anchor="route-plan">
         <div className="route-plan-head">
           <div>
-            <small>下一步</small>
-            <h2>照順序推進</h2>
-            <span>先刷裝、再開下一關；鑰匙是想要更高獎勵時才使用。</span>
+            <small>{t("ui.routePlan.kicker")}</small>
+            <h2>{t("ui.routePlan.title")}</h2>
+            <span>{t("ui.routePlan.detail")}</span>
           </div>
           <button className="arena-button arena-button-secondary route-plan-toggle" onClick={() => setRouteDetailsExpanded((value) => !value)} type="button">
             <MapIcon size={15} aria-hidden />
-            {routeDetailsExpanded ? "收起進階地圖" : "進階地圖"}
+            {t(routeDetailsExpanded ? "ui.routePlan.collapse" : "ui.routePlan.expand")}
           </button>
         </div>
         <div className="route-plan-grid">
@@ -3443,20 +3445,20 @@ export function CombatArena() {
               <Play size={18} aria-hidden />
             </span>
             <span className="route-plan-card-copy">
-              <strong>繼續刷裝</strong>
+              <strong>{t("ui.routePlan.continueFarm")}</strong>
               <small>{currentArenaName}</small>
             </span>
-            <b>{running ? "戰鬥中" : "開始"}</b>
+            <b>{t(running ? "ui.routePlan.running" : "ui.routePlan.start")}</b>
           </button>
           <button className="route-plan-card route-plan-card-rare" disabled={!recommendedProgressNode} onClick={inspectRecommendedProgressRoute} type="button">
             <span className="route-plan-icon">
               <Radar size={18} aria-hidden />
             </span>
             <span className="route-plan-card-copy">
-              <strong>挑戰下一關</strong>
+              <strong>{t("ui.routePlan.challengeNext")}</strong>
               <small>T{targetArena.tier} {targetName}</small>
             </span>
-            <b>{recommendedProgressNode ? "選關" : "已完成"}</b>
+            <b>{t(recommendedProgressNode ? "ui.routePlan.selectRoute" : "ui.routePlan.completed")}</b>
           </button>
           <button className="route-plan-card route-plan-card-key" disabled={keyDisabled} onClick={selectedArenaKey ? runSelectedArenaKey : forgeArenaKey} type="button">
             <span className="route-plan-icon">
@@ -3464,15 +3466,15 @@ export function CombatArena() {
             </span>
             <span className="route-plan-card-copy">
               <strong>{keyButtonLabel}</strong>
-              <small>{selectedArenaKey ? formatKeyTitle(selectedArenaKey) : "有材料再做"}</small>
+              <small>{selectedArenaKey ? formatKeyTitle(selectedArenaKey) : t("ui.routePlan.keyFallback")}</small>
             </span>
             <b>{keyDetail}</b>
           </button>
         </div>
         <div className="route-plan-note">
-          <span>主線 {chapterProgress.done}/{chapterProgress.total}</span>
-          <span>下一關 {targetName}</span>
-          <span>擊破 {formatNumber(totalKills + runtime.kills, 0)}</span>
+          <span>{t("ui.routePlan.chapterProgress", { done: chapterProgress.done, total: chapterProgress.total })}</span>
+          <span>{t("ui.routePlan.nextRoute", { name: targetName })}</span>
+          <span>{t("ui.routePlan.kills", { count: formatNumber(totalKills + runtime.kills, 0) })}</span>
         </div>
       </section>
     );
@@ -4253,12 +4255,21 @@ export function CombatArena() {
       ? `${formatNumber(offlineReport.kills, 0)} 擊破 / ${offlineReport.parts.length} 件掉落`
       : `${formatNumber(selectedRouteStrategy.offline.killsPerHour, 0)} 擊殺/時 / ${formatNumber(selectedRouteStrategy.offline.dropsPerHour, 1)} 件/時`;
     const primaryScore = buildArchetypeProjection.scores.find((score) => score.id === buildArchetypeProjection.primary)?.score ?? 0;
-    const currentMainObjective =
-      firstRunIntro
-        ? "第一場：焦燼坩堝"
-        : chapterProgress.complete
-        ? "第一章已完成，開始挑選長線刷裝關卡。"
-        : `主線 ${chapterProgress.done}/${chapterProgress.total}，先把下一關打開。`;
+    const hasLootToReview = visibleDropCount > 0;
+    const hasEquipUpgrade = recommendedInventoryPartReview?.verdict.action === "equip";
+    const hasForgeTarget = canForgeSelectedPart || recommendedInventoryPartReview?.verdict.action === "forge";
+    const hasRouteTarget = Boolean(selectedArenaKey || bossProjection.successChance >= 0.5 || recommendedProgressNode);
+    const homeProjection = selectHomeNextActionProjection({
+      firstRunIntro,
+      forgeUnlocked: featureUnlocks.forge,
+      hasEquipUpgrade,
+      hasForgeTarget,
+      hasOfflineReport: Boolean(offlineReport),
+      hasRouteTarget,
+      hasStartedAccount,
+      running,
+      visibleDropCount,
+    });
     const homeStatusItems = firstRunIntro
       ? [
           { label: "目前關卡", value: dataName("arena", arena.id, arena.displayName) },
@@ -4272,107 +4283,131 @@ export function CombatArena() {
           { label: "戰利品", value: `${inventory.length}/${inventoryCapacity}` },
           { label: "主線", value: `${chapterProgress.done}/${chapterProgress.total}` },
         ];
-    const homeGoals = firstRunIntro
-      ? [
-          { id: "start", icon: <Play size={16} aria-hidden />, title: "開始刷裝", detail: dataName("arena", arena.id, arena.displayName), onClick: startIdleFromHome },
-          { id: "loot", icon: <PackageOpen size={16} aria-hidden />, title: "取得掉落", detail: "第一場後開啟", disabled: true },
-          { id: "forge", icon: <Hammer size={16} aria-hidden />, title: "強化裝備", detail: "取得材料後", disabled: true },
-          { id: "map", icon: <MapIcon size={16} aria-hidden />, title: "挑戰下一關", detail: "完成第一場後", disabled: true },
-        ]
-      : [
-          { id: "start", icon: <Play size={16} aria-hidden />, title: running ? "查看戰鬥" : "開始刷裝", detail: dataName("arena", arena.id, arena.displayName), onClick: startIdleFromHome },
-          { id: "inventory", icon: <PackageOpen size={16} aria-hidden />, title: "整理背包", detail: selectedPartSignal, onClick: () => openPanel("inventory") },
-          {
-            id: "forge",
-            icon: <Hammer size={16} aria-hidden />,
-            title: "強化裝備",
-            detail: canForgeSelectedPart ? "目前有可用強化" : "查看材料與推薦裝備",
-            onClick: () => openPanel("forge"),
-          },
-          { id: "map", icon: <MapIcon size={16} aria-hidden />, title: "挑戰下一關", detail: progressTargetName, onClick: openMap },
-        ];
-    const hasLootToReview = visibleDropCount > 0;
-    const hasEquipUpgrade = recommendedInventoryPartReview?.verdict.action === "equip";
-    const hasForgeTarget = canForgeSelectedPart || recommendedInventoryPartReview?.verdict.action === "forge";
-    const hasRouteTarget = Boolean(selectedArenaKey || bossProjection.successChance >= 0.5 || recommendedProgressNode);
-    const questNeedsFight = !hasStartedAccount;
-    const questNeedsLoot = hasStartedAccount && hasLootToReview;
-    const questNeedsEquip = hasStartedAccount && !questNeedsLoot && hasEquipUpgrade;
-    const questNeedsForge = hasStartedAccount && !questNeedsLoot && !questNeedsEquip && hasForgeTarget;
-    const questNeedsRoute = hasStartedAccount && !questNeedsLoot && !questNeedsEquip && !questNeedsForge && hasRouteTarget;
-    const homeQuestSteps: Array<{
-      id: string;
-      icon: ReactNode;
-      title: string;
-      detail: string;
-      status: "done" | "active" | "locked";
-      onClick: () => void;
-    }> = [
-      {
-        id: "fight",
+    const homeStepMeta: HomeProgressStepMeta = {
+      fight: {
         icon: <Play size={15} aria-hidden />,
         title: "打一場",
         detail: running ? "自動戰鬥中" : dataName("arena", arena.id, arena.displayName),
-        status: questNeedsFight ? "active" : "done",
-        onClick: startIdleFromHome,
       },
-      {
-        id: "loot",
+      loot: {
         icon: <PackageOpen size={15} aria-hidden />,
         title: "整理掉落",
         detail: hasLootToReview ? `${visibleDropCount} 件戰利品` : recommendedPartName,
-        status: questNeedsFight ? "locked" : questNeedsLoot ? "active" : "done",
-        onClick: () => openPanel("inventory"),
       },
-      {
-        id: "equip",
+      equip: {
         icon: <CircleDot size={15} aria-hidden />,
         title: "裝上升級",
         detail: hasEquipUpgrade ? recommendedPartName : "目前不用換",
-        status: questNeedsFight || questNeedsLoot ? "locked" : questNeedsEquip ? "active" : "done",
-        onClick: openRecommendedPart,
       },
-      {
-        id: "forge",
+      forge: {
         icon: <Hammer size={15} aria-hidden />,
         title: "強化一次",
         detail: hasForgeTarget ? recommendedPartName : "材料夠再來",
-        status: !featureUnlocks.forge || questNeedsFight || questNeedsLoot || questNeedsEquip ? "locked" : questNeedsForge ? "active" : "done",
-        onClick: () => openPanel("forge"),
       },
-      {
-        id: "route",
+      route: {
         icon: <MapIcon size={15} aria-hidden />,
         title: "挑戰下一關",
         detail: progressTargetName,
-        status: questNeedsFight || questNeedsLoot || questNeedsEquip || questNeedsForge ? "locked" : questNeedsRoute ? "active" : "locked",
-        onClick: openMap,
       },
-    ];
-    const activeQuestStep = homeQuestSteps.find((step) => step.status === "active") ?? homeQuestSteps.find((step) => step.status === "locked") ?? homeQuestSteps[0];
-    const homeLoopSteps: Array<{
+    };
+    const primaryActionById: Record<string, {
       id: string;
       icon: ReactNode;
       title: string;
       detail: string;
       tone: DecisionCueTone;
-      disabled?: boolean;
+      button: string;
       onClick: () => void;
-    }> = [
-      {
-        id: "farm",
-        icon: running ? <Pause size={15} aria-hidden /> : <Play size={15} aria-hidden />,
-        title: running ? "刷裝中" : "刷一場",
-        detail: dataName("arena", arena.id, arena.displayName),
+    }> = {
+      startFirstRun: {
+        id: "combat",
         tone: "good",
+        icon: <Play size={22} aria-hidden />,
+        title: "開始刷第一場",
+        detail: `${dataName("arena", arena.id, arena.displayName)} / 自動戰鬥`,
+        button: "開始",
+        onClick: startIdleFromHome,
+      },
+      collectOffline: {
+        id: "inventory",
+        tone: "rare",
+        icon: <PackageOpen size={22} aria-hidden />,
+        title: "收取離線收益",
+        detail: offlineText,
+        button: "收取",
+        onClick: openOfflineWorkbench,
+      },
+      viewCombat: {
+        id: "combat",
+        tone: "good",
+        icon: <Pause size={22} aria-hidden />,
+        title: "正在自動刷裝",
+        detail: `${dataName("arena", arena.id, arena.displayName)}，目前 ${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)} 擊破。`,
+        button: "查看戰鬥",
+        onClick: () => setScreen("combat"),
+      },
+      reviewLoot: {
+        id: "inventory",
+        tone: "rare",
+        icon: <PackageOpen size={22} aria-hidden />,
+        title: `整理 ${visibleDropCount} 件戰利品`,
+        detail: selectedPartSignal,
+        button: "打開背包",
+        onClick: () => openPanel("inventory"),
+      },
+      equipUpgrade: {
+        id: "inventory",
+        tone: "good",
+        icon: <PackageOpen size={22} aria-hidden />,
+        title: "裝上推薦裝備",
+        detail: recommendedInventoryPartReview?.verdict.detail ?? selectedPartVerdict?.detail ?? recommendedPartDetail,
+        button: recommendedInventoryPartReview?.verdict.action === "equip" ? "直接裝上" : "打開背包",
+        onClick: handleRecommendedPartAction,
+      },
+      forgeUpgrade: {
+        id: "forge",
+        tone: "rare",
+        icon: <Hammer size={22} aria-hidden />,
+        title: "強化目前裝備",
+        detail: selectedPartVerdict?.detail ?? "有裝備可以強化。",
+        button: "去強化",
+        onClick: () => openPanel("forge"),
+      },
+      pushRoute: {
+        id: "route",
+        tone: "rare",
+        icon: <MapIcon size={22} aria-hidden />,
+        title: "挑戰下一關",
+        detail: nextRouteName,
+        button: "看關卡",
+        onClick: openMap,
+      },
+      farm: {
+        id: "combat",
+        tone: "neutral",
+        icon: <Play size={22} aria-hidden />,
+        title: "開始刷裝",
+        detail: `${idleTargetName} 會自動戰鬥、掉裝並推進主線。`,
+        button: "開始",
+        onClick: startIdleFromHome,
+      },
+    };
+    const primaryAction = primaryActionById[homeProjection.primaryActionId] ?? primaryActionById.farm;
+    const visibleHomeSupportIds = new Set<string>(homeProjection.supportActions.map((action) => action.id));
+    const homeSupportActions = [
+      {
+        id: "combat",
+        icon: running ? <Pause size={15} aria-hidden /> : <Play size={15} aria-hidden />,
+        title: running ? "看戰鬥" : "刷裝",
+        detail: dataName("arena", arena.id, arena.displayName),
+        disabled: false,
         onClick: startIdleFromHome,
       },
       {
-        id: "loot",
+        id: "inventory",
         icon: <PackageOpen size={15} aria-hidden />,
-        title: "整理",
-        detail: visibleDropCount > 0 ? `${visibleDropCount} 件戰利品` : selectedPartSignal,
-        tone: visibleDropCount > 0 || selectedPartVerdict?.action === "equip" ? "rare" : "neutral",
+        title: "背包",
+        detail: visibleDropCount > 0 ? `${visibleDropCount} 件待整理` : selectedPartSignal,
         disabled: firstRunIntro,
         onClick: () => openPanel("inventory"),
       },
@@ -4380,112 +4415,28 @@ export function CombatArena() {
         id: "forge",
         icon: <Hammer size={15} aria-hidden />,
         title: "強化",
-        detail: canForgeSelectedPart ? "有可用強化" : featureUnlocks.forge ? "看材料與詞綴" : "取得材料後開啟",
-        tone: canForgeSelectedPart ? "rare" : "neutral",
+        detail: canForgeSelectedPart ? "有可用強化" : featureUnlocks.forge ? "看材料" : "尚未開啟",
         disabled: !featureUnlocks.forge,
         onClick: () => openPanel("forge"),
       },
       {
         id: "route",
         icon: <MapIcon size={15} aria-hidden />,
-        title: "推關",
+        title: "關卡",
         detail: progressTargetName,
-        tone: selectedArenaKey || bossProjection.successChance >= 0.5 ? "rare" : "neutral",
         disabled: firstRunIntro,
         onClick: openMap,
       },
-    ];
-    let primaryAction: {
-      tone: DecisionCueTone;
-      icon: ReactNode;
-      title: string;
-      detail: string;
-      button: string;
-      onClick: () => void;
-    };
-
-    if (firstRunIntro) {
-      primaryAction = {
-        tone: "good",
-        icon: <Play size={22} aria-hidden />,
-        title: "開始刷第一場",
-        detail: `${dataName("arena", arena.id, arena.displayName)} / 自動戰鬥`,
-        button: "開始",
-        onClick: startIdleFromHome,
-      };
-    } else if (offlineReport) {
-      primaryAction = {
-        tone: "rare",
-        icon: <PackageOpen size={22} aria-hidden />,
-        title: "收取離線收益",
-        detail: offlineText,
-        button: "收取",
-        onClick: openOfflineWorkbench,
-      };
-    } else if (running) {
-      primaryAction = {
-        tone: "good",
-        icon: <Pause size={22} aria-hidden />,
-        title: "正在自動刷裝",
-        detail: `${dataName("arena", arena.id, arena.displayName)}，目前 ${formatNumber(runtime.mapKills, 0)}/${formatNumber(runtime.mapKillTarget, 0)} 擊破。`,
-        button: "查看戰鬥",
-        onClick: () => setScreen("combat"),
-      };
-    } else if (visibleDropCount > 0) {
-      primaryAction = {
-        tone: "rare",
-        icon: <PackageOpen size={22} aria-hidden />,
-        title: `整理 ${visibleDropCount} 件戰利品`,
-        detail: selectedPartSignal,
-        button: "打開背包",
-        onClick: () => openPanel("inventory"),
-      };
-    } else if (selectedPartVerdict?.action === "equip") {
-      primaryAction = {
-        tone: "good",
-        icon: <PackageOpen size={22} aria-hidden />,
-        title: "裝上推薦裝備",
-        detail: selectedPartVerdict.detail,
-        button: "打開背包",
-        onClick: () => openPanel("inventory"),
-      };
-    } else if (selectedPartVerdict?.action === "forge" || canForgeSelectedPart) {
-      primaryAction = {
-        tone: "rare",
-        icon: <Hammer size={22} aria-hidden />,
-        title: "強化目前裝備",
-        detail: selectedPartVerdict?.detail ?? "有裝備可以強化。",
-        button: "去強化",
-        onClick: () => openPanel("forge"),
-      };
-    } else if (selectedArenaKey || bossProjection.successChance >= 0.5) {
-      primaryAction = {
-        tone: "rare",
-        icon: <MapIcon size={22} aria-hidden />,
-        title: "挑戰下一關",
-        detail: nextRouteName,
-        button: "看關卡",
-        onClick: openMap,
-      };
-    } else {
-      primaryAction = {
-        tone: "neutral",
-        icon: <Play size={22} aria-hidden />,
-        title: "開始刷裝",
-        detail: `${idleTargetName} 會自動戰鬥、掉裝並推進主線。`,
-        button: "開始",
-        onClick: startIdleFromHome,
-      };
-    }
+    ].filter((action) => visibleHomeSupportIds.has(action.id));
 
     return (
       <section className="screen-panel home-screen-panel">
         <div className={firstRunIntro ? "home-hub home-hub-intro" : "home-hub"}>
           <section className={`home-primary home-primary-${primaryAction.tone}${firstRunIntro ? " home-primary-intro" : ""}`}>
             <div className="home-primary-head">
-              <small>{firstRunIntro ? "第一場" : "主畫面"}</small>
-              <h1>{firstRunIntro ? "開始刷裝" : "戰鬥據點"}</h1>
-              <span>{firstRunIntro ? dataName("arena", arena.id, arena.displayName) : "回來收戰利品、強化裝備，然後挑戰下一關。"}</span>
+              <small>{t(firstRunIntro ? "ui.home.firstRunKicker" : "ui.home.mainKicker")}</small>
+              <h1>{t(firstRunIntro ? "ui.home.firstRunTitle" : "ui.home.hubTitle")}</h1>
+              <span>{firstRunIntro ? dataName("arena", arena.id, arena.displayName) : t("ui.home.hubDetail")}</span>
             </div>
             <div className="home-primary-action">
               <span className="home-primary-icon">{primaryAction.icon}</span>
@@ -4505,49 +4456,13 @@ export function CombatArena() {
                 </span>
               ))}
             </div>
-            <div className="home-quest-track" aria-label="目前目標">
-              <div className="home-quest-head">
-                <small>目前目標</small>
-                <strong>{activeQuestStep.title}</strong>
-                <span>{activeQuestStep.detail}</span>
-              </div>
-              <div className="home-quest-steps">
-                {homeQuestSteps.map((step, index) => (
-                  <button
-                    className={`home-quest-step home-quest-step-${step.status}`}
-                    disabled={step.status === "locked"}
-                    key={step.id}
-                    onClick={step.onClick}
-                    type="button"
-                  >
-                    <small>{index + 1}</small>
-                    {step.icon}
-                    <span>
-                      <strong>{step.title}</strong>
-                      <em>{step.detail}</em>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="home-loop-strip" aria-label="放置循環">
-              {homeLoopSteps.map((step, index) => (
-                <button
-                  className={`home-loop-step home-loop-step-${step.tone}`}
-                  disabled={step.disabled}
-                  key={step.id}
-                  onClick={step.onClick}
-                  type="button"
-                >
-                  <small>{index + 1}</small>
-                  {step.icon}
-                  <span>
-                    <strong>{step.title}</strong>
-                    <em>{step.detail}</em>
-                  </span>
-                </button>
-              ))}
-            </div>
+            <HomeProgressTrack
+              activeStepId={homeProjection.activeStepId}
+              headingLabel={t("ui.home.uniqueNext")}
+              progressLabel={t("ui.home.progressLabel")}
+              stepMeta={homeStepMeta}
+              steps={homeProjection.steps}
+            />
           </section>
 
           {!firstRunIntro ? <section className={`home-panel home-recommendation home-recommendation-${recommendedPartTone}`}>
@@ -4572,17 +4487,17 @@ export function CombatArena() {
             </div>
           </section> : null}
 
-          <section className="home-panel home-goals">
+          {homeSupportActions.length > 0 ? <section className="home-panel home-support">
             <div className="section-title">
               <Radar size={17} aria-hidden />
-              <h2>下一步</h2>
+              <h2>{t("ui.home.supportTitle")}</h2>
               <span className="section-counter">{running ? "掛機中" : "待命"}</span>
             </div>
-            <p>{currentMainObjective}</p>
-            <div className="home-goal-list">
-              {homeGoals.map((goal) => (
+            <p>{chapterProgress.complete ? t("ui.home.chapterComplete") : t("ui.home.chapterProgress", { done: chapterProgress.done, total: chapterProgress.total })}</p>
+            <div className="home-support-actions">
+              {homeSupportActions.map((goal) => (
                 <button
-                  className={goal.disabled ? "home-goal-row home-goal-row-disabled" : "home-goal-row"}
+                  className={goal.disabled ? "home-support-action home-support-action-disabled" : "home-support-action"}
                   disabled={goal.disabled}
                   key={goal.id}
                   onClick={goal.onClick}
@@ -4596,7 +4511,7 @@ export function CombatArena() {
                 </button>
               ))}
             </div>
-          </section>
+          </section> : null}
 
           {!firstRunIntro ? <section className="home-panel home-build">
             <div className="section-title">

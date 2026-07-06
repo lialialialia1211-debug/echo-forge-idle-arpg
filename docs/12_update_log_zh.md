@@ -58,3 +58,26 @@ https://lialialialia1211-debug.github.io/echo-forge-idle-arpg/
 - Rim Warden 降為 2 符文、3 天賦、無教義；rival/boss 首通由 reducer 防重複發放獎勵。
 - Save schema 更新到 v6，新增 `seenTutorialIds` 與 migration/sanitize。
 - 新增 12 張教學卡、anchor 高亮與「重看教學」入口；天賦盤改用 1760×1200 固定世界畫布並加入不重疊測試。
+
+## 2026-07-06 GitHub 同步與 Route QA 修正
+
+- 本機 `main` 已快轉同步到 GitHub 最新 `ab2141c`；GitHub Pages `Deploy QA Site` 最新 workflow 成功，且目前沒有開啟中的 PR。
+- Route Plan 新手導引文案改走 `zh-Hant.ts`，新增 locale key 測試避免回退成 missing-key fallback。
+- 修正 Route 詳情展開時右欄覆蓋 Route Plan 快捷卡的 grid overlap；`製作鑰匙` 快捷卡現在可正常點擊並產生鑰匙。
+- 新增 Route CSS 佈局回歸測試，鎖住「總覽 / 快捷計畫 / 詳細內容」三列配置。
+- Browser QA 驗證：Start/Pause/Reset、工作台分頁切換、Forge 升級、Route 製作鑰匙、390px mobile 無水平溢出，console 無 error。
+
+## 2026-07-06 首頁焦點與導引收斂
+
+- 新增 `selectHomeNextActionProjection`，將首頁主行動優先序從 React JSX 抽到 selector：第一場、離線收益、戰鬥中、整理掉落、裝上升級、強化、推關、刷裝只會選出一個主 CTA。
+- 首頁主線流程改為非互動狀態軌，避免任務軌、放置循環與下一步卡同時產生多個「主行動」。
+- 新增 `HomeProgressTrack` 小元件，先把首頁進度軌從大型 `CombatArena.tsx` 拆出獨立接縫。
+- 新增首頁焦點 locale key 與測試，延續 Route Plan 的繁中文案回歸保護。
+- `runtimeSelectors.test.ts` 補上首頁行動優先序與流程狀態測試；目前測試總數更新為 204。
+## 2026-07-06 首頁輔助入口收斂
+
+- `selectHomeNextActionProjection` 現在同時投影 `supportActions`，首頁主 CTA 與輔助入口都由同一個 selector 決定，避免 UI 層各自判斷造成決策噪音。
+- 第一場戰鬥前不再顯示整排 disabled 的背包、強化、關卡入口；新手首頁只保留真正要做的主行動。
+- 輔助入口現在只顯示可執行項目，尚未解鎖或暫不可用的功能不再用 disabled button 佔據首頁。
+- 一般據點狀態會保留非主行動的輔助入口，例如主行動是推關時，保留刷裝、背包、強化入口。
+- `runtimeSelectors.test.ts` 新增輔助入口投影測試，防止首頁重新退回「所有入口一起露出」。
